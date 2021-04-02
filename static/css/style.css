@@ -1,0 +1,145 @@
+/*
+ * Globals
+ */
+
+/* Links */
+a,
+a:focus,
+a:hover {
+  color: rgb(0, 0, 0);
+}
+
+/* Custom default button */
+.btn-secondary,
+.btn-secondary:hover,
+.btn-secondary:focus {
+  color: #333;
+  text-shadow: none; /* Prevent inheritance from `body` */
+  background-color: #fff;
+  border: .05rem solid rgb(77, 76, 76);
+}
+
+
+/*
+ * Base structure
+ */
+
+ .regcontainer {
+  background-color: rgba(54, 50, 50, 0.582);
+ }
+
+html,
+body {
+  height: 100%;
+  background-size: cover;
+  
+}
+
+body:before{
+  background-color: rgba(143, 140, 140, 0.157);
+}
+
+body {
+  display: -ms-flexbox;
+  display: flex;
+  color: rgb(22, 20, 20);
+  background-color: rgba(143, 140, 140, 0.157);
+}
+.cover-container {
+  max-width: 50em;
+}
+
+
+.inner p {
+  color: rgb(22, 20, 20);
+}
+
+.login-card {
+  color: #0f0f0f;
+  background-color: rgba(212, 211, 211, 0.637);
+  padding: 2em;
+  height: fit-content;
+}
+.login-card a {
+  color: #0f0f0f;
+}
+
+.img-wrap {
+  height: 30em;
+  position: relative;
+  display: inline-block;
+  margin: 0;
+}
+
+div > img {
+  display: block;
+  position: absolute;
+  flex-shrink: 0;
+  top: 50%;
+  left: 50%;
+  min-height: 100%;
+  min-width: 100%;
+  max-height:100%;
+  transform: translate(-50%, -50%);
+}
+
+/*
+ * Header
+ */
+.masthead {
+  margin-bottom: 2rem;
+}
+
+.masthead-brand {
+  margin-bottom: 0;
+}
+
+.nav-masthead .nav-link {
+  padding: .25rem 0;
+  font-weight: 500;
+  color: rgba(131, 130, 130, 0.952);
+  background-color: transparent;
+}
+
+.nav-masthead .nav-link:hover,
+.nav-masthead .nav-link:focus {
+  color: rgba(54, 51, 51, 0.952);
+}
+
+.nav-masthead .nav-link + .nav-link {
+  margin-left: 1rem;
+}
+
+.nav-masthead .active {
+  color: rgb(104, 101, 101);
+  border-bottom-color: #fff;
+}
+
+@media (min-width: 48em) {
+  .masthead-brand {
+    float: left;
+  }
+  .nav-masthead {
+    float: right;
+  }
+}
+
+
+/*
+ * Cover
+ */
+.cover {
+  padding: 0 1.5rem;
+}
+.cover .btn-lg {
+  padding: .75rem 1.25rem;
+  font-weight: 700;
+}
+
+
+/*
+ * Footer
+ */
+.mastfoot {
+  color: rgba(255, 255, 255, .5);
+}

@@ -1,0 +1,51 @@
+schema {
+  query: Query
+  mutation: Mutation
+}
+
+type Application {
+  id: ID!
+  clientId: String!
+  logo: String
+  redirectUris: String!
+  clientType: ApplicationClientType!
+  authorizationGrantType: ApplicationAuthorizationGrantType!
+  clientSecret: String!
+  name: String!
+  skipAuthorization: Boolean!
+  created: DateTime!
+  updated: DateTime!
+}
+
+enum ApplicationAuthorizationGrantType {
+  AUTHORIZATION_CODE
+  IMPLICIT
+  PASSWORD
+  CLIENT_CREDENTIALS
+}
+
+enum ApplicationClientType {
+  CONFIDENTIAL
+  PUBLIC
+}
+
+scalar DateTime
+
+enum GrantType {
+  CLIENT_CREDENTIALS
+  IMPLICIT
+  PASSWORD
+  AUTHORIZATION_CODE
+}
+
+type Mutation {
+  deleteApplication(clientId: ID!): Boolean
+  createApplication(grantType: GrantType!, name: String!): Application
+}
+
+type Query {
+  hello: String
+  void: String
+  applications: [Application]
+  application(clientId: ID!): Application
+}

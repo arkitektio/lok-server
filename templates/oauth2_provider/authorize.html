@@ -1,0 +1,51 @@
+{% extends "oauth2_provider/base.html" %}
+
+{% load static %}
+{% load i18n %}
+{% block content %}
+    <div class="block-center" style='font-family: Roboto, sans-serif'>
+        {% if not error %}
+            <form id="authorizationForm" method="post">
+                <div class="col mr-auto"><img width=100  src="{%  static 'img/oslo_combined.svg' %}"/></div>
+
+                <h3 class="block-center-heading">{% trans " Authorize" %} {{ application.name }}?</h3>
+
+                {% csrf_token %}
+
+                {% for field in form %}
+                    {% if field.is_hidden %}
+                        {{ field }}
+                    {% endif %}
+                {% endfor %}
+
+                <p>{% trans "Application requires following permissions" %}</p>
+                <ul>
+                    {% for scope in scopes_descriptions %}
+                        <li>{{ scope }}</li>
+                    {% endfor %}
+                </ul>
+
+                {{ form.errors }}
+                {{ form.non_field_errors }}
+
+                <div class="control-group">
+                    <div class="controls btn-group">
+                        <input type="submit" class="btn btn-lg btn-danger" value="Cancel"/>
+                        <input type="submit" class="btn btn-lg btn-primary" name="allow" value="Authorize"/>
+                    </div>
+                    <br/>
+                    <br/>
+                    {% if request.user.is_authenticated %}
+                    <h5 class="block-center-heading">{% trans "You're logged in as" %} {{ request.user.username }}</h5>
+                    {% endif %}
+                    <a class="btn btn-group-sm" href="/accounts/login/?next={{request.get_full_path|urlencode}}">Change Account</a>
+
+                </div>
+            </form>
+
+        {% else %}
+            <h2>Error: {{ error.error }}</h2>
+            <p>{{ error.description }}</p>
+        {% endif %}
+    </div>
+{% endblock %}

@@ -1,0 +1,32 @@
+version: "3.4"
+
+services:
+  snag:
+    image: postgres:12.6-alpine
+    env_file:
+      - arnheim.env
+  herre:
+    build: .
+    command: python /arbeider/manage.py runserver 0.0.0.0:8000
+    ports:
+      - 8000:8000
+    volumes:
+      - .:/arbeider:cached
+      - /var/run/docker.sock:/var/run/docker.sock 
+    environment:
+      - ARNHEIM_MODULES=test
+    env_file:
+      - arnheim.env
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.cal.entrypoints=web"
+      - "traefik.http.services.cal.loadbalancer.server.port=8000"
+  redis:
+    image: redis:latest
+    ports:
+      - 6379:6379
+
+networks:
+  default:
+    external:
+      name: dev

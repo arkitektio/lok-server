@@ -1,0 +1,20 @@
+{% extends "registration/registration_base.html" %}
+{% load i18n %}
+{% load static %}
+{% block title %}{% trans "Logged out" %}{% endblock %}
+
+{% block content %}
+
+    <div class="container-fluid d-flex flex-column flex-fill align-items-center justify-content-center reg-container">
+
+    <div class="card login-card">
+        <form method="post" action="">
+    <img class="mb-4" src="{% static "img/auth.png" %}" alt="" width="200" height="200">
+        <h1 class="h3 mb-3 ">{% trans "Successfully logged out" %}.</h1>
+        <a class="btn btn-outline-success text-success" href="{% url 'index' %}" role="button">{% trans "Home" %}</a>
+        <p class="mt-5 mb-3 text-muted small">bergen &copy; 2017-2019</p>
+        </form>
+    </div>
+    </div>
+<p>{% trans "Successfully logged out" %}.</p>
+{% endblock %}

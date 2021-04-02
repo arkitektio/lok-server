@@ -1,0 +1,44 @@
+// Workspace settings
+{
+    // The following will hide the js and map files in the editor
+    "editor.suggest.insertMode": "replace",
+    "files.exclude": {
+        "**/__pycache__": true,
+    },
+    "python.pythonPath": "/usr/local/bin/python",
+    "python.linting.pylintEnabled": true,
+    "python.linting.pylintArgs": [
+        "--enable=W0614",
+        "--load-plugins",
+        "pylint_django",
+        "--django-settings-module=arbeid.settings"
+    ],
+    "python.languageServer": "Pylance",
+    "window.title": "${dirty}Herre${separator} ${activeEditorShort}${separator}${rootName}${separator}$",
+    "workbench.colorCustomizations": {
+        "activityBarBadge.background": "#5C6BC0",
+        "list.activeSelectionForeground": "#5C6BC0",
+        "list.inactiveSelectionForeground": "#5C6BC0",
+        "list.highlightForeground": "#5C6BC0",
+        "scrollbarSlider.activeBackground": "#5C6BC050",
+        "editorSuggestWidget.highlightForeground": "#5C6BC0",
+        "textLink.foreground": "#5C6BC0",
+        "progressBar.background": "#5C6BC0",
+        "pickerGroup.foreground": "#5C6BC0",
+        "tab.activeBorder": "#5C6BC0",
+        "notificationLink.foreground": "#5C6BC0",
+        "editorWidget.resizeBorder": "#5C6BC0",
+        "editorWidget.border": "#5C6BC0",
+        "settings.modifiedItemIndicator": "#5C6BC0",
+        "settings.headerForeground": "#5C6BC0",
+        "panelTitle.activeBorder": "#5C6BC0",
+        "breadcrumb.activeSelectionForeground": "#5C6BC0",
+        "menu.selectionForeground": "#5C6BC0",
+        "menubar.selectionForeground": "#5C6BC0",
+        "editor.findMatchBorder": "#5C6BC0",
+        "selection.background": "#5C6BC040",
+        "activityBar.background": "#3E2055",
+        "titleBar.activeBackground": "#572C77",
+        "titleBar.activeForeground": "#FDFBFE"
+    },
+}

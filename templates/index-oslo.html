@@ -1,0 +1,55 @@
+{% extends "base.html" %}
+
+{% block title %}herre{% endblock %}
+{% block header_text %}herre{% endblock %}
+{% load static %}
+{% block content %}
+    <div class="cover-container d-flex w-100 h-100 p-3 mx-auto flex-column">
+      <header class="masthead mb-auto">
+        <div class="inner">
+          <h3 class="masthead-brand">Herre</h3>
+          <nav class="nav nav-masthead justify-content-center">
+            <a class="nav-link" href="#">Home</a>
+            {% if user.is_superuser %}
+            <a class="nav-link" href="/admin">Admin</a>
+            {% endif %}
+            <a class="nav-link" href="/graphql">GraphQL</a>
+            {% if user.is_authenticated %}
+            <a class="nav-link" href="/accounts/logout">Logout</a>
+            {% else %}
+            <a class="nav-link" href="/accounts/login">Login</a>
+            {% endif %}
+          </nav>
+        </div>
+      </header>
+
+      <main role="main" class="inner cover">
+        <div class="img-wrap">
+          <img src="/static/img/auth.png">
+        </div>
+          
+          <br/>
+          <h1 class="cover-heading"><p>Herre</p> </h1>
+        <p class="lead">Herre is the authentication microservice for Arnheim<br/> Please do create an account!</p>
+        <p class="lead">
+          {% if not user.is_authenticated %}
+          <a href="/accounts/register" class="btn btn-lg btn-secondary">Create Account</a>
+          {% endif %}
+        </p>
+      </main>
+
+      <footer class="mastfoot mt-auto">
+        <div class="inner">
+          <p><a href="https://github.com/jhnnsrs/herre">herre</a>, by <a href="https://github.com/jhnnsrs">@jhnnsrs</a>.</p>
+        </div>
+      </footer>
+    </div>
+
+
+    <!-- Bootstrap core JavaScript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+    <script src="https://code.jquery.com/jquery-3.3.1.slim.min.js" integrity="sha384-q8i/X+965DzO0rT7abK41JStQIAqVgRVzpbzo5smXKp4YfRvH+8abtTE1Pi6jizo" crossorigin="anonymous"></script>
+    <script>window.jQuery || document.write('<script src="https://getbootstrap.com/docs/4.1/assets/js/vendor/jquery-slim.min.js"><\/script>')</script>
+    <script src="https://getbootstrap.com/docs/4.1/assets/js/vendor/popper.min.js"></script>
+{% endblock %}
