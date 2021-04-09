@@ -1,3 +1,4 @@
+import re
 from oauthlib import oauth2, common
 from oauthlib.oauth2.rfc6749 import tokens
 import jwt 
@@ -15,6 +16,7 @@ def custom_token_generator(request, refresh_token=False):
         "type": app.authorization_grant_type,
         "email": user.email if user else None,
         "roles": [group.name for group in user.groups.all()] if user else None,
+        "scope": " ".join(request.scopes),
         "iss": "arnheim",
         "client_id": app.client_id,
         "client_app": app.name,

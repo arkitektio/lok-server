@@ -234,8 +234,8 @@ OAUTH2_PROVIDER = {
         'write': 'Modifying all of your Data',
         'provider': 'Can act as a provider',
         'introspection': 'Introspect token scope',
-        'can_provision': "Provision",
-        'can_start_job': "Can start Nodes",
+        'can_provide': "Can Provide Nodes",
+        'can_assign': "Can Assign Nodes",
         'profile': 'Access to your Profile (including Email, Name and Address',
         },
     'ACCESS_TOKEN_EXPIRE_SECONDS': 60 * 60 * 24, # TOkens are valid for 24 Hours

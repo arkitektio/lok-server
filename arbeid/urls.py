@@ -13,7 +13,7 @@ Including another URLconf
     1. Import the include() function: from django.urls import include, path
     2. Add a URL to urlpatterns:  path('blog/', include('blog.urls'))
 """
-from lord.views import Application, Me
+from lord.views import Application, DownloadApplicationViewSet, Me
 import logging
 
 from django.conf.urls import url
@@ -22,6 +22,8 @@ from django.shortcuts import render
 from django.urls import include, path
 from django.views.decorators.csrf import csrf_exempt
 from graphene_django.views import GraphQLView
+from rest_framework import routers, serializers, viewsets
+
 logger = logging.getLogger(__name__)
 
 # Bootstrap Backend
@@ -29,10 +31,13 @@ def index(request):
         # Render that in the index template
     return render(request, "index-oslo.html")
 
+router = routers.DefaultRouter()
+router.register(r'app', DownloadApplicationViewSet)
 
 urlpatterns = [
     path('', index, name='index'),
     path('auth/', Application.as_view()), # Testing ground for access token testing
+    path('api/', include(router.urls)), # Testing ground for access token testing
     path('me/', Me.as_view()), # Testing ground for access token testing
     url(r'^accounts/', include('registration.backends.default.urls')),
     path('accounts/', include('django.contrib.auth.urls')),
