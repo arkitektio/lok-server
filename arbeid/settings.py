@@ -236,10 +236,11 @@ OAUTH2_PROVIDER = {
         'introspection': 'Introspect token scope',
         'can_provide': "Can Provide Nodes",
         'can_assign': "Can Assign Nodes",
+        'can_forward_bounce': "Can reserve and assign to Nodes mimicking other Users (only backend and admin)",
         'profile': 'Access to your Profile (including Email, Name and Address',
-        },
+    },
     'ACCESS_TOKEN_EXPIRE_SECONDS': 60 * 60 * 24, # TOkens are valid for 24 Hours
-    'ALLOWED_REDIRECT_URI_SCHEMES': ["http","https","com.example.hunger"],
+    'ALLOWED_REDIRECT_URI_SCHEMES': ["http","https","com.example.feuer"],
     "OAUTH2_SERVER_CLASS": "lord.oauth.server.JWTServer",
     "OAUTH2_VALIDATOR_CLASS": "lord.oauth.validator.JWTValidator",
 }
@@ -314,6 +315,24 @@ ENSURED_APPS = [
         "REDIRECT_URIS": []
     },
     {
+        "NAME": "Port",
+        "CLIENT_ID": "7JbA1yi2iQuqc6b4BUjtcYLBOB92V6fQfaE87EFF",
+        "CLIENT_SECRET": "699FBMqg32oRcwQ4m06R8m5j1AWIoXiDnJ2UqEpAEtNoegtpmk69Wg3zD8Hk3C8pKws6QHzEhuuIU14LmUHq2qM12Pze37atxTslAnrOPBGv3PEKjKGMvcSguRW1JGZ6",
+        "CLIENT_TYPE": "confidential",
+        "GRANT_TYPE": "client-credentials",
+        "REDIRECT_URIS": []
+
+    },
+    {
+        "NAME": "Elements",
+        "CLIENT_ID": "AoNMdwnUGwULwi0UVOD04wpoDjsmX8i8BniBRarF",
+        "CLIENT_SECRET": "ke9LXivKkZSyi57eLWFGozHtXH66JUjhJZOisTuxNf0vBo5QcAQAUwHyzYQZgRKlaPNuQNZlxsQbTus1ruThhocOGs4TFg4L2KtXcqwGVRsWWb4k9CEzHt7R3UADjNgW",
+        "CLIENT_TYPE": "confidential",
+        "GRANT_TYPE": "client-credentials",
+        "REDIRECT_URIS": []
+
+    },
+    {
         "NAME": "Fluss",
         "CLIENT_ID": "nX1RcMSQ3FkQWCuw127B1TwZTpxyl7jloDP8GscC",
         "CLIENT_SECRET": "YdZFYHU2nNn88qPxkqPHqAmiFcznnZBrLCr9iIPjcPtnZ2hjN54Ws0grbxefYf0nsbmImcTHtVgLmzlEnjJJWvchjBq9JRpWFNBvpDKF8WHjZPnsL9Dna3R9Ccfxr9Of",
@@ -327,7 +346,7 @@ ENSURED_APPS = [
         "CLIENT_SECRET": "8jXSNhrH7fllN8cGjxg7y2Jl1INb22wlDSmUBepb9aRDGV3al5pfNzswS85MPEvpN5vnfrPkrIERQ6kcMHLiISr4HcYirivdtrnyMjFMlzKGvlCrwfkNJmtQgCLZmH4X",
         "CLIENT_TYPE": "confidential",
         "GRANT_TYPE": "authorization-code",
-        "REDIRECT_URIS": ["http://localhost:6789/callback","com.example.hunger://oauth2redirect"]
+        "REDIRECT_URIS": ["http://localhost:6789/callback","com.example.feuer:/callback", "http://localhost:3000", "https://arkitekt-fluss.netlify.app"]
     },
     {
         "NAME": "Trontheim",
@@ -335,7 +354,7 @@ ENSURED_APPS = [
         "CLIENT_SECRET": "xfhe44E558wXCbQqHs3jbQWyOKxySVllFN5IjDu9dsf9Phbm268wsKqlavE6Ss6NA8Xr0DMV2tVSU1N10cAwcr3rj27zB11nL9cdahC6F9UEsM7NZ6F7H3G4mCJOm3U8",
         "CLIENT_TYPE": "public",
         "GRANT_TYPE": "implicit",
-        "REDIRECT_URIS": ["http://localhost:6789/callback","http://localhost:3000/callback","http://100.108.99.108:3000/callback"]
+        "REDIRECT_URIS": ["http://localhost:6789/callback","http://localhost:3000/callback","http://100.108.99.108:3000/callback","https://arkitekt-fluss.netlify.app"]
     },
     {
         "NAME": "PasswordApp",
