@@ -81,9 +81,7 @@ class DownloadApplicationViewSet(viewsets.ReadOnlyModelViewSet):
 
     
     
-        
-
-
+    
 @method_decorator(csrf_exempt, name='dispatch')
 class Me(APIView):
     """Me Viewset (only allows get)

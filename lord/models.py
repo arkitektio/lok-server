@@ -7,7 +7,6 @@ from django.contrib.auth.models import AbstractUser
 
 class HerreUser(AbstractUser):
     """ A reflection on the real User"""
-    roles = models.JSONField(null=True, blank=True)
 
 
 

@@ -233,6 +233,7 @@ OAUTH2_PROVIDER = {
         'read_starred': "Reading your shared Data",
         'write': 'Modifying all of your Data',
         'provider': 'Can act as a provider',
+        'hooker': 'Can hook into arkitekt functions',
         'introspection': 'Introspect token scope',
         'can_provide': "Can Provide Nodes",
         'can_assign': "Can Assign Nodes",
@@ -349,7 +350,15 @@ ENSURED_APPS = [
         "REDIRECT_URIS": ["http://localhost:6789/callback","com.example.feuer:/callback", "http://localhost:3000", "https://arkitekt-fluss.netlify.app"]
     },
     {
-        "NAME": "Trontheim",
+        "NAME": "Fiji",
+        "CLIENT_ID": "O2lMJrEPI8D8rWwtwl5e7zxyKuJycfbO3UsMh6vx",
+        "CLIENT_SECRET": "hRSUd7eS6uullNY74GFsUEfOu1hL6Fy8ZtJRk6KoqZ37esIkGhBmjcADrtwzz3h1ZI8Kqcxc7TIqDRIsxdxadSpKDxT6rDI9XJNAKGaNJALb7tlhqEUntXvXy9ECNVNW",
+        "CLIENT_TYPE": "public",
+        "GRANT_TYPE": "implicit",
+        "REDIRECT_URIS": ["http://localhost:6789/callback","http://localhost:3000/callback","http://100.108.99.108:3000/callback","https://arkitekt-fluss.netlify.app"]
+    },
+    {
+        "NAME": "Napari",
         "CLIENT_ID": "huKQboFgvLaqfVb23QAJ7Kchp9Rzl87vCVRgWHjZ",
         "CLIENT_SECRET": "xfhe44E558wXCbQqHs3jbQWyOKxySVllFN5IjDu9dsf9Phbm268wsKqlavE6Ss6NA8Xr0DMV2tVSU1N10cAwcr3rj27zB11nL9cdahC6F9UEsM7NZ6F7H3G4mCJOm3U8",
         "CLIENT_TYPE": "public",

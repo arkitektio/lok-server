@@ -17,7 +17,7 @@ def custom_token_generator(request, refresh_token=False):
         "email": user.email if user else None,
         "roles": [group.name for group in user.groups.all()] if user else None,
         "scope": " ".join(request.scopes),
-        "iss": "arnheim",
+        "iss": "herre",
         "client_id": app.client_id,
         "client_app": app.name,
         "salt": random.randint(0,700)
