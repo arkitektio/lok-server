@@ -44,4 +44,5 @@ urlpatterns = [
     url(r'^graphql$', csrf_exempt(GraphQLView.as_view(graphiql=True))),
     path('admin/', admin.site.urls),
     path('o/', include('oauth2_provider.urls', namespace='oauth2_provider')),
+    url(r'^ht/', include('health_check.urls')),
 ]

@@ -96,13 +96,14 @@ class CreateApplication(BalderMutation):
 
     class Arguments:
         name = graphene.String(description="The Name of this Application", required=True)
-        #
         grant_type = graphene.Argument(GrantType, description="The Grant Type", required=True)
+        redirect_uris = graphene.List(graphene.String, description="Available Redirect Uris for this Grant (required for implicit)", required=False)
 
-    def mutate(root, info, *args, name=None, grant_type= None):
+    def mutate(root, info, *args, name=None, grant_type= None, redirect_uris = None):
         app =  ApplicationModel.objects.create(
             name=name,
-            authorization_grant_type=grant_type
+            authorization_grant_type=grant_type,
+            redirect_uris = "\n".join(redirect_uris) if redirect_uris else None
         )
         print(f"Created App {app}")
 

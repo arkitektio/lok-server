@@ -42,6 +42,8 @@ INSTALLED_APPS = [
     'balder',
     'taggit',
     'channels',
+    'health_check',
+    'health_check.db',          
     'lord',
     'graphene_django',
     "rest_framework",
@@ -61,6 +63,12 @@ MIDDLEWARE = [
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
 ]
+
+HEALTH_CHECK = {
+    'DISK_USAGE_MAX': 90,  # percent
+    'MEMORY_MIN': 100,    # in MB
+}
+
 
 ROOT_URLCONF = 'arbeid.urls'
 
@@ -347,7 +355,7 @@ ENSURED_APPS = [
         "CLIENT_SECRET": "8jXSNhrH7fllN8cGjxg7y2Jl1INb22wlDSmUBepb9aRDGV3al5pfNzswS85MPEvpN5vnfrPkrIERQ6kcMHLiISr4HcYirivdtrnyMjFMlzKGvlCrwfkNJmtQgCLZmH4X",
         "CLIENT_TYPE": "confidential",
         "GRANT_TYPE": "authorization-code",
-        "REDIRECT_URIS": ["http://localhost:6789/callback","com.example.feuer:/callback", "http://localhost:3000", "https://arkitekt-fluss.netlify.app"]
+        "REDIRECT_URIS": ["http://localhost:6789/callback","com.example.feuer:/callback", "http://localhost:3000", "http://100.108.99.108:3000", "http://p-tnagerl-lab1:3000", "https://arkitekt-fluss.netlify.app"]
     },
     {
         "NAME": "Fiji",
