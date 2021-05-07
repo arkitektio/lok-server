@@ -40,7 +40,6 @@ INSTALLED_APPS = [
     'django_filters',
     'corsheaders',
     'balder',
-    'taggit',
     'channels',
     'health_check',
     'health_check.db',          

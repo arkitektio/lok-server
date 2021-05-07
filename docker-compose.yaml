@@ -7,7 +7,7 @@ services:
       - arnheim.env
   herre:
     build: .
-    command: python /arbeider/manage.py runserver 0.0.0.0:8000
+    command: python manage.py runserver 0.0.0.0:8000
     ports:
       - 8000:8000
     volumes:
@@ -17,10 +17,6 @@ services:
       - ARNHEIM_MODULES=test
     env_file:
       - arnheim.env
-    labels:
-      - "traefik.enable=true"
-      - "traefik.http.routers.cal.entrypoints=web"
-      - "traefik.http.services.cal.loadbalancer.server.port=8000"
   redis:
     image: redis:latest
     ports:

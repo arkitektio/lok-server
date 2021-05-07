@@ -67,7 +67,6 @@ class AbstractApplication(models.Model):
         blank=True,
         on_delete=models.CASCADE,
     )
-    logo = models.ImageField(null=True)
     redirect_uris = models.TextField(
         blank=True,
         help_text=_("Allowed URIs list, space separated"),

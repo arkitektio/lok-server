@@ -5,7 +5,6 @@ import logging
 from collections import OrderedDict
 from datetime import datetime, timedelta
 from urllib.parse import unquote_plus
-
 import requests
 from django.conf import settings
 from django.contrib.auth import authenticate, get_user_model
