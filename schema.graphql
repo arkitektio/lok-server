@@ -6,8 +6,8 @@ schema {
 type Application {
   id: ID!
   clientId: String!
-  logo: String
-  redirectUris: String!
+  user: HerreUser
+  redirectUris: [String]
   clientType: ApplicationClientType!
   authorizationGrantType: ApplicationAuthorizationGrantType!
   clientSecret: String!
@@ -31,6 +31,10 @@ enum ApplicationClientType {
 
 scalar DateTime
 
+type DeleteApplicationResult {
+  clientId: ID
+}
+
 enum GrantType {
   CLIENT_CREDENTIALS
   IMPLICIT
@@ -38,14 +42,38 @@ enum GrantType {
   AUTHORIZATION_CODE
 }
 
+type HerreUser {
+  id: ID!
+  password: String!
+  lastLogin: DateTime
+  isSuperuser: Boolean!
+  username: String!
+  firstName: String!
+  lastName: String!
+  email: String!
+  isStaff: Boolean!
+  isActive: Boolean!
+  dateJoined: DateTime!
+  oauth2ProviderApplication: [Application!]!
+  roles: [String]
+}
+
 type Mutation {
-  deleteApplication(clientId: ID!): Boolean
-  createApplication(grantType: GrantType!, name: String!): Application
+  deleteApplication(clientId: ID!): DeleteApplicationResult
+  createApplication(grantType: GrantType!, name: String!, redirectUris: [String]): Application
 }
 
 type Query {
   hello: String
   void: String
+  scopes: [Scope]
+  me: HerreUser
   applications: [Application]
   application(clientId: ID!): Application
+}
+
+type Scope {
+  value: String
+  label: String
+  description: String
 }

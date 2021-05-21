@@ -12,4 +12,3 @@ RUN mkdir /workspace
 ADD . /workspace
 WORKDIR /workspace
 
-CMD python manage.py

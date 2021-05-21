@@ -23,6 +23,8 @@ from django.urls import include, path
 from django.views.decorators.csrf import csrf_exempt
 from graphene_django.views import GraphQLView
 from rest_framework import routers, serializers, viewsets
+from django.conf.urls.static import static
+from django.conf import settings
 
 logger = logging.getLogger(__name__)
 
@@ -45,4 +47,4 @@ urlpatterns = [
     path('admin/', admin.site.urls),
     path('o/', include('oauth2_provider.urls', namespace='oauth2_provider')),
     url(r'^ht/', include('health_check.urls')),
-]
+] + static(settings.STATIC_URL, document_root=settings.STATIC_ROOT)

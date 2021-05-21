@@ -1,9 +1,9 @@
 Django>=3.1
-channels>=2.4.0
-channels_redis
 django-registration-redux
 django-extensions
 oauthlib
+
+cryptography
 
 # django-oauth-toolkit SWAPPED FOR MODIFIED GIT BECAUSE OF TERRIBLE SWAPPABLE MODELS
 django-cors-headers
@@ -15,6 +15,7 @@ graphene-django
 graphql-core<3,>=2.1.0
 pyyaml
 requests
+django-probes
 
 
 
@@ -30,3 +31,7 @@ pydantic
 colorlog
 namegenerator
 pyjwt
+
+# DeployMent
+omegaconf
+gunicorn

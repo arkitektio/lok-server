@@ -3,24 +3,16 @@ version: "3.4"
 services:
   snag:
     image: postgres:12.6-alpine
-    env_file:
-      - arnheim.env
+    restart: always
+    environment:
+      POSTGRES_DB: hello_django_dev
+      POSTGRES_PASSWORD: hello_django
+      POSTGRES_USER: hello_django
   herre:
     build: .
-    command: python manage.py runserver 0.0.0.0:8000
+    command: sh ./run.sh
     ports:
       - 8000:8000
-    volumes:
-      - .:/arbeider:cached
-      - /var/run/docker.sock:/var/run/docker.sock 
-    environment:
-      - ARNHEIM_MODULES=test
-    env_file:
-      - arnheim.env
-  redis:
-    image: redis:latest
-    ports:
-      - 6379:6379
 
 networks:
   default:
