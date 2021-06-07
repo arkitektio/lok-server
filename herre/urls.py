@@ -40,6 +40,7 @@ urlpatterns = [
     path('', index, name='index'),
     path('auth/', Application.as_view()), # Testing ground for access token testing
     path('api/', include(router.urls)), # Testing ground for access token testing
+    url('avatar/', include('avatar.urls')),
     path('me/', Me.as_view()), # Testing ground for access token testing
     url(r'^accounts/', include('registration.backends.default.urls')),
     path('accounts/', include('django.contrib.auth.urls')),
@@ -47,4 +48,4 @@ urlpatterns = [
     path('admin/', admin.site.urls),
     path('o/', include('oauth2_provider.urls', namespace='oauth2_provider')),
     url(r'^ht/', include('health_check.urls')),
-] + static(settings.STATIC_URL, document_root=settings.STATIC_ROOT)
+] + static(settings.STATIC_URL, document_root=settings.STATIC_ROOT) + static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)

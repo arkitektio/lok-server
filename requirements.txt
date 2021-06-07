@@ -1,6 +1,7 @@
 Django>=3.1
 django-registration-redux
 django-extensions
+django-avatar
 oauthlib
 
 cryptography

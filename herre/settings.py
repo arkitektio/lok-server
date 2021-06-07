@@ -42,6 +42,7 @@ INSTALLED_APPS = [
     'django_filters',
     'corsheaders',
     'balder',
+    'avatar',
     'health_check',
     'health_check.db',          
     'lord',
@@ -69,6 +70,8 @@ HEALTH_CHECK = {
     'MEMORY_MIN': 100,    # in MB
 }
 
+MEDIA_ROOT = os.path.join(BASE_DIR, "media")
+MEDIA_URL = '/media/'
 
 ROOT_URLCONF = 'herre.urls'
 

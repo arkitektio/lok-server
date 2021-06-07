@@ -33,6 +33,19 @@ class ScopesQuery(BalderQuery):
         operation = "scopes"
 
 
+class UserQuery(BalderQuery):
+
+    class Arguments:
+        email = graphene.String(description="The email of the user", required=True)
+
+
+    resolve = lambda root, info, email: models.HerreUser.objects.get(email=email)
+
+    class Meta:
+        list = False
+        type = types.HerreUser
+        operation = "user"
+
 
 
 class MeQuery(BalderQuery):
