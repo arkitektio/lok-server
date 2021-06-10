@@ -21,7 +21,6 @@ class Command(BaseCommand):
         for app in apps:
             if not AppModel.objects.filter(client_id=app['CLIENT_ID']).exists():
                 AppModel.objects.create(name=app['NAME'],
-                                        user_id=1,
                                         client_type=app['CLIENT_TYPE'],
                                         redirect_uris= "\n".join(app['REDIRECT_URIS']),
                                         client_id= app['CLIENT_ID'],

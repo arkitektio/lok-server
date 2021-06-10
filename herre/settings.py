@@ -53,6 +53,13 @@ INSTALLED_APPS = [
 ]
 
 
+SUPERUSERS = [{
+    "USERNAME": su.username,
+    "EMAIL": su.email,
+    "PASSWORD": su.password
+} for su in conf.security.admins]
+
+
 MIDDLEWARE = [
     'corsheaders.middleware.CorsMiddleware',
     'django.middleware.security.SecurityMiddleware',
@@ -240,8 +247,8 @@ OAUTH2_PROVIDER = {
 OAUTH2_JWT = {
     "PRIVATE_KEY": conf.security.private_key,
     "PUBLIC_KEY": conf.security.public_key,
-    "KEY_TYPE": conf.key_type or "RS256",
-    "ISSUER": conf.key_type or "herre"
+    "KEY_TYPE": conf.security.key_type or "RS256",
+    "ISSUER": "herre"
 }
 
 
