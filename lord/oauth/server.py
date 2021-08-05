@@ -15,7 +15,7 @@ def custom_token_generator(request, refresh_token=False):
     request.claims = {
         "type": app.authorization_grant_type,
         "email": user.email if user else None,
-        "roles": [group.name for group in user.groups.all()] if user else None,
+        "roles": [group.name for group in user.groups.all()] if user else [],
         "scope": " ".join(request.scopes),
         "iss": "herre",
         "client_id": app.client_id,
