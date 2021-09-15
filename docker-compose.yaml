@@ -13,6 +13,15 @@ services:
     command: sh ./run.sh
     ports:
       - 8000:8000
+  ngrok:
+    image: wernight/ngrok
+    command: ngrok start -config=/opt/ngrok/conf/ngrok.yml herre arkitekt
+    ports:
+      - 4040:4040
+    volumes:
+      - ./connector.yaml:/opt/ngrok/conf/ngrok.yml
+    links:
+      - herre
 
 networks:
   default:
