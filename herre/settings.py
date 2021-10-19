@@ -30,7 +30,6 @@ ALLOWED_HOSTS = conf.server.hosts
 
 CORS_ORIGIN_ALLOW_ALL = True
 
-
 INSTALLED_APPS = [
     'registration',
     'django.contrib.admin',
@@ -59,6 +58,13 @@ SUPERUSERS = [{
     "PASSWORD": su.password
 } for su in conf.security.admins]
 
+LOKUSERS = [{
+    "USERNAME": su.username,
+    "EMAIL": su.email,
+    "PASSWORD": su.password,
+    "GROUPS": su.groups,
+} for su in conf.security.loks]
+
 
 MIDDLEWARE = [
     'corsheaders.middleware.CorsMiddleware',
@@ -78,7 +84,7 @@ HEALTH_CHECK = {
 }
 
 MEDIA_ROOT = os.path.join(BASE_DIR, "media")
-MEDIA_URL = '/media/'
+MEDIA_URL = 'media/'
 
 ROOT_URLCONF = 'herre.urls'
 
@@ -169,7 +175,6 @@ USE_TZ = True
 # Static files (CSS, JavaScript, Images)
 # https://docs.djangoproject.com/en/3.1/howto/static-files/
 
-STATIC_URL = '/static/'
 
 STATICFILES_DIRS = [
     os.path.join(BASE_DIR, "static"),
@@ -225,7 +230,6 @@ LOGGING = {
     },
 }
 
-
 ACCOUNT_ACTIVATION_DAYS = conf.auth.activation_days
 REGISTRATION_AUTO_LOGIN = True # Automatically log the user in.
 
@@ -273,8 +277,14 @@ ENSURED_APPS = [
         "REDIRECT_URIS": app.redirect_uris
     } for app in conf.apps ]
 
+USE_X_FORWARDED_HOST = True
 
 LOGIN_REDIRECT_URL = "/"
+LOGIN_URL = "auth_login"
+STATIC_URL = "static/"
+
+
+
 # Password validation
 # https://docs.djangoproject.com/en/2.2/ref/settings/#auth-password-validators
 

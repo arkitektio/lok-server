@@ -18,6 +18,11 @@
             "label": "Dump Schema",
             "type": "shell",
             "command": "python manage.py graphql_schema --out schema.graphql"
-        }
+        },
+        {
+            "label": "Build",
+            "type": "shell",
+            "command": "docker build -t jhnnsrs/herre:prod ."
+        },
     ]
 }

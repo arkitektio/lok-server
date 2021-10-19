@@ -18,4 +18,4 @@ echo "=> Collecting Static.."
 python manage.py collectstatic --noinput
 
 echo "=> Starting Django with Runserver"
-gunicorn --bind=0.0.0.0 --log-level=debug --timeout 1000 --workers 1 --threads 4 herre.wsgi 
+python manage.py runserver 0.0.0.0:8000

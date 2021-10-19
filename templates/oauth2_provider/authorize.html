@@ -38,7 +38,7 @@
                     {% if request.user.is_authenticated %}
                     <h5 class="block-center-heading">{% trans "You're logged in as" %} {{ request.user.username }}</h5>
                     {% endif %}
-                    <a class="btn btn-group-sm" href="/accounts/login/?next={{request.get_full_path|urlencode}}">Change Account</a>
+                    <a class="btn btn-group-sm" href="{%  url 'auth_login' %}?next={{request.get_full_path|urlencode}}">Change Account</a>
 
                 </div>
             </form>

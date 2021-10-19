@@ -21,6 +21,8 @@ class CompleteApplicationSerializer(serializers.ModelSerializer):
         model = get_application_model()
         exclude = ("user","id", "skip_authorization", "created", "updated")
 
+
+
     
 class UserSerializer(serializers.ModelSerializer):
 

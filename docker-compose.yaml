@@ -1,9 +1,8 @@
 version: "3.4"
 
 services:
-  snag:
+  furzfack:
     image: postgres:12.6-alpine
-    restart: always
     environment:
       POSTGRES_DB: hello_django_dev
       POSTGRES_PASSWORD: hello_django
@@ -11,17 +10,39 @@ services:
   herre:
     build: .
     command: sh ./run.sh
+    volumes:
+      # Update this to wherever you want VS Code to mount the folder of your project
+      - .:/workspace
     ports:
       - 8000:8000
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.middlewares.herreheaders.headers.customrequestheaders.SCRIPT_NAME=/herre"
+      - "traefik.http.routers.herre.rule=PathPrefix(`/herre`)"
+      - "traefik.http.routers.herre.middlewares=herreheaders"
+      - "traefik.http.routers.herre.entrypoints=web"
   ngrok:
     image: wernight/ngrok
-    command: ngrok start -config=/opt/ngrok/conf/ngrok.yml herre arkitekt
+    command: ngrok start -config=/opt/ngrok/conf/ngrok.yml traefik
     ports:
       - 4040:4040
     volumes:
       - ./connector.yaml:/opt/ngrok/conf/ngrok.yml
     links:
       - herre
+  traefik:
+    image: "traefik:v2.5"
+    container_name: "traefik"
+    command:
+      #- "--log.level=DEBUG"
+      - "--api.insecure=true"
+      - "--providers.docker=true"
+      - "--providers.docker.exposedbydefault=false"
+      - "--entrypoints.web.address=:80"
+    ports:
+      - "8080:8080"
+    volumes:
+      - "/var/run/docker.sock:/var/run/docker.sock:ro"
 
 networks:
   default:

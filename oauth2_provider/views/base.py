@@ -36,6 +36,12 @@ class BaseAuthorizationView(LoginRequiredMixin, OAuthLibMixin, View):
 
     """
 
+    def get_login_url(self) -> str:
+        print(self.request.path_info)
+        print(self.request.build_absolute_uri())
+        return super().get_login_url()
+
+
     def dispatch(self, request, *args, **kwargs):
         self.oauth2_data = {}
         return super().dispatch(request, *args, **kwargs)

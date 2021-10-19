@@ -11,13 +11,13 @@
           <nav class="nav nav-masthead justify-content-center">
             <a class="nav-link" href="#">Home</a>
             {% if user.is_superuser %}
-            <a class="nav-link" href="/admin">Admin</a>
+            <a class="nav-link" href="{% url 'admin:index' %}">Admin</a>
             {% endif %}
-            <a class="nav-link" href="/graphql">GraphQL</a>
+            <a class="nav-link" href="{% url 'graphql' %}">GraphQL</a>
             {% if user.is_authenticated %}
-            <a class="nav-link" href="/accounts/logout">Logout</a>
+            <a class="nav-link" href="{% url 'auth_logout' %}">Logout</a>
             {% else %}
-            <a class="nav-link" href="/accounts/login">Login</a>
+            <a class="nav-link" href="{% url 'auth_login' %}?next={% url 'index' %}">Login</a>
             {% endif %}
           </nav>
         </div>
@@ -25,7 +25,7 @@
 
       <main role="main" class="inner cover">
         <div class="img-wrap">
-          <img src="/static/img/auth.png">
+          <img src="{% static 'img/auth.png' %}">
         </div>
           
           <br/>
@@ -33,7 +33,7 @@
         <p class="lead">Herre is the authentication microservice for Arnheim<br/> Please do create an account!</p>
         <p class="lead">
           {% if not user.is_authenticated %}
-          <a href="/accounts/register" class="btn btn-lg btn-secondary">Create Account</a>
+          <a href="{% url 'registration_register' %}" class="btn btn-lg btn-secondary">Create Account</a>
           {% endif %}
         </p>
       </main>

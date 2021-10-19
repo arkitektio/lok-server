@@ -18,6 +18,8 @@ pyyaml
 requests
 django-probes
 
+# Deps
+balder>=0.1.8
 
 
 # Testing and Linting
