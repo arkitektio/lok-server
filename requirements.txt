@@ -19,7 +19,7 @@ requests
 django-probes
 
 # Deps
-balder>=0.1.8
+balder>=0.1.12
 
 
 # Testing and Linting
