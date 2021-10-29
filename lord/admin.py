@@ -9,4 +9,5 @@ class UserAdmin(BaseUserAdmin):
     pass
 
 admin.site.register(HerreUser, UserAdmin)
+admin.site.register(AppImage)
 

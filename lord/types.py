@@ -34,10 +34,26 @@ class Avatar(BalderObject):
 
 class Application(BalderObject):
     redirect_uris = graphene.List(graphene.String, description="The associated Redirect Uris")
+    image = graphene.String(description="The Url of the Image")
 
     @staticmethod
     def resolve_redirect_uris(root, info, *args, **kwargs):
         return  [uri for uri in root.redirect_uris.splitlines()] if root.redirect_uris else None
+
+    @staticmethod
+    def resolve_image(root, info, *args, **kwargs):
+        
+        app_image = root.image.first()
+        if app_image:
+            try:
+                host = info.context.get_host().split(":")[0]
+            except:
+                host = {key.decode("utf-8"): item.decode("utf-8") for key, item in info.context["headers"]}["host"].split(":")[0]
+            
+            port = 8000
+            return f"http://{host}:{port}{app_image.image.url}"
+        return None
+
 
     class Meta:
         model = get_application_model()

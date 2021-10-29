@@ -4,10 +4,10 @@ from balder.types.query.base import BalderQuery
 from balder.types import BalderObject
 from lord import types
 from lord import models
-from oauth2_provider.models import get_application_model
+from oauth2_provider.models import get_application_model, Application
 from django.conf import settings
 import graphene
-
+from django.db.models import Q
 
 
 ApplicationModel = get_application_model()
@@ -20,8 +20,9 @@ class UserApplicationQuery(BalderQuery):
         client_id = graphene.ID(description="Unique app name for user")
     
     def resolve(root, info, *args, name = None, client_id=None):
-        if client_id: return ApplicationModel.objects.get(client_id=client_id, user=info.context.user)
-        if name: return ApplicationModel.objects.get(name=name, user=info.context.user)
+        baseqs = ApplicationModel.objects.filter(Q(user=info.context.user) | Q(client_type=Application.CLIENT_PUBLIC))
+        if client_id: return baseqs.get(client_id=client_id)
+        if name: return baseqs.get(name=name)
 
     class Meta:
         list = False
