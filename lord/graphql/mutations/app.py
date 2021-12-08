@@ -12,38 +12,42 @@ ApplicationModel = get_application_model()
 
 
 class DeleteApplicationResult(graphene.ObjectType):
-    clientId =  graphene.ID()
+    clientId = graphene.ID()
 
 
 class DeleteApplication(BalderMutation):
-
     class Arguments:
         client_id = graphene.ID(description="The ID of the application", required=True)
 
     def mutate(root, info, *args, client_id=None):
-        app= ApplicationModel.objects.get(client_id=client_id)
+        app = ApplicationModel.objects.get(client_id=client_id)
         assert True, "You are not allowed to delete this Application"
         app.delete()
         return {"clientId": client_id}
-
 
     class Meta:
         type = DeleteApplicationResult
 
 
-
 class CreateApplication(BalderMutation):
-
     class Arguments:
-        name = graphene.String(description="The Name of this Application", required=True)
-        grant_type = graphene.Argument(GrantType, description="The Grant Type", required=True)
-        redirect_uris = graphene.List(graphene.String, description="Available Redirect Uris for this Grant (required for implicit)", required=False)
+        name = graphene.String(
+            description="The Name of this Application", required=True
+        )
+        grant_type = graphene.Argument(
+            GrantType, description="The Grant Type", required=True
+        )
+        redirect_uris = graphene.List(
+            graphene.String,
+            description="Available Redirect Uris for this Grant (required for implicit)",
+            required=False,
+        )
 
-    def mutate(root, info, *args, name=None, grant_type= None, redirect_uris = None):
-        app =  ApplicationModel.objects.create(
+    def mutate(root, info, *args, name=None, grant_type=None, redirect_uris=None):
+        app = ApplicationModel.objects.create(
             name=name,
             authorization_grant_type=grant_type,
-            redirect_uris = "\n".join(redirect_uris) if redirect_uris else None
+            redirect_uris="\n".join(redirect_uris) if redirect_uris else None,
         )
         print(f"Created App {app}")
 
@@ -51,21 +55,25 @@ class CreateApplication(BalderMutation):
 
     class Meta:
         type = types.Application
-
 
 
 class CreateUserApplication(BalderMutation):
-
     class Arguments:
-        name = graphene.String(description="The Name of this Application", required=True)
-        redirect_uris = graphene.List(graphene.String, description="Available Redirect Uris for this Grant (required for code)", required=False)
+        name = graphene.String(
+            description="The Name of this Application", required=True
+        )
+        redirect_uris = graphene.List(
+            graphene.String,
+            description="Available Redirect Uris for this Grant (required for code)",
+            required=False,
+        )
 
-    def mutate(root, info, *args, name=None, grant_type= None, redirect_uris = None):
-        app =  ApplicationModel.objects.create(
-            user = info.context.user,
+    def mutate(root, info, *args, name=None, grant_type=None, redirect_uris=None):
+        app = ApplicationModel.objects.create(
+            user=info.context.user,
             name=name,
             authorization_grant_type=GrantType.AUTHORIZATION_CODE.value,
-            redirect_uris = "\n".join(redirect_uris) if redirect_uris else None
+            redirect_uris="\n".join(redirect_uris) if redirect_uris else None,
         )
         print(f"Created App {app}")
 
@@ -73,20 +81,21 @@ class CreateUserApplication(BalderMutation):
 
     class Meta:
         type = types.Application
-        operation= "createUserLoginApp"
+        operation = "createUserLoginApp"
 
 
 class CreateUserBackendApplication(BalderMutation):
-
     class Arguments:
-        name = graphene.String(description="The Name of this Application", required=True)
+        name = graphene.String(
+            description="The Name of this Application", required=True
+        )
 
-    def mutate(root, info, *args, name=None, grant_type= None, redirect_uris = None):
-        app =  ApplicationModel.objects.create(
-            user = info.context.user,
+    def mutate(root, info, *args, name=None, grant_type=None, redirect_uris=None):
+        app = ApplicationModel.objects.create(
+            user=None,
             name=name,
             authorization_grant_type=GrantType.CLIENT_CREDENTIALS.value,
-            redirect_uris = None
+            redirect_uris=[],
         )
         print(f"Created App {app}")
 
@@ -94,4 +103,4 @@ class CreateUserBackendApplication(BalderMutation):
 
     class Meta:
         type = types.Application
-        operation= "createUserBackendApp"
+        operation = "createUserBackendApp"
