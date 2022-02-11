@@ -27,28 +27,38 @@ from rest_framework import routers, serializers, viewsets
 
 from django.conf import settings
 from django.conf.urls.static import static
+
 logger = logging.getLogger(__name__)
 
 # Bootstrap Backend
 def index(request):
-        # Render that in the index template
+    # Render that in the index template
     return render(request, "index-oslo.html")
 
+
 router = routers.DefaultRouter()
-router.register(r'app', DownloadApplicationViewSet)
+router.register(r"app", DownloadApplicationViewSet)
 
 
 "hsssssssssssssss"
 
-urlpatterns = [
-    path('', index, name='index'),
-    path('auth/', Application.as_view()), # Testing ground for access token testing
-    path('api/', include(router.urls)), # Testing ground for access token testing
-    path('avatar/', include('avatar.urls')),
-    path('me/', Me.as_view()), # Testing ground for access token testing
-    path('accounts/', include('registration.backends.default.urls'), name="accounts"),
-    path('graphql', csrf_exempt(GraphQLView.as_view(graphiql=True)), name="graphql"),
-    path('admin/', admin.site.urls),
-    path('o/', include('oauth2_provider.urls', namespace='oauth2_provider')),
-    path('ht/', include('health_check.urls')),
-] + static(settings.STATIC_URL, document_root=settings.STATIC_ROOT) + static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
+urlpatterns = (
+    [
+        path("", index, name="index"),
+        path("auth/", Application.as_view()),  # Testing ground for access token testing
+        path("api/", include(router.urls)),  # Testing ground for access token testing
+        path("avatar/", include("avatar.urls")),
+        path("me/", Me.as_view()),  # Testing ground for access token testing
+        path(
+            "accounts/", include("registration.backends.default.urls"), name="accounts"
+        ),
+        path(
+            "graphql", csrf_exempt(GraphQLView.as_view(graphiql=True)), name="graphql"
+        ),
+        path("admin/", admin.site.urls),
+        path("o/", include("oauth2_provider.urls", namespace="oauth2_provider")),
+        path("ht/", include("health_checdk.urls")),
+    ]
+    + static(settings.STATIC_URL, document_root=settings.STATIC_ROOT)
+    + static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
+)
