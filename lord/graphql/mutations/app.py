@@ -7,6 +7,7 @@ from lord import models
 from oauth2_provider.models import get_application_model
 from django.conf import settings
 import graphene
+from uuid import uuid4
 
 ApplicationModel = get_application_model()
 
@@ -69,6 +70,7 @@ class CreateUserApplication(BalderMutation):
         )
 
     def mutate(root, info, *args, name=None, grant_type=None, redirect_uris=None):
+
         app = ApplicationModel.objects.create(
             user=info.context.user,
             name=name,
@@ -84,6 +86,11 @@ class CreateUserApplication(BalderMutation):
         operation = "createUserLoginApp"
 
 
+class CreatedBackendApp(graphene.ObjectType):
+    client_secret = graphene.String()
+    client_id = graphene.String()
+
+
 class CreateUserBackendApplication(BalderMutation):
     class Arguments:
         name = graphene.String(
@@ -91,16 +98,23 @@ class CreateUserBackendApplication(BalderMutation):
         )
 
     def mutate(root, info, *args, name=None, grant_type=None, redirect_uris=None):
+
+        x = str(uuid4())
+
         app = ApplicationModel.objects.create(
             user=None,
             name=name,
             authorization_grant_type=GrantType.CLIENT_CREDENTIALS.value,
             redirect_uris=[],
+            client_secret=x,
         )
-        print(f"Created App {app}")
+        print(f"Created App {app}{x}")
 
-        return app
+        return {
+            "client_id": app.client_id,
+            "client_secret": x,
+        }
 
     class Meta:
-        type = types.Application
+        type = CreatedBackendApp
         operation = "createUserBackendApp"

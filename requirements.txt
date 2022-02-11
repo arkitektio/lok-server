@@ -5,6 +5,8 @@ django-avatar
 oauthlib
 
 cryptography
+django-crispy-forms
+jwcrypto
 
 # django-oauth-toolkit SWAPPED FOR MODIFIED GIT BECAUSE OF TERRIBLE SWAPPABLE MODELS
 django-cors-headers

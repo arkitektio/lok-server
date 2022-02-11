@@ -46,7 +46,6 @@ urlpatterns = [
     path('api/', include(router.urls)), # Testing ground for access token testing
     path('avatar/', include('avatar.urls')),
     path('me/', Me.as_view()), # Testing ground for access token testing
-    path('userinfo/', Me.as_view()), # Testing ground for access token testing
     path('accounts/', include('registration.backends.default.urls'), name="accounts"),
     path('graphql', csrf_exempt(GraphQLView.as_view(graphiql=True)), name="graphql"),
     path('admin/', admin.site.urls),

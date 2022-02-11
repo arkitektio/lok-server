@@ -1,7 +1,7 @@
 version: "3.4"
 
 services:
-  furzfack:
+  nufi:
     image: postgres:12.6-alpine
     environment:
       POSTGRES_DB: hello_django_dev
@@ -21,28 +21,6 @@ services:
       - "traefik.http.routers.herre.rule=PathPrefix(`/herre`)"
       - "traefik.http.routers.herre.middlewares=herreheaders"
       - "traefik.http.routers.herre.entrypoints=web"
-  ngrok:
-    image: wernight/ngrok
-    command: ngrok start -config=/opt/ngrok/conf/ngrok.yml traefik
-    ports:
-      - 4040:4040
-    volumes:
-      - ./connector.yaml:/opt/ngrok/conf/ngrok.yml
-    links:
-      - herre
-  traefik:
-    image: "traefik:v2.5"
-    container_name: "traefik"
-    command:
-      #- "--log.level=DEBUG"
-      - "--api.insecure=true"
-      - "--providers.docker=true"
-      - "--providers.docker.exposedbydefault=false"
-      - "--entrypoints.web.address=:80"
-    ports:
-      - "8080:8080"
-    volumes:
-      - "/var/run/docker.sock:/var/run/docker.sock:ro"
 
 networks:
   default:
