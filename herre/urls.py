@@ -46,7 +46,7 @@ urlpatterns = (
     [
         path("", index, name="index"),
         path("auth/", Application.as_view()),  # Testing ground for access token testing
-        path("api/", include(router.urls)),  # Testing ground for access token testing
+        path("apid/", include(router.urls)),  # Testing ground for access token testing
         path("avatar/", include("avatar.urls")),
         path("me/", Me.as_view()),  # Testing ground for access token testing
         path(
@@ -57,6 +57,7 @@ urlpatterns = (
         ),
         path("admin/", admin.site.urls),
         path("o/", include("oauth2_provider.urls", namespace="oauth2_provider")),
+        path("f/", include("infos.urls", namespace="infos")),
         path("ht/", include("health_check.urls")),
     ]
     + static(settings.STATIC_URL, document_root=settings.STATIC_ROOT)

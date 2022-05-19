@@ -102,7 +102,7 @@ class CreateUserBackendApplication(BalderMutation):
         x = str(uuid4())
 
         app = ApplicationModel.objects.create(
-            user=None,
+            user=info.context.user,
             name=name,
             authorization_grant_type=GrantType.CLIENT_CREDENTIALS.value,
             redirect_uris=[],

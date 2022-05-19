@@ -1,16 +1,20 @@
+from urllib.request import Request
 from oauthlib import oauth2, common, openid
 from oauthlib.oauth2.rfc6749 import tokens
 from django.conf import settings
 from django.contrib.auth.models import User
 import random
 
+from oauthlib.common import Request
+
 
 def custom_token_generator(request, refresh_token=False):
     app = request.client
-    user: User = request.user
+    user: User = request.user or app.user
 
     request.claims = {
         "type": app.authorization_grant_type,
+        "tenant": app.user.email,
         "email": user.email if user else None,
         "roles": [group.name for group in user.groups.all()] if user else [],
         "scope": " ".join(request.scopes),
@@ -36,3 +40,14 @@ class JWTServer(openid.Server):
         super().__init__(
             request_validator, token_expires_in, token_generator, *args, **kwargs
         )
+
+    def verify_request(
+        self, uri, http_method="GET", body=None, headers=None, scopes=None
+    ):
+        """Validate client, code etc, return body + headers"""
+        # FUCK THIS LIBRARY THIS IS JUST PURE MADNESS, WHY WOULD YOU MAKE IT JUSTDECIDE BY FEELING, IF ITS A BEARER OR IDTOKEN
+        # TURNS OUT BEARER CAN ALSO BE JWTS YOU BASTEREDS
+        request = Request(uri, http_method, body, headers)
+        request.token_type = "bearer"
+        request.scopes = scopes
+        return self.bearer.validate_request(request), request

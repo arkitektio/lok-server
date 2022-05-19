@@ -26,12 +26,14 @@ class Command(BaseCommand):
     def handle(self, *args, **options):
 
         AppModel = get_application_model()
+        UserModel = get_user_model()
         apps = settings.ENSURED_APPS or []
 
         for app in apps:
             if not AppModel.objects.filter(client_id=app["CLIENT_ID"]).exists():
                 AppModel.objects.create(
                     name=app["NAME"],
+                    user=UserModel.objects.get(email=app["TENANT"]),
                     client_type=app["CLIENT_TYPE"],
                     redirect_uris="\n".join(app["REDIRECT_URIS"]),
                     client_id=app["CLIENT_ID"],
@@ -43,6 +45,7 @@ class Command(BaseCommand):
             else:
                 aapp = AppModel.objects.get(client_id=app["CLIENT_ID"])
                 aapp.name = app["NAME"]
+                aapp.user = UserModel.objects.get(email=app["TENANT"])
                 aapp.redirect_uris = "\n".join(app["REDIRECT_URIS"])
                 aapp.client_id = app["CLIENT_ID"]
                 aapp.client_type = app["CLIENT_TYPE"]

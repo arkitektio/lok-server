@@ -50,11 +50,17 @@ INSTALLED_APPS = [
     "oauth2_provider",
     "django_probes",
     "crispy_forms",
+    "infos",
 ]
 
 
 SUPERUSERS = [
-    {"USERNAME": su.username, "EMAIL": su.email, "PASSWORD": su.password}
+    {
+        "USERNAME": su.username,
+        "EMAIL": su.email,
+        "PASSWORD": su.password,
+        "GROUPS": su.groups,
+    }
     for su in conf.security.admins
 ]
 
@@ -224,7 +230,7 @@ LOGGING = {
         "oauth2_provider": {
             "handlers": ["console"],
             "level": "DEBUG",
-            "propagate": False,
+            "propagate": True,
         },
     },
 }
@@ -292,6 +298,8 @@ ENSURED_APPS = [
         "CLIENT_TYPE": app.client_type,
         "GRANT_TYPE": app.grant_type,
         "REDIRECT_URIS": app.redirect_uris,
+        "SCOPES": app.get("scopes", []),
+        "TENANT": app.tenant,
     }
     for app in conf.apps
 ]

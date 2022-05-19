@@ -40,6 +40,7 @@ from .settings import oauth2_settings
 
 
 log = logging.getLogger("oauth2_provider")
+logger = logging.getLogger(__name__)
 
 GRANT_TYPE_MAPPING = {
     "authorization_code": (
@@ -137,11 +138,17 @@ class OAuth2Validator(RequestValidator):
         try:
             auth_string_decoded = b64_decoded.decode(encoding)
         except UnicodeDecodeError:
-            log.debug("Failed basic auth: %r can't be decoded as unicode by %r", auth_string, encoding)
+            log.debug(
+                "Failed basic auth: %r can't be decoded as unicode by %r",
+                auth_string,
+                encoding,
+            )
             return False
 
         try:
-            client_id, client_secret = map(unquote_plus, auth_string_decoded.split(":", 1))
+            client_id, client_secret = map(
+                unquote_plus, auth_string_decoded.split(":", 1)
+            )
         except ValueError:
             log.debug("Failed basic auth, Invalid base64 encoding.")
             return False
@@ -190,17 +197,27 @@ class OAuth2Validator(RequestValidator):
         """
 
         # we want to be sure that request has the client attribute!
-        assert hasattr(request, "client"), '"request" instance has no "client" attribute'
+        assert hasattr(
+            request, "client"
+        ), '"request" instance has no "client" attribute'
 
         try:
-            request.client = request.client or Application.objects.get(client_id=client_id)
+            request.client = request.client or Application.objects.get(
+                client_id=client_id
+            )
             # Check that the application can be used (defaults to always True)
             if not request.client.is_usable(request):
-                log.debug("Failed body authentication: Application %r is disabled" % (client_id))
+                log.debug(
+                    "Failed body authentication: Application %r is disabled"
+                    % (client_id)
+                )
                 return None
             return request.client
         except Application.DoesNotExist:
-            log.debug("Failed body authentication: Application %r does not exist" % (client_id))
+            log.debug(
+                "Failed body authentication: Application %r does not exist"
+                % (client_id)
+            )
             return None
 
     def _set_oauth2_error_on_request(self, request, access_token, scopes):
@@ -222,7 +239,10 @@ class OAuth2Validator(RequestValidator):
             error = OrderedDict(
                 [
                     ("error", "insufficient_scope"),
-                    ("error_description", _("The access token is valid but does not have enough scope.")),
+                    (
+                        "error_description",
+                        _("The access token is valid but does not have enough scope."),
+                    ),
                 ]
             )
         else:
@@ -292,11 +312,15 @@ class OAuth2Validator(RequestValidator):
         proceed only if the client exists and is not of type "Confidential".
         """
         if self._load_application(client_id, request) is not None:
-            log.debug("Application %r has type %r" % (client_id, request.client.client_type))
+            log.debug(
+                "Application %r has type %r" % (client_id, request.client.client_type)
+            )
             return request.client.client_type != AbstractApplication.CLIENT_CONFIDENTIAL
         return False
 
-    def confirm_redirect_uri(self, client_id, code, redirect_uri, client, *args, **kwargs):
+    def confirm_redirect_uri(
+        self, client_id, code, redirect_uri, client, *args, **kwargs
+    ):
         """
         Ensure the redirect_uri is listed in the Application instance redirect_uris field
         """
@@ -348,9 +372,13 @@ class OAuth2Validator(RequestValidator):
             headers = {"Authorization": "Basic {}".format(basic_auth.decode("utf-8"))}
 
         try:
-            response = requests.post(introspection_url, data={"token": token}, headers=headers)
+            response = requests.post(
+                introspection_url, data={"token": token}, headers=headers
+            )
         except requests.exceptions.RequestException:
-            log.exception("Introspection: Failed POST to %r in token lookup", introspection_url)
+            log.exception(
+                "Introspection: Failed POST to %r in token lookup", introspection_url
+            )
             return None
 
         # Log an exception when response from auth server is not successful
@@ -406,20 +434,28 @@ class OAuth2Validator(RequestValidator):
         """
         When users try to access resources, check that provided token is valid
         """
+        logger.error(f"TOken {token}")
         if not token:
             return False
 
         introspection_url = oauth2_settings.RESOURCE_SERVER_INTROSPECTION_URL
         introspection_token = oauth2_settings.RESOURCE_SERVER_AUTH_TOKEN
-        introspection_credentials = oauth2_settings.RESOURCE_SERVER_INTROSPECTION_CREDENTIALS
+        introspection_credentials = (
+            oauth2_settings.RESOURCE_SERVER_INTROSPECTION_CREDENTIALS
+        )
 
         access_token = self._load_access_token(token)
+
+        log.error(f"Accesstoken {access_token}")
 
         # if there is no token or it's invalid then introspect the token if there's an external OAuth server
         if not access_token or not access_token.is_valid(scopes):
             if introspection_url and (introspection_token or introspection_credentials):
                 access_token = self._get_token_from_authentication_server(
-                    token, introspection_url, introspection_token, introspection_credentials
+                    token,
+                    introspection_url,
+                    introspection_token,
+                    introspection_credentials,
                 )
 
         if access_token and access_token.is_valid(scopes):
@@ -431,11 +467,16 @@ class OAuth2Validator(RequestValidator):
             request.access_token = access_token
             return True
         else:
+
             self._set_oauth2_error_on_request(request, access_token, scopes)
             return False
 
     def _load_access_token(self, token):
-        return AccessToken.objects.select_related("application", "user").filter(token=token).first()
+        return (
+            AccessToken.objects.select_related("application", "user")
+            .filter(token=token)
+            .first()
+        )
 
     def validate_code(self, client_id, code, client, request, *args, **kwargs):
         try:
@@ -453,20 +494,26 @@ class OAuth2Validator(RequestValidator):
         except Grant.DoesNotExist:
             return False
 
-    def validate_grant_type(self, client_id, grant_type, client, request, *args, **kwargs):
+    def validate_grant_type(
+        self, client_id, grant_type, client, request, *args, **kwargs
+    ):
         """
         Validate both grant_type is a valid string and grant_type is allowed for current workflow
         """
         assert grant_type in GRANT_TYPE_MAPPING  # mapping misconfiguration
         return request.client.allows_grant_type(*GRANT_TYPE_MAPPING[grant_type])
 
-    def validate_response_type(self, client_id, response_type, client, request, *args, **kwargs):
+    def validate_response_type(
+        self, client_id, response_type, client, request, *args, **kwargs
+    ):
         """
         We currently do not support the Authorization Endpoint Response Types registry as in
         rfc:`8.4`, so validate the response_type only if it matches "code" or "token"
         """
         if response_type == "code":
-            return client.allows_grant_type(AbstractApplication.GRANT_AUTHORIZATION_CODE)
+            return client.allows_grant_type(
+                AbstractApplication.GRANT_AUTHORIZATION_CODE
+            )
         elif response_type == "token":
             return client.allows_grant_type(AbstractApplication.GRANT_IMPLICIT)
         elif response_type == "id_token":
@@ -486,11 +533,15 @@ class OAuth2Validator(RequestValidator):
         """
         Ensure required scopes are permitted (as specified in the settings file)
         """
-        available_scopes = get_scopes_backend().get_available_scopes(application=client, request=request)
+        available_scopes = get_scopes_backend().get_available_scopes(
+            application=client, request=request
+        )
         return set(scopes).issubset(set(available_scopes))
 
     def get_default_scopes(self, client_id, request, *args, **kwargs):
-        default_scopes = get_scopes_backend().get_default_scopes(application=request.client, request=request)
+        default_scopes = get_scopes_backend().get_default_scopes(
+            application=request.client, request=request
+        )
         return default_scopes
 
     def validate_redirect_uri(self, client_id, redirect_uri, request, *args, **kwargs):
@@ -590,8 +641,10 @@ class OAuth2Validator(RequestValidator):
                     # First, to ensure we don't have concurrency issues, we refresh the refresh token
                     # from the db while acquiring a lock on it
                     # We also put it in the "request cache"
-                    refresh_token_instance = RefreshToken.objects.select_for_update().get(
-                        id=refresh_token_instance.id
+                    refresh_token_instance = (
+                        RefreshToken.objects.select_for_update().get(
+                            id=refresh_token_instance.id
+                        )
                     )
                     request.refresh_token_instance = refresh_token_instance
 
@@ -618,13 +671,17 @@ class OAuth2Validator(RequestValidator):
                         source_refresh_token=refresh_token_instance,
                     )
 
-                    self._create_refresh_token(request, refresh_token_code, access_token)
+                    self._create_refresh_token(
+                        request, refresh_token_code, access_token
+                    )
                 else:
                     # make sure that the token data we're returning matches
                     # the existing token
                     token["access_token"] = previous_access_token.token
                     token["refresh_token"] = (
-                        RefreshToken.objects.filter(access_token=previous_access_token).first().token
+                        RefreshToken.objects.filter(access_token=previous_access_token)
+                        .first()
+                        .token
                     )
                     token["scope"] = previous_access_token.scope
 
@@ -648,7 +705,9 @@ class OAuth2Validator(RequestValidator):
 
     def _create_authorization_code(self, request, code, expires=None):
         if not expires:
-            expires = timezone.now() + timedelta(seconds=oauth2_settings.AUTHORIZATION_CODE_EXPIRE_SECONDS)
+            expires = timezone.now() + timedelta(
+                seconds=oauth2_settings.AUTHORIZATION_CODE_EXPIRE_SECONDS
+            )
         return Grant.objects.create(
             application=request.client,
             user=request.user,
@@ -664,7 +723,10 @@ class OAuth2Validator(RequestValidator):
 
     def _create_refresh_token(self, request, refresh_token_code, access_token):
         return RefreshToken.objects.create(
-            user=request.user, token=refresh_token_code, application=request.client, access_token=access_token
+            user=request.user,
+            token=refresh_token_code,
+            application=request.client,
+            access_token=access_token,
         )
 
     def revoke_token(self, token, token_type_hint, request, *args, **kwargs):
@@ -725,7 +787,8 @@ class OAuth2Validator(RequestValidator):
         """
 
         null_or_recent = Q(revoked__isnull=True) | Q(
-            revoked__gt=timezone.now() - timedelta(seconds=oauth2_settings.REFRESH_TOKEN_GRACE_PERIOD_SECONDS)
+            revoked__gt=timezone.now()
+            - timedelta(seconds=oauth2_settings.REFRESH_TOKEN_GRACE_PERIOD_SECONDS)
         )
         rt = (
             RefreshToken.objects.filter(null_or_recent, token=refresh_token)
@@ -790,7 +853,10 @@ class OAuth2Validator(RequestValidator):
         # TODO if request.claims then return only the claims requested, but limited by granted scopes.
 
         for k, v in data.items():
-            if not self.oidc_claim_scope or self.oidc_claim_scope.get(k) in request.scopes:
+            if (
+                not self.oidc_claim_scope
+                or self.oidc_claim_scope.get(k) in request.scopes
+            ):
                 claims[k] = v(request) if callable(v) else v
         return claims
 
@@ -806,7 +872,9 @@ class OAuth2Validator(RequestValidator):
         """
         claims = self.get_oidc_claims(token, token_handler, request)
 
-        expiration_time = timezone.now() + timedelta(seconds=oauth2_settings.ID_TOKEN_EXPIRE_SECONDS)
+        expiration_time = timezone.now() + timedelta(
+            seconds=oauth2_settings.ID_TOKEN_EXPIRE_SECONDS
+        )
         # Required ID Token claims
         claims.update(
             **{
@@ -823,7 +891,9 @@ class OAuth2Validator(RequestValidator):
         return oauth2_settings.oidc_issuer(request)
 
     def finalize_id_token(self, id_token, token, token_handler, request):
-        claims, expiration_time = self.get_id_token_dictionary(token, token_handler, request)
+        claims, expiration_time = self.get_id_token_dictionary(
+            token, token_handler, request
+        )
         id_token.update(**claims)
         # Workaround for oauthlib bug #746
         # https://github.com/oauthlib/oauthlib/issues/746

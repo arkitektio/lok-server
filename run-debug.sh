@@ -14,6 +14,9 @@ python manage.py ensureloks
 echo "=> Ensuring App..."
 python manage.py ensureapps
 
+echo "=> Ensuring Configuration..."
+python manage.py ensureconfigs
+
 echo "=> Collecting Static.."
 python manage.py collectstatic --noinput
 

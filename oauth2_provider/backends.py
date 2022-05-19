@@ -2,10 +2,13 @@ from django.contrib.auth import get_user_model
 from django.core.exceptions import SuspiciousOperation
 
 from .oauth2_backends import get_oauthlib_core
-
+import logging
 
 UserModel = get_user_model()
 OAuthLibCore = get_oauthlib_core()
+
+
+logger = logging.getLogger(__name__)
 
 
 class OAuth2Backend:
@@ -16,7 +19,6 @@ class OAuth2Backend:
     def authenticate(self, request=None, **credentials):
         if request is not None:
             try:
-                print(request)
                 valid, request = OAuthLibCore.verify_request(request, scopes=[])
             except ValueError as error:
                 if str(error) == "Invalid hex encoding in query string.":

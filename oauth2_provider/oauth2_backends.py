@@ -8,6 +8,9 @@ from oauthlib.oauth2 import OAuth2Error
 
 from .exceptions import FatalClientError, OAuthToolkitError
 from .settings import oauth2_settings
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 class OAuthLibCore:
@@ -25,7 +28,9 @@ class OAuthLibCore:
         validator_class = oauth2_settings.OAUTH2_VALIDATOR_CLASS
         validator = validator_class()
         server_kwargs = oauth2_settings.server_kwargs
-        self.server = server or oauth2_settings.OAUTH2_SERVER_CLASS(validator, **server_kwargs)
+        self.server = server or oauth2_settings.OAUTH2_SERVER_CLASS(
+            validator, **server_kwargs
+        )
 
     def _get_escaped_full_path(self, request):
         """
@@ -139,9 +144,13 @@ class OAuthLibCore:
             return uri, headers, body, status
 
         except oauth2.FatalClientError as error:
-            raise FatalClientError(error=error, redirect_uri=credentials["redirect_uri"])
+            raise FatalClientError(
+                error=error, redirect_uri=credentials["redirect_uri"]
+            )
         except oauth2.OAuth2Error as error:
-            raise OAuthToolkitError(error=error, redirect_uri=credentials["redirect_uri"])
+            raise OAuthToolkitError(
+                error=error, redirect_uri=credentials["redirect_uri"]
+            )
 
     def create_token_response(self, request):
         """
@@ -168,7 +177,9 @@ class OAuthLibCore:
         """
         uri, http_method, body, headers = self._extract_params(request)
 
-        headers, body, status = self.server.create_revocation_response(uri, http_method, body, headers)
+        headers, body, status = self.server.create_revocation_response(
+            uri, http_method, body, headers
+        )
         uri = headers.get("Location", None)
 
         return uri, headers, body, status
@@ -182,7 +193,9 @@ class OAuthLibCore:
         """
         uri, http_method, body, headers = self._extract_params(request)
         try:
-            headers, body, status = self.server.create_userinfo_response(uri, http_method, body, headers)
+            headers, body, status = self.server.create_userinfo_response(
+                uri, http_method, body, headers
+            )
             uri = headers.get("Location", None)
             return uri, headers, body, status
         except OAuth2Error as exc:
@@ -196,8 +209,10 @@ class OAuthLibCore:
         :param scopes: A list of scopes required to verify so that request is verified
         """
         uri, http_method, body, headers = self._extract_params(request)
-
-        valid, r = self.server.verify_request(uri, http_method, body, headers, scopes=scopes)
+        logger.info(headers)
+        valid, r = self.server.verify_request(
+            uri, http_method, body, headers, scopes=scopes
+        )
         return valid, r
 
     def authenticate_client(self, request):
@@ -240,4 +255,5 @@ def get_oauthlib_core():
     validator = validator_class()
     server_kwargs = oauth2_settings.server_kwargs
     server = oauth2_settings.OAUTH2_SERVER_CLASS(validator, **server_kwargs)
+    print(server)
     return oauth2_settings.OAUTH2_BACKEND_CLASS(server)
