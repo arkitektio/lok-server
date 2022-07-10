@@ -21,7 +21,7 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # See https://docs.djangoproject.com/en/3.1/howto/deployment/checklist/
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = conf.security.secret_key
+SECRET_KEY = conf.server.secret_key
 
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = conf.server.debug or False
@@ -56,12 +56,10 @@ INSTALLED_APPS = [
 
 SUPERUSERS = [
     {
-        "USERNAME": su.username,
-        "EMAIL": su.email,
-        "PASSWORD": su.password,
-        "GROUPS": su.groups,
+        "USERNAME": conf.server.admin.username,
+        "EMAIL": conf.server.admin.email,
+        "PASSWORD": conf.server.admin.password,
     }
-    for su in conf.security.admins
 ]
 
 LOKUSERS = [
@@ -69,9 +67,9 @@ LOKUSERS = [
         "USERNAME": su.username,
         "EMAIL": su.email,
         "PASSWORD": su.password,
-        "GROUPS": su.groups,
+        "GROUPS": su.get("groups", []),
     }
-    for su in conf.security.loks
+    for su in conf.loks
 ]
 
 
@@ -235,7 +233,7 @@ LOGGING = {
     },
 }
 
-ACCOUNT_ACTIVATION_DAYS = conf.auth.activation_days
+ACCOUNT_ACTIVATION_DAYS = conf.activation_days
 REGISTRATION_AUTO_LOGIN = True  # Automatically log the user in.
 
 # Unomment and re run
@@ -246,13 +244,13 @@ OAUTH2_PROVIDER_ID_TOKEN_MODEL = "oauth2_provider.IDtoken"
 
 OAUTH2_PROVIDER = {
     "OIDC_ENABLED": True,
-    "OIDC_RSA_PRIVATE_KEY": conf.security.private_key,
+    "OIDC_RSA_PRIVATE_KEY": conf.private_key,
     "SCOPES": {
         "openid": "OpenID Connect scope",
         **conf.scopes
         # ... any other scopes that you use
     },
-    "ACCESS_TOKEN_EXPIRE_SECONDS": conf.auth.token_expire_seconds
+    "ACCESS_TOKEN_EXPIRE_SECONDS": conf.token_expire_seconds
     or 60 * 60 * 24,  # TOkens are valid for 24 Hours
     "ALLOWED_REDIRECT_URI_SCHEMES": ["http", "https", "com.example.feuer"],
     "OAUTH2_VALIDATOR_CLASS": "lord.oauth.validator.CustomOAuth2Validator",
@@ -272,9 +270,9 @@ OAUTH2_PROVIDER = {
 # }
 
 OAUTH2_JWT = {
-    "PRIVATE_KEY": conf.security.private_key,
-    "PUBLIC_KEY": conf.security.public_key,
-    "KEY_TYPE": conf.security.key_type or "RS256",
+    "PRIVATE_KEY": conf.private_key,
+    "PUBLIC_KEY": conf.public_key,
+    "KEY_TYPE": conf.get("key_type", "RS256"),
     "ISSUER": "herre",
 }
 
@@ -297,7 +295,7 @@ ENSURED_APPS = [
         "CLIENT_SECRET": app.client_secret,
         "CLIENT_TYPE": app.client_type,
         "GRANT_TYPE": app.grant_type,
-        "REDIRECT_URIS": app.redirect_uris,
+        "REDIRECT_URIS": app.get("redirect_uris", []),
         "SCOPES": app.get("scopes", []),
         "TENANT": app.tenant,
     }

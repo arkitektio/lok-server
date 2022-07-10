@@ -20,7 +20,7 @@ class Command(BaseCommand):
 
     def handle(self, *args, **kwargs):
 
-        directory = "configs"
+        directory = "fakts"
 
         # iterate over files in
         # that directory

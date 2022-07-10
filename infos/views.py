@@ -395,20 +395,29 @@ class ClaimView(View):
         client_secret = json_data["client_secret"]
         scopes = json_data["scopes"]
 
-        app = Application.objects.get(
-            client_id=client_id,
-        )
+        logger.error(client_id)
+        try:
+            app = Application.objects.get(
+                client_id=client_id,
+            )
 
-        if "graph" in json_data:
-            graph = ConfigurationGraph.objects.get(name=json_data["graph"])
-        else:
-            graph = get_fitting_graph(request)
+            if "graph" in json_data and json_data["graph"]:
+                graph = ConfigurationGraph.objects.get(name=json_data["graph"])
+            else:
+                graph = get_fitting_graph(request)
 
-        configuration = claim_app(app, client_secret, scopes, graph)
+            configuration = claim_app(app, client_secret, scopes, graph)
 
-        return JsonResponse(
-            data={
-                "status": "granted",
-                "config": configuration,
-            }
-        )
+            return JsonResponse(
+                data={
+                    "status": "granted",
+                    "config": configuration,
+                }
+            )
+        except Application.DoesNotExist:
+            return JsonResponse(
+                data={
+                    "status": "error",
+                    "message": "Application not found",
+                }
+            )

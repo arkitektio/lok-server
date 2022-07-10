@@ -4,8 +4,9 @@ from oauthlib.oauth2.rfc6749 import tokens
 from django.conf import settings
 from django.contrib.auth.models import User
 import random
-
+import logging
 from oauthlib.common import Request
+from requests import request
 
 
 def custom_token_generator(request, refresh_token=False):
@@ -15,7 +16,9 @@ def custom_token_generator(request, refresh_token=False):
     request.claims = {
         "type": app.authorization_grant_type,
         "tenant": app.user.email,
+        "sub": user.id if user else None,
         "email": user.email if user else None,
+        "preferred_username": user.username if user else None,
         "roles": [group.name for group in user.groups.all()] if user else [],
         "scope": " ".join(request.scopes),
         "iss": "herre",
@@ -34,7 +37,7 @@ class JWTServer(openid.Server):
         token_expires_in=None,
         token_generator=None,
         *args,
-        **kwargs
+        **kwargs,
     ):
         token_generator = custom_token_generator
         super().__init__(
@@ -51,3 +54,7 @@ class JWTServer(openid.Server):
         request.token_type = "bearer"
         request.scopes = scopes
         return self.bearer.validate_request(request), request
+
+    def create_userinfo_response(self, *args, **kwargs):
+        logging.error(f"OINSDFOINSÜEIUPNSPOEINFPSOEINFOSEINFOSEINFÜOESINF {args}")
+        return super().create_userinfo_response(*args, **kwargs)

@@ -50,6 +50,7 @@ def configure_new_app(user, name: str, scopes: str, graph: ConfigurationGraph):
             "herre": {
                 "client_id": new_app.client_id,
                 "client_secret": client_secret,
+                "grant_type": new_app.authorization_grant_type,
                 "scopes": scopes,
                 "name": new_app.name,
             }
@@ -81,7 +82,7 @@ def configure_new_public_app(
         config,
         {
             "herre": {
-                "authorization_grant_type": "AUTHORIZATION_CODE",
+                "grant_type": new_app.authorization_grant_type,
                 "client_id": new_app.client_id,
                 "client_secret": client_secret,
                 "scopes": scopes,
@@ -104,6 +105,7 @@ def claim_public_app(app, scopes, graph: ConfigurationGraph):
             "herre": {
                 "client_id": app.client_id,
                 "client_secret": app.client_secret,
+                "grant_type": app.authorization_grant_type,
                 "name": app.name,
                 "scopes": scopes,
             }
@@ -124,6 +126,7 @@ def claim_app(app, client_secret, scopes, graph: ConfigurationGraph):
             "herre": {
                 "client_id": app.client_id,
                 "client_secret": client_secret,
+                "grant_type": app.authorization_grant_type,
                 "name": app.name,
                 "scopes": scopes,
             }

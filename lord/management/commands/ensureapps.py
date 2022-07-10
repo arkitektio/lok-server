@@ -33,7 +33,7 @@ class Command(BaseCommand):
             if not AppModel.objects.filter(client_id=app["CLIENT_ID"]).exists():
                 AppModel.objects.create(
                     name=app["NAME"],
-                    user=UserModel.objects.get(email=app["TENANT"]),
+                    user=UserModel.objects.get(username=app["TENANT"]),
                     client_type=app["CLIENT_TYPE"],
                     redirect_uris="\n".join(app["REDIRECT_URIS"]),
                     client_id=app["CLIENT_ID"],
@@ -45,7 +45,7 @@ class Command(BaseCommand):
             else:
                 aapp = AppModel.objects.get(client_id=app["CLIENT_ID"])
                 aapp.name = app["NAME"]
-                aapp.user = UserModel.objects.get(email=app["TENANT"])
+                aapp.user = UserModel.objects.get(username=app["TENANT"])
                 aapp.redirect_uris = "\n".join(app["REDIRECT_URIS"])
                 aapp.client_id = app["CLIENT_ID"]
                 aapp.client_type = app["CLIENT_TYPE"]
