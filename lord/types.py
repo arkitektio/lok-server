@@ -35,6 +35,7 @@ class HerreUser(BalderObject):
             "avatar",
             "last_name",
             "first_name",
+            "groups",
         ]
 
 

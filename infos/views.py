@@ -133,7 +133,6 @@ class ConfigureView(BaseConfigurationView, FormView):
             "state": self.request.GET.get("state", None),
             "grant": self.request.GET.get("grant", None),
             "device_code": self.request.GET.get("device_code", None),
-            "graph": ConfigurationGraph.objects.first(),
         }
 
         if self.request.GET.get("claim", None):
@@ -146,7 +145,6 @@ class ConfigureView(BaseConfigurationView, FormView):
     def form_valid(self, form):
 
         grant = form.cleaned_data["grant"]
-        graph = form.cleaned_data["graph"]
         scopes = form.cleaned_data["scopes"]
         name = form.cleaned_data["name"]
 
@@ -161,7 +159,6 @@ class ConfigureView(BaseConfigurationView, FormView):
             challenge.user = self.request.user
             challenge.name = name
             challenge.scopes = scopes
-            challenge.graph = graph
             challenge.save()
 
             kwargs = {}
@@ -174,6 +171,8 @@ class ConfigureView(BaseConfigurationView, FormView):
             name = form.cleaned_data["name"]
             state = form.cleaned_data["state"]
             redirect_uri = form.cleaned_data["redirect_uri"]
+
+            graph = get_fitting_graph(self.request)
 
             config = configure_new_app(self.request.user, name, scopes, graph)
 
@@ -189,6 +188,8 @@ class ConfigureView(BaseConfigurationView, FormView):
             name = form.cleaned_data["name"]
             state = form.cleaned_data["state"]
             redirect_uri = form.cleaned_data["redirect_uri"]
+
+            graph = get_fitting_graph(self.request)
 
             config = configure_new_public_app(
                 self.request.user, name, scopes, redirect_uri, graph
@@ -206,6 +207,8 @@ class ConfigureView(BaseConfigurationView, FormView):
             app = form.cleaned_data["claim"]
             state = form.cleaned_data["state"]
             redirect_uri = form.cleaned_data["redirect_uri"]
+
+            graph = get_fitting_graph(self.request)
 
             config = claim_public_app(app, scopes, graph)
 
@@ -350,13 +353,15 @@ class ChallengeView(View):
                     }
                 )
 
-            if device_code.graph:
+            if device_code.scopes:
+
+                graph = graph if device_code.graph else get_fitting_graph(request)
 
                 configuration = configure_new_app(
                     device_code.user,
                     device_code.name,
                     device_code.scopes,
-                    device_code.graph,
+                    graph,
                 )
 
                 return JsonResponse(
