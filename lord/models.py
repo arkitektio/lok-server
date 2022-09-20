@@ -8,6 +8,10 @@ from django.contrib.auth.models import Group
 class HerreUser(AbstractUser):
     """A reflection on the real User"""
 
+    @property
+    def is_faktsadmin(self):
+        return self.groups.filter(name="admin").exists()
+
 
 class AppImage(models.Model):
     app = models.ForeignKey(Application, on_delete=models.CASCADE, related_name="image")

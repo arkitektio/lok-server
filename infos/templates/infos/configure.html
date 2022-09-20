@@ -25,7 +25,7 @@
 
 
 
-            {% if request.user.is_superuser %}
+            {% if request.user.is_faktsadmin %}
             <div class="mt-2">
                 <form method="post">{% csrf_token %}
                     {{ form.as_p }}
@@ -85,7 +85,7 @@
                 authorized and configure public apps</span>
 
         </div>
-        {% if request.user.is_superuser %}
+        {% if request.user.is_faktsadmin %}
         <div class="mt-2">
             <form method="post">{% csrf_token %}
                 {{ form.as_p }}
