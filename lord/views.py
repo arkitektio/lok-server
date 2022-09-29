@@ -111,3 +111,11 @@ class Me(APIView):
 
         serializer = UserSerializer(instance=user)
         return Response(serializer.data)
+
+
+@method_decorator(csrf_exempt, name="dispatch")
+class Callback(APIView):
+    """Me Viewset (only allows get)"""
+
+    def get(self, request, format=None):
+        return HttpResponse("OK")

@@ -15,7 +15,7 @@ Including another URLconf
 """
 from django.urls.conf import include
 from herre.helpers import xpath, xstatic
-from lord.views import Application, DownloadApplicationViewSet, Me
+from lord.views import Application, DownloadApplicationViewSet, Me, Callback
 import logging
 from django.urls import include, path
 from django.conf.urls import url
@@ -57,6 +57,7 @@ urlpatterns = (
         path("o/", include("oauth2_provider.urls", namespace="oauth2_provider")),
         path("f/", include("infos.urls", namespace="infos")),
         path("ht/", include("health_check.urls")),
+        path("callback/", Callback.as_view(), name="callback"),
     ]
     + static(settings.STATIC_URL, document_root=settings.STATIC_ROOT)
     + static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)

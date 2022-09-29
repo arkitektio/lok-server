@@ -64,51 +64,6 @@ class Group(BalderObject):
         model = HerreGroupModel
 
 
-class GroupDetail(BalderQuery):
-    """Get a list of groups"""
-
-    class Arguments:
-        name = graphene.String(description="Unique app name fddor user", required=True)
-
-    def resolve(
-        root,
-        info,
-        name=None,
-    ):
-        return HerreGroupModel.objects.get(name=name)
-
-    class Meta:
-        list = False
-        type = Group
-        operation = "group"
-
-
-class Groups(BalderQuery):
-    """Get a list of users"""
-
-    class Meta:
-        list = True
-        type = Group
-        filter = GroupFilter
-        operation = "groups"
-
-
-class MyGroups(BalderQuery):
-    """Get a list of users"""
-
-    class Arguments:
-        name = graphene.String(description="Unique app name for user")
-
-    def resolve(root, info, *args, name=None, client_id=None):
-        return info.context.user.groups.all()
-
-    class Meta:
-        list = True
-        type = Group
-        filter = GroupFilter
-        operation = "mygroups"
-
-
 class Avatar(BalderObject):
     class Meta:
         model = AvatarModel

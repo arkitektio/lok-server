@@ -11,14 +11,21 @@ import graphene
 ApplicationModel = get_application_model()
 
 
-
 class UserQuery(BalderQuery):
-
     class Arguments:
-        email = graphene.String(description="The email of the user", required=True)
+        email = graphene.String(description="The email of the user", required=False)
+        id = graphene.ID(description="The email of the user", required=False)
 
-
-    resolve = lambda root, info, email: models.HerreUser.objects.get(email=email)
+    def resolve(
+        root,
+        info,
+        email=None,
+        id=None,
+    ):
+        if email:
+            return models.HerreUser.objects.get(email=email)
+        if id:
+            return models.HerreUser.objects.get(id=id)
 
     class Meta:
         list = False
@@ -26,9 +33,7 @@ class UserQuery(BalderQuery):
         operation = "user"
 
 
-
 class MeQuery(BalderQuery):
-
     def resolve(root, info, *args, **kwargs):
         return info.context.user
 
@@ -36,5 +41,3 @@ class MeQuery(BalderQuery):
         list = False
         type = types.HerreUser
         operation = "me"
-
-

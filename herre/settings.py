@@ -254,7 +254,8 @@ OAUTH2_PROVIDER = {
     or 60 * 60 * 24,  # TOkens are valid for 24 Hours
     "ALLOWED_REDIRECT_URI_SCHEMES": ["http", "https", "com.example.feuer"],
     "OAUTH2_VALIDATOR_CLASS": "lord.oauth.validator.CustomOAuth2Validator",
-    "OAUTH2_SERVER_CLASS": "lord.oauth.server.JWTServer"
+    "OAUTH2_SERVER_CLASS": "lord.oauth.server.JWTServer",
+    "ALLOWED_REDIRECT_URI_SCHEMES": ["http", "https", "tauri", "arkitekt"],
     # }
     # ... any other settings you want
 }
