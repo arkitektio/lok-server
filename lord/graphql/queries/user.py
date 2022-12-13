@@ -2,8 +2,7 @@ from lord.enums import GrantType
 from balder.types.mutation.base import BalderMutation
 from balder.types.query.base import BalderQuery
 from balder.types import BalderObject
-from lord import types
-from lord import models
+from lord import types, models, filters
 from oauth2_provider.models import get_application_model
 from django.conf import settings
 import graphene
@@ -34,6 +33,7 @@ class UserQuery(BalderQuery):
 
 
 class MeQuery(BalderQuery):
+    
     def resolve(root, info, *args, **kwargs):
         return info.context.user
 
@@ -41,3 +41,12 @@ class MeQuery(BalderQuery):
         list = False
         type = types.HerreUser
         operation = "me"
+
+
+class UsersQuery(BalderQuery):
+
+    class Meta:
+        list = True
+        type = types.HerreUser
+        filter = filters.UserFilter
+        operation = "users"

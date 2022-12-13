@@ -209,7 +209,7 @@ class OAuthLibCore:
         :param scopes: A list of scopes required to verify so that request is verified
         """
         uri, http_method, body, headers = self._extract_params(request)
-        logger.info(headers)
+         
         valid, r = self.server.verify_request(
             uri, http_method, body, headers, scopes=scopes
         )
@@ -255,5 +255,5 @@ def get_oauthlib_core():
     validator = validator_class()
     server_kwargs = oauth2_settings.server_kwargs
     server = oauth2_settings.OAUTH2_SERVER_CLASS(validator, **server_kwargs)
-    print(server)
+     
     return oauth2_settings.OAUTH2_BACKEND_CLASS(server)

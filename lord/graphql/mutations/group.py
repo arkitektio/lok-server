@@ -5,28 +5,36 @@ from lord import models, types
 from django.contrib.auth.models import Group
 
 
-class UploadGroupAvatar(BalderMutation):
+class UpdateGroup(BalderMutation):
     class Arguments:
-        group = graphene.String(required=True)
-        file = Upload(required=True)
-        primary = graphene.Boolean(required=False)
+        id = graphene.ID(required=True)
+        avatar = Upload(required=False)
+        name = graphene.String(required=False, description="The name of the group (non unique)")
 
     def mutate(
         root,
         info,
-        group,
-        file,
-        primary=False,
+        id,
+        avatar = None,
+        name = None,
     ):
         # do something with your file
 
-        filename: str = file.name
+        group = models.Group.objects.get(id=id)
+        #TODO: check if user is allowed to change this user
+        try:
+            group.profile.avatar = avatar
+        except:
+            group.profile = models.GroupProfile()
+        group.profile.avatar = avatar or group.profile.avatar
+        group.profile.name = name or group.profile.name
+        group.profile.save()
+        group.save()
 
-        t = models.GroupImage.objects.create(
-            image=file, group=Group.objects.get(name=group), primary=primary
-        )
 
-        return t
+        return group
 
     class Meta:
-        type = types.GroupImage
+        type = types.Group
+        operation = "updateGroup"
+

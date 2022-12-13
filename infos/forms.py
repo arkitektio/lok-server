@@ -11,6 +11,8 @@ class ConfigureForm(forms.Form):
     )
     redirect_uri = forms.CharField(widget=forms.HiddenInput(), required=False)
     grant = forms.CharField(widget=forms.HiddenInput(), required=True)
+    version = forms.CharField(help_text="Declare a version app", required=True, empty_value="latest")
+    identifier = forms.CharField(help_text="Declare a unique identifier for this app", required=True)
     state = forms.CharField(required=False, widget=forms.HiddenInput())
     device_code = forms.CharField(required=False, widget=forms.HiddenInput())
     scopes = forms.MultipleChoiceField(

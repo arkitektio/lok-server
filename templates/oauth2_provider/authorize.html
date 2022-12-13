@@ -3,43 +3,47 @@
 {% load static %}
 {% load i18n %}
 {% block content %}
-    <div class="block-center" style='font-family: Roboto, sans-serif'>
+    <div class="flex text-white h-full w-full justify-center align-center">
         {% if not error %}
-            <form id="authorizationForm" method="post">
-                <div class="col mr-auto"><img width=100  src="{%  static 'img/oslo_combined.svg' %}"/></div>
+            <form id="authorizationForm" method="post" class="justify-center align-center">
+                <div class="mt-6 flex flex-col border-1 border-slate-50 border rounded p-3 items-center">
+                    <div class="flex flex-col"><img width="100rem"  src="{%  static 'img/arkitekt.png' %}"/></div>
 
-                <h3 class="block-center-heading">{% trans " Authorize" %} {{ application.name }}?</h3>
+                    <h3 class="h3 font-bold mt-2">{% trans " Authorize" %} </h3>
+                    <h1 class="h2 font-semibold ">{{ application.faktapplication.app.identifier }}</h1>
+                    <h1 class="h4 font-semibold ">{{ application.faktapplication.app.version }}</h1>
 
-                {% csrf_token %}
+                    {% csrf_token %}
 
-                {% for field in form %}
-                    {% if field.is_hidden %}
-                        {{ field }}
-                    {% endif %}
-                {% endfor %}
-
-                <p>{% trans "Application requires following permissions" %}</p>
-                <ul>
-                    {% for scope in scopes_descriptions %}
-                        <li>{{ scope }}</li>
+                    {% for field in form %}
+                        {% if field.is_hidden %}
+                            {{ field }}
+                        {% endif %}
                     {% endfor %}
-                </ul>
 
-                {{ form.errors }}
-                {{ form.non_field_errors }}
+                    <div class="mb-3">{% trans "Application requires following permissions" %}</div>
+                    <ul class="list-disc ml-3 mb-2">
+                        {% for scope in scopes_descriptions %}
+                            <li>{{ scope }}</li>
+                        {% endfor %}
+                    </ul>
 
-                <div class="control-group">
-                    <div class="controls btn-group">
-                        <input type="submit" class="btn btn-lg btn-danger" value="Cancel"/>
-                        <input type="submit" class="btn btn-lg btn-primary" name="allow" value="Authorize"/>
+                    {{ form.errors }}
+                    {{ form.non_field_errors }}
+
+                    <div class="flex flex-col mt-2 items-center">
+                        <div class="flex flex-row gap-2">
+                            <input type="submit" class="bg-red-400 border shadow-md shadow-red-400/60 border-red-400 rounded px-3 py-1 hover:bg-red-500 cursor-pointer" value="Cancel"/>
+                            <input type="submit" class="bg-blue-400 border shadow-md shadow-blue-400/60 border-blue-400 rounded px-3 py-1 hover:bg-blue-500 cursor-pointer" name="allow" value="Authorize"/>
+                        </div>
+                        {% if request.user.is_authenticated %}
+                        <h5 class="flex-initial text-center mt-4">{% trans "You're logged in as" %} <b class="text-xl">{{ request.user.username }}</b></h5>
+                        {% endif %}
+                        <div class="mt-2 items-center">
+                        <a class="bg-slate-400 border border-slate-400 rounded px-3 py-1 hover:bg-slate-500 cursor-pointer" href="{%  url 'login' %}?next={{request.get_full_path|urlencode}}">Change Account</a>
+                        </div>
                     </div>
-                    <br/>
-                    <br/>
-                    {% if request.user.is_authenticated %}
-                    <h5 class="block-center-heading">{% trans "You're logged in as" %} {{ request.user.username }}</h5>
-                    {% endif %}
-                    <a class="btn btn-group-sm" href="{%  url 'auth_login' %}?next={{request.get_full_path|urlencode}}">Change Account</a>
-
+                    </div>
                 </div>
             </form>
 

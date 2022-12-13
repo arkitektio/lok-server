@@ -14,7 +14,7 @@ services:
       # Update this to wherever you want VS Code to mount the folder of your project
       - .:/workspace
     ports:
-      - 8000:8000
+      - 8008:8008
     labels:
       - "traefik.enable=true"
       - "traefik.http.middlewares.herreheaders.headers.customrequestheaders.SCRIPT_NAME=/herre"

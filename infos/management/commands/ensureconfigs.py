@@ -43,4 +43,4 @@ class Command(BaseCommand):
                     name=key, graph=graph, defaults={"values": value}
                 )
 
-            print(filename)
+             

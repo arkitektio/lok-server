@@ -37,11 +37,13 @@ class Command(BaseCommand):
                     client_type=app["CLIENT_TYPE"],
                     redirect_uris="\n".join(app["REDIRECT_URIS"]),
                     client_id=app["CLIENT_ID"],
+                    identifier=app["IDENTIFIER"],
+                    version=app["VERSION"],
                     client_secret=app["CLIENT_SECRET"],
                     authorization_grant_type=app["GRANT_TYPE"],
                     algorithm=AbstractApplication.RS256_ALGORITHM,
                 )
-                print("Application created")
+                 
             else:
                 aapp = AppModel.objects.get(client_id=app["CLIENT_ID"])
                 aapp.name = app["NAME"]
@@ -49,8 +51,10 @@ class Command(BaseCommand):
                 aapp.redirect_uris = "\n".join(app["REDIRECT_URIS"])
                 aapp.client_id = app["CLIENT_ID"]
                 aapp.client_type = app["CLIENT_TYPE"]
+                aapp.identifier = app["IDENTIFIER"]
+                aapp.version = app["VERSION"]
                 aapp.client_secret = app["CLIENT_SECRET"]
                 aapp.authorization_grant_type = app["GRANT_TYPE"]
                 aapp.algorithm = AbstractApplication.RS256_ALGORITHM
                 aapp.save()
-                print("Application already exsisted. Updating")
+                 

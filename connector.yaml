@@ -1,6 +1,0 @@
-authtoken: 1xU6svpSKTIRzstnva0ZP29QxOu_7ZfHGbt3RNbDxPopWwYkM
-tunnels:
-  traefik:
-    addr: traefik:80
-    proto: http
-    metadata: "service:traefik"

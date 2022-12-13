@@ -1,29 +1,19 @@
 import graphene
 from balder.types import BalderObject
 from balder.types.query import BalderQuery
-from avatar.models import Avatar as AvatarModel
 from oauth2_provider.models import get_application_model
-from .models import HerreUser as HerreUserModel, GroupImage as GroupImageModel
+from .models import HerreUser as HerreUserModel, Profile, GroupProfile
 from lord.filters import UserFilter, GroupFilter
 from django.contrib.auth.models import Group as HerreGroupModel
 
 
 class HerreUser(BalderObject):
     roles = graphene.List(graphene.String, description="The associated rules of this ")
-    avatar = graphene.String()
 
     @staticmethod
     def resolve_roles(root, info, *args, **kwargs):
-        print(root, info, *args, **kwargs)
+         
         return [group.name for group in root.groups.all()]
-
-    @staticmethod
-    def resolve_avatar(root, info, *args, **kwargs):
-        path = AvatarModel.objects.filter(primary=True, user=root).first()
-        if path:
-            return info.context.build_absolute_uri(path.avatar.url)
-        else:
-            return None
 
     class Meta:
         model = HerreUserModel
@@ -36,42 +26,43 @@ class HerreUser(BalderObject):
             "last_name",
             "first_name",
             "groups",
+            "is_active",
+            "private_applications",
+            "profile",
         ]
 
 
-class Users(BalderQuery):
-    """Get a list of users"""
-
-    class Meta:
-        list = True
-        type = HerreUser
-        filter = UserFilter
-        operation = "users"
-
-
 class Group(BalderObject):
-    avatar = graphene.String()
 
-    @staticmethod
-    def resolve_avatar(root, info, *args, **kwargs):
-        path = root.images.first()
-        if path:
-            return info.context.build_absolute_uri(path.image.url)
-        else:
-            return None
+
 
     class Meta:
         model = HerreGroupModel
 
 
-class Avatar(BalderObject):
-    class Meta:
-        model = AvatarModel
+class GroupProfile(BalderObject):
+    avatar = graphene.String()
+
+    @staticmethod
+    def resolve_avatar(root, info, *args, **kwargs):
+        if root.avatar:
+            return root.avatar.url
 
 
-class GroupImage(BalderObject):
+
     class Meta:
-        model = GroupImageModel
+        model = GroupProfile
+
+class Profile(BalderObject):
+    avatar = graphene.String()
+
+    @staticmethod
+    def resolve_avatar(root, info, *args, **kwargs):
+        if root.avatar:
+            return root.avatar.url
+
+    class Meta:
+        model = Profile
 
 
 class Application(BalderObject):

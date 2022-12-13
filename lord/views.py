@@ -24,6 +24,10 @@ from rest_framework import viewsets, renderers
 from rest_framework.decorators import action
 import yaml
 import logging
+from django.shortcuts import  render, redirect
+from .forms import NewUserForm
+from django.contrib.auth import login
+from django.contrib import messages
 
 
 @method_decorator(csrf_exempt, name="dispatch")
@@ -42,12 +46,12 @@ class Application(APIView):
 
     def get(self, request, format=None):
         serializer = ApplicationSerializer(instance=request.auth.application)
-        print(serializer.data)
+         
         return Response(serializer.data)
 
     def post(self, request):
         serializer = TokenSerializer(instance=request.auth)
-        print(serializer.data)
+         
         return Response(serializer.data)
 
 
@@ -113,9 +117,35 @@ class Me(APIView):
         return Response(serializer.data)
 
 
+
 @method_decorator(csrf_exempt, name="dispatch")
 class Callback(APIView):
     """Me Viewset (only allows get)"""
 
     def get(self, request, format=None):
         return HttpResponse("OK")
+
+
+
+def register_request(request):
+	if request.method == "POST":
+		form = NewUserForm(request.POST)
+		if form.is_valid():
+			user = form.save()
+			login(request, user)
+			messages.success(request, "Registration successful." )
+			return redirect("main:homepage")
+		messages.error(request, "Unsuccessful registration. Invalid information.")
+	form = NewUserForm()
+	return render (request=request, template_name="registration/registration_form.html", context={"register_form":form})
+
+
+
+
+
+
+
+
+
+
+

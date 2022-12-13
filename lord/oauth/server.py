@@ -17,16 +17,15 @@ def custom_token_generator(request, refresh_token=False):
         "type": app.authorization_grant_type,
         "tenant": app.user.email,
         "sub": user.id if user else None,
-        "email": user.email if user else None,
         "preferred_username": user.username if user else None,
         "roles": [group.name for group in user.groups.all()] if user else [],
         "scope": " ".join(request.scopes),
         "iss": "herre",
         "client_id": app.client_id,
-        "client_app": app.name,
-        "salt": random.randint(0, 700),
+        "version": app.faktapplication.app.version,
+        "identifier": app.faktapplication.app.identifier,
     }
-    print("JWT is set to expire in", request.expires_in, request.claims)
+     
     return common.generate_signed_token(settings.OAUTH2_JWT["PRIVATE_KEY"], request)
 
 

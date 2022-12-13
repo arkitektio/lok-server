@@ -1,9 +1,7 @@
 from django.db import models
-from oauth2_provider.settings import oauth2_settings
 from django.contrib.auth.models import AbstractUser
-from oauth2_provider.models import Application
 from django.contrib.auth.models import Group
-
+from lord.storage import PrivateAvatarStorage
 
 class HerreUser(AbstractUser):
     """A reflection on the real User"""
@@ -13,12 +11,13 @@ class HerreUser(AbstractUser):
         return self.groups.filter(name="admin").exists()
 
 
-class AppImage(models.Model):
-    app = models.ForeignKey(Application, on_delete=models.CASCADE, related_name="image")
-    image = models.ImageField()
+class Profile(models.Model):
+    name = models.CharField(max_length=1000, null=True, blank=True)
+    user = models.OneToOneField(HerreUser, on_delete=models.CASCADE, related_name="profile")
+    avatar = models.ImageField(storage=PrivateAvatarStorage(), null=True, blank=True)
 
 
-class GroupImage(models.Model):
-    group = models.ForeignKey(Group, on_delete=models.CASCADE, related_name="images")
-    image = models.ImageField()
-    primary = models.BooleanField(default=False)
+class GroupProfile(models.Model):
+    name = models.CharField(max_length=1000, null=True, blank=True)
+    group = models.OneToOneField(Group, on_delete=models.CASCADE, related_name="profile")
+    avatar = models.ImageField(storage=PrivateAvatarStorage(), null=True, blank=True)

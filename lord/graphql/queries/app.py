@@ -38,7 +38,7 @@ class UserApplicationQuery(BalderQuery):
 
 class ApplicationsQuery(BalderQuery):
     def resolve(root, info):
-        logger.info(info.context.user)
+         
         return ApplicationModel.objects.all()
 
     class Meta:
@@ -49,7 +49,7 @@ class ApplicationsQuery(BalderQuery):
 
 class ApplicationsQuery(BalderQuery):
     def resolve(root, info):
-        logger.info(info.context.user)
+         
         return ApplicationModel.objects.filter(user=info.context.user)
 
     class Meta:

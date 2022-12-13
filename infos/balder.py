@@ -3,6 +3,8 @@ from django.http import request
 from balder.types import BalderMutation, BalderQuery
 from infos import types, models, scalars
 import graphene
+import infos.graphql.queries
+import infos.graphql.mutations
 
 
 class DetailMember(BalderQuery):
@@ -67,3 +69,4 @@ class CreateGraph(BalderMutation):
 
     class Meta:
         type = types.Graph
+

@@ -4,29 +4,40 @@
 {% block title %}{% trans "Log in" %}{% endblock %}
 
 {% block content %}
-    <div class="container-fluid d-flex flex-column flex-fill align-items-center justify-content-center reg-container">
+    <div class="flex flex-col items-center">
 
-    <div class="card login-card">
-    <form method="post" action="">
-        {% csrf_token %}
-        <img class="mb-4" src="{% static "img/oslologo_from_black.svg" %}" alt="" width="72" height="72">
-        <h1 class="h3 mb-3 ">Please sign in</h1>
-        <label for="{{ form.username.id_for_label }}" class="sr-only">Email address</label>
-        <input id="{{ form.username.id_for_label }}" class="form-control" placeholder="Email address"
-               name="{{ form.username.name }}" required autofocus>
-        <label for="{{ form.password.id_for_label }}" class="sr-only">Password</label>
-        <input type="password" id="{{ form.password.id_for_label }}" class="form-control" placeholder="Password"
-               name="{{ form.password.name }}" required>
-        <div class="checkbox mb-3">
-        </div>
-        <input type="hidden" name="next" value="{{ next }}"/>
-        <button class="btn btn-md btn-primary btn-block mb-4" type="submit">Sign in</button>
-        {% trans "Forgot your password?" %} <a href="{% url 'auth_password_reset' %}">{% trans "Reset it" %}</a>
-        <p>{% trans "Not a member?" %} <a href="{% url 'registration_register' %}">{% trans "Register" %}</a>.</p>
-        <p class="mt-5 mb-3 text-muted small">bergen &copy; 2017-2019</p>
+
+            <form method="post" action="">
+        <div class="flex-grow flex flex-col my-auto items-center">
+    
+            {% csrf_token %}
+            <img class="mb-4" src="{% static "img/arkitekt.png" %}" alt="" width="100rem" height="100rem">
+            <h1 class="h3 mb-3 ">Please sign in</h1>
+            <label for="{{ form.username.id_for_label }}" class="sr-only">Username</label>
+            <input id="{{ form.username.id_for_label }}" class="w-full lg:flex items-center text-sm leading-6 text-slate-400 rounded-md ring-1 ring-slate-900/10 shadow-sm py-1.5 pl-2 pr-3 hover:ring-slate-300 dark:bg-slate-800 dark:highlight-white/5 dark:hover:bg-slate-70" placeholder="Username"
+                name="{{ form.username.name }}" required autofocus>
+            <label for="{{ form.password.id_for_label }}" class="sr-only">Password</label>
+            <input type="password" id="{{ form.password.id_for_label }}" class="mt-2 w-full lg:flex items-center text-sm leading-6 text-slate-400 rounded-md ring-1 ring-slate-900/10 shadow-sm py-1.5 pl-2 pr-3 hover:ring-slate-300 dark:bg-slate-800 dark:highlight-white/5 dark:hover:bg-slate-70" placeholder="Password"
+                name="{{ form.password.name }}" required>
+            <div class="checkbox mb-3">
+            </div>
+            <input type="hidden" name="next" value="{{ next }}"/>
+            
+            {% if form.errors %}
+                <div class="alert alert-danger">
+                    {{ form.errors }}
+                </div>
+            {% endif %}
+            <button class="border-blue-300 border rounded px-5 py-1 mb-3" type="submit">Sign in</button>
+            <div class="flex flex-col">
+            <div>{% trans "Forgot your password?" %} <a href="{% url 'password_reset' %}">{% trans "Reset it" %}</a></div>
+            <div><p>{% trans "Not a member?" %} <a href="{% url 'signup' %}">{% trans "Register" %}</a>.</p></div>
+            </div>
+            <p class="mt-5 mb-3 text-muted small">arkitekt &copy; 2017-2022</p>
+            
+    </div>
     </form>
 
-    </div>
     </div>
 {% endblock %}
 

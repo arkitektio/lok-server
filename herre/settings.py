@@ -28,6 +28,24 @@ DEBUG = conf.server.debug or False
 
 ALLOWED_HOSTS = conf.server.hosts
 
+
+AWS_ACCESS_KEY_ID = conf.minio.access_key
+AWS_SECRET_ACCESS_KEY = conf.minio.secret_key
+AWS_S3_ENDPOINT_URL = f"{conf.minio.protocol}://{conf.minio.host}:{conf.minio.port}"
+# AWS_S3_PUBLIC_ENDPOINT_URL = (
+#    f"{conf.minio.public.protocol}://{conf.minio.public.host}:{conf.minio.public.port}"
+# )
+AWS_S3_URL_PROTOCOL = f"{conf.minio.protocol}:"
+AWS_S3_FILE_OVERWRITE = False
+AWS_QUERYSTRING_EXPIRE = 3600
+
+
+AWS_STORAGE_BUCKET_NAME = conf.minio.bucket
+AWS_DEFAULT_ACL = "private"
+AWS_S3_USE_SSL = True
+AWS_S3_SECURE_URLS = False  # Should resort to True if using in Production behind TLS
+DEFAULT_FILE_STORAGE = "storages.backends.s3boto3.S3Boto3Storage"
+
 CORS_ORIGIN_ALLOW_ALL = True
 
 INSTALLED_APPS = [
@@ -38,16 +56,18 @@ INSTALLED_APPS = [
     "django.contrib.sessions",
     "django.contrib.messages",
     "django.contrib.staticfiles",
+    "oauth2_provider",
     "django_filters",
+    "rest_framework",
     "corsheaders",
+    "channels",
     "balder",
     "avatar",
     "health_check",
     "health_check.db",
+    "accounts",
     "lord",
     "graphene_django",
-    "rest_framework",
-    "oauth2_provider",
     "django_probes",
     "crispy_forms",
     "infos",
@@ -114,7 +134,10 @@ TEMPLATES = [
     },
 ]
 
+
 WSGI_APPLICATION = "herre.wsgi.application"
+ASGI_APPLICATION = "herre.asgi.application"
+
 
 # Database
 # https://docs.djangoproject.com/en/3.1/ref/settings/#databases
@@ -128,6 +151,17 @@ DATABASES = {
         "HOST": conf.postgres.host,
         "PORT": conf.postgres.port,
     }
+}
+
+
+CHANNEL_LAYERS = {
+    "default": {
+        # This example app uses the Redis channel layer implementation channels_redis
+        "BACKEND": "channels_redis.core.RedisChannelLayer",
+        "CONFIG": {
+            "hosts": [(conf.redis.host, conf.redis.port)],
+        },
+    },
 }
 
 AUTH_USER_MODEL = "lord.HerreUser"
@@ -191,22 +225,15 @@ LOGGING = {
     "disable_existing_loggers": False,
     "formatters": {
         "console": {
-            "()": "colorlog.ColoredFormatter",  # colored output
             # exact format is not important, this is the minimum information
-            "format": "%(log_color)s[%(levelname)s]  %(name)s %(asctime)s :: %(message)s",
-            "log_colors": {
-                "DEBUG": "bold_black",
-                "INFO": "green",
-                "WARNING": "yellow",
-                "ERROR": "red",
-                "CRITICAL": "bold_red",
-            },
+            "format": "%(message)s",
         },
     },
     "handlers": {
         "console": {
-            "class": "colorlog.StreamHandler",
+            "class": "rich.logging.RichHandler",
             "formatter": "console",
+            "rich_tracebacks": True,
         },
     },
     "loggers": {
@@ -296,9 +323,13 @@ ENSURED_APPS = [
         "CLIENT_SECRET": app.client_secret,
         "CLIENT_TYPE": app.client_type,
         "GRANT_TYPE": app.grant_type,
-        "REDIRECT_URIS": app.get("redirect_uris", []),
-        "SCOPES": app.get("scopes", []),
+        "REDIRECT_URIS": list(app.get("redirect_uris", [])),
+        "SCOPES": list(app.scopes),
         "TENANT": app.tenant,
+        "IDENTIFIER": app.identifier,
+        "CONFIDENTIAL": app.get("confidential", True),
+        "VERSION": app.version,
+        "KIND": app.kind,
     }
     for app in conf.apps
 ]
@@ -306,7 +337,7 @@ ENSURED_APPS = [
 USE_X_FORWARDED_HOST = True
 
 LOGIN_REDIRECT_URL = "/"
-LOGIN_URL = "auth_login"
+LOGIN_URL = "login"
 STATIC_URL = "static/"
 
 

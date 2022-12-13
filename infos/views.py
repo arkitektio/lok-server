@@ -20,7 +20,7 @@ from oauth2_provider.models import Application, get_application_model
 from enum import Enum
 import json
 from uuid import uuid4
-from .models import ConfigurationGraph, DeviceCode
+from .models import ConfigurationGraph, DeviceCode, FaktApplication
 import datetime
 from .utils import (
     claim_app,
@@ -31,7 +31,7 @@ from .utils import (
 )
 from django.utils import timesince
 from django.shortcuts import redirect
-
+from infos.models import create_private_fakt, App, FaktKindChoices
 logger = logging.getLogger(__name__)
 
 
@@ -124,7 +124,7 @@ class ConfigureView(BaseConfigurationView, FormView):
 
     def get_initial(self):
         # TODO: move this scopes conversion from and to string into a utils function
-        print(self.request.GET.get("scope"))
+         
 
         initial_data = {
             "redirect_uri": self.request.GET.get("redirect_uri", None),
@@ -132,6 +132,8 @@ class ConfigureView(BaseConfigurationView, FormView):
             "scopes": self.request.GET.get("scope", "").split(" "),
             "state": self.request.GET.get("state", None),
             "grant": self.request.GET.get("grant", None),
+            "version": self.request.GET.get("version", None),
+            "identifier": self.request.GET.get("identifier", None),
             "device_code": self.request.GET.get("device_code", None),
         }
 
@@ -146,6 +148,8 @@ class ConfigureView(BaseConfigurationView, FormView):
 
         grant = form.cleaned_data["grant"]
         scopes = form.cleaned_data["scopes"]
+        version = form.cleaned_data["version"]
+        identifier = form.cleaned_data["identifier"]
         name = form.cleaned_data["name"]
 
         if grant == ConfigureGrant.DEVICE_CODE:
@@ -159,6 +163,8 @@ class ConfigureView(BaseConfigurationView, FormView):
             challenge.user = self.request.user
             challenge.name = name
             challenge.scopes = scopes
+            challenge.version = version
+            challenge.identifier = identifier
             challenge.save()
 
             kwargs = {}
@@ -168,13 +174,12 @@ class ConfigureView(BaseConfigurationView, FormView):
 
         if grant == ConfigureGrant.USER_REDIRECT:
 
-            name = form.cleaned_data["name"]
             state = form.cleaned_data["state"]
             redirect_uri = form.cleaned_data["redirect_uri"]
 
             graph = get_fitting_graph(self.request)
 
-            config = configure_new_app(self.request.user, name, scopes, graph)
+            config = configure_new_app(self.request.user, name, scopes, version, identifier, graph)
 
             qs = urllib.parse.urlencode({"config": json.dumps(config), "state": state})
 
@@ -192,7 +197,7 @@ class ConfigureView(BaseConfigurationView, FormView):
             graph = get_fitting_graph(self.request)
 
             config = configure_new_public_app(
-                self.request.user, name, scopes, redirect_uri, graph
+                self.request.user, name, scopes, redirect_uri, version, identifier, graph
             )
 
             qs = urllib.parse.urlencode({"config": json.dumps(config), "state": state})
@@ -246,7 +251,7 @@ class ConfigureView(BaseConfigurationView, FormView):
         form = self.get_form(self.get_form_class())
         kwargs["form"] = form
         kwargs["grant"] = configuration.grant
-        print(kwargs["form"])
+         
 
         # Check to see if the user has already granted access and return
         # a successful response depending on "approval_prompt" url parameter
@@ -301,20 +306,6 @@ class DeviceView(LoginRequiredMixin, FormView):
         return self.render_to_response(self.get_context_data(**kwargs))
 
 
-@method_decorator(csrf_exempt, name="dispatch")
-class RetrieveView(View):
-    """
-    Implements an endpoint to provide access tokens
-
-    The endpoint is used in the following flows:
-    * Authorization code
-    * Password
-    * Client credentials
-    """
-
-    @method_decorator(sensitive_post_parameters("password"))
-    def post(self, request, *args, **kwargs):
-        return JsonResponse(data={"hallo": "hallo"})
 
 
 @method_decorator(csrf_exempt, name="dispatch")
@@ -344,7 +335,7 @@ class ChallengeView(View):
 
             delta = datetime.datetime.now(timezone.utc) - device_code.created_at
             if (delta.seconds // 60) > 12:
-                print("Expired")
+                 
                 device_code.delete()
                 return JsonResponse(
                     data={
@@ -357,17 +348,14 @@ class ChallengeView(View):
 
                 graph = graph if device_code.graph else get_fitting_graph(request)
 
-                configuration = configure_new_app(
-                    device_code.user,
-                    device_code.name,
-                    device_code.scopes,
-                    graph,
-                )
+                fakt = create_private_fakt(device_code.identifier, device_code.version, device_code.user, device_code.user, device_code.scopes, kind="user")
+
+                
 
                 return JsonResponse(
                     data={
                         "status": "granted",
-                        "config": configuration,
+                        "token": fakt.token,
                     }
                 )
 
@@ -379,6 +367,59 @@ class ChallengeView(View):
             )
 
         raise Exception("Malformed Request")
+
+@method_decorator(csrf_exempt, name="dispatch")
+class RetrieveView(View):
+    """
+    Implements an endpoint that returns the faktsclaim for a given identifier and version
+    if the app was already configured and the app is marked as public
+
+    """
+
+    def post(self, request, *args, **kwargs):
+        json_data = json.loads(request.body)
+        identifier = json_data["identifier"]
+        version = json_data["version"]
+        redirect_uri = json_data["redirect_uri"]
+
+        try:
+            app = App.objects.get(identifier=identifier, version=version)
+        except App.DoesNotExist:
+            return JsonResponse(
+                data={
+                    "status": "error",
+                    "message": f"App does not exist {identifier}:{version}"
+                }
+            )
+
+       
+
+        try: 
+            faktapp = app.fakt_applications.filter(application__redirect_uris__contains=redirect_uri).first()
+            if not faktapp.kind == FaktKindChoices.WEBSITE.value:
+                return JsonResponse(
+                    data={
+                        "status": "error",
+                        "message": "App is not public. Please use a different grant",
+                    }
+                )
+
+
+            return JsonResponse(data={
+                        "status": "granted",
+                        "token": faktapp.token,
+                    })
+
+
+        except FaktApplication.DoesNotExist:
+            return JsonResponse(
+                data={
+                    "status": "error",
+                    "message": "There is not associated app on the platform that supports this redirect uri",
+                }
+            )
+
+
 
 
 @method_decorator(csrf_exempt, name="dispatch")
@@ -393,36 +434,42 @@ class ClaimView(View):
     """
 
     def post(self, request, *args, **kwargs):
-
-        json_data = json.loads(request.body)
-
-        client_id = json_data["client_id"]
-        client_secret = json_data["client_secret"]
-        scopes = json_data["scopes"]
-
-        logger.error(client_id)
         try:
-            app = Application.objects.get(
-                client_id=client_id,
-            )
+            json_data = json.loads(request.body)
 
-            if "graph" in json_data and json_data["graph"]:
-                graph = ConfigurationGraph.objects.get(name=json_data["graph"])
-            else:
-                graph = get_fitting_graph(request)
+            token = json_data["token"]
+            try:
+                app = FaktApplication.objects.get(
+                    token   = token
+                )
 
-            configuration = claim_app(app, client_secret, scopes, graph)
 
-            return JsonResponse(
-                data={
-                    "status": "granted",
-                    "config": configuration,
-                }
-            )
-        except Application.DoesNotExist:
+                if "graph" in json_data and json_data["graph"]:
+                    graph = ConfigurationGraph.objects.get(name=json_data["graph"])
+                else:
+                    graph = get_fitting_graph(request)
+
+                configuration = claim_app(app.application, app.client_secret, app.scopes, graph)
+
+                return JsonResponse(
+                    data={
+                        "status": "granted",
+                        "config": configuration,
+                    }
+                )
+            except FaktApplication.DoesNotExist:
+                return JsonResponse(
+                    data={
+                        "status": "error",
+                        "message": "Application not found",
+                    }
+                )
+        except Exception as e:
+            logger.error(e)
             return JsonResponse(
                 data={
                     "status": "error",
-                    "message": "Application not found",
+                    "message": "Malformed Request",
                 }
             )
+

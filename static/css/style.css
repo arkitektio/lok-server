@@ -71,17 +71,6 @@ body {
   margin: 0;
 }
 
-div > img {
-  display: block;
-  position: absolute;
-  flex-shrink: 0;
-  top: 50%;
-  left: 50%;
-  min-height: 100%;
-  min-width: 100%;
-  max-height:100%;
-  transform: translate(-50%, -50%);
-}
 
 /*
  * Header

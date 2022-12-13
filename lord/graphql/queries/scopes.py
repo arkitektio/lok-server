@@ -12,8 +12,8 @@ ApplicationModel = get_application_model()
 
 
 class Scope(graphene.ObjectType):
-    value = graphene.String()
-    label = graphene.String()
+    value = graphene.String(required=True)
+    label = graphene.String(required=True)
     description = graphene.String()
 
 

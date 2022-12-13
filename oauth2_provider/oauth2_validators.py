@@ -434,7 +434,6 @@ class OAuth2Validator(RequestValidator):
         """
         When users try to access resources, check that provided token is valid
         """
-        logger.error(f"TOken {token}")
         if not token:
             return False
 
@@ -446,7 +445,6 @@ class OAuth2Validator(RequestValidator):
 
         access_token = self._load_access_token(token)
 
-        log.error(f"Accesstoken {access_token}")
 
         # if there is no token or it's invalid then introspect the token if there's an external OAuth server
         if not access_token or not access_token.is_valid(scopes):

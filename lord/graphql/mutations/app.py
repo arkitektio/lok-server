@@ -4,12 +4,11 @@ from balder.types.query.base import BalderQuery
 from balder.types import BalderObject
 from lord import types
 from lord import models
-from oauth2_provider.models import get_application_model
+from oauth2_provider.models import Application as ApplicationModel
 from django.conf import settings
 import graphene
 from uuid import uuid4
 
-ApplicationModel = get_application_model()
 
 
 class DeleteApplicationResult(graphene.ObjectType):
@@ -50,7 +49,7 @@ class CreateApplication(BalderMutation):
             authorization_grant_type=grant_type,
             redirect_uris="\n".join(redirect_uris) if redirect_uris else None,
         )
-        print(f"Created App {app}")
+         
 
         return app
 
@@ -77,7 +76,7 @@ class CreateUserApplication(BalderMutation):
             authorization_grant_type=GrantType.AUTHORIZATION_CODE.value,
             redirect_uris="\n".join(redirect_uris) if redirect_uris else None,
         )
-        print(f"Created App {app}")
+         
 
         return app
 
@@ -96,8 +95,14 @@ class CreateUserBackendApplication(BalderMutation):
         name = graphene.String(
             description="The Name of this Application", required=True
         )
+        version = graphene.String(
+            description="The Version of this Application", required=True
+        )
+        identifier = graphene.String(
+            description="The Identifier of this Application", required=True
+        )
 
-    def mutate(root, info, *args, name=None, grant_type=None, redirect_uris=None):
+    def mutate(root, info, *args, version=None, identifier=None, name=None, grant_type=None, redirect_uris=None):
 
         x = str(uuid4())
 
@@ -107,8 +112,10 @@ class CreateUserBackendApplication(BalderMutation):
             authorization_grant_type=GrantType.CLIENT_CREDENTIALS.value,
             redirect_uris=[],
             client_secret=x,
+            version=version,
+            identifier=identifier,
         )
-        print(f"Created App {app}{x}")
+         
 
         return {
             "client_id": app.client_id,
@@ -117,4 +124,4 @@ class CreateUserBackendApplication(BalderMutation):
 
     class Meta:
         type = CreatedBackendApp
-        operation = "createUserBackendApp"
+        operation = "createUserApp"

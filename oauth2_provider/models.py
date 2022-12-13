@@ -15,7 +15,7 @@ from django.utils.translation import gettext_lazy as _
 from jwcrypto import jwk
 from jwcrypto.common import base64url_encode
 from oauthlib.oauth2.rfc6749 import errors
-
+from django.contrib.auth import get_user_model
 from .generators import generate_client_id, generate_client_secret
 from .scopes import get_scopes_backend
 from .settings import oauth2_settings
@@ -41,6 +41,9 @@ class ClientSecretField(models.CharField):
             setattr(model_instance, self.attname, hashed_secret)
             return hashed_secret
         return super().pre_save(model_instance, add)
+
+
+
 
 
 class AbstractApplication(models.Model):
@@ -94,11 +97,12 @@ class AbstractApplication(models.Model):
     )
 
     id = models.BigAutoField(primary_key=True)
+
     client_id = models.CharField(
         max_length=100, unique=True, default=generate_client_id, db_index=True
     )
     user = models.ForeignKey(
-        settings.AUTH_USER_MODEL,
+        get_user_model(),
         related_name="%(app_label)s_%(class)s",
         null=True,
         blank=True,
@@ -251,8 +255,9 @@ class ApplicationManager(models.Manager):
 class Application(AbstractApplication):
     objects = ApplicationManager()
 
+
     class Meta(AbstractApplication.Meta):
-        swappable = "OAUTH2_PROVIDER_APPLICATION_MODEL"
+        pass
 
     def natural_key(self):
         return (self.client_id,)
@@ -285,13 +290,13 @@ class AbstractGrant(models.Model):
 
     id = models.BigAutoField(primary_key=True)
     user = models.ForeignKey(
-        settings.AUTH_USER_MODEL,
+        get_user_model(),
         on_delete=models.CASCADE,
         related_name="%(app_label)s_%(class)s",
     )
     code = models.CharField(max_length=255, unique=True)  # code comes from oauthlib
     application = models.ForeignKey(
-        oauth2_settings.APPLICATION_MODEL, on_delete=models.CASCADE
+        "Application", on_delete=models.CASCADE
     )
     expires = models.DateTimeField()
     redirect_uri = models.TextField()
@@ -329,7 +334,7 @@ class AbstractGrant(models.Model):
 
 class Grant(AbstractGrant):
     class Meta(AbstractGrant.Meta):
-        swappable = "OAUTH2_PROVIDER_GRANT_MODEL"
+        pass
 
 
 class AbstractAccessToken(models.Model):
@@ -349,7 +354,7 @@ class AbstractAccessToken(models.Model):
 
     id = models.BigAutoField(primary_key=True)
     user = models.ForeignKey(
-        settings.AUTH_USER_MODEL,
+        get_user_model(),
         on_delete=models.CASCADE,
         blank=True,
         null=True,
@@ -357,7 +362,7 @@ class AbstractAccessToken(models.Model):
     )
     source_refresh_token = models.OneToOneField(
         # unique=True implied by the OneToOneField
-        oauth2_settings.REFRESH_TOKEN_MODEL,
+        "RefreshToken",
         on_delete=models.SET_NULL,
         blank=True,
         null=True,
@@ -368,14 +373,14 @@ class AbstractAccessToken(models.Model):
         unique=True,
     )
     id_token = models.OneToOneField(
-        oauth2_settings.ID_TOKEN_MODEL,
+        "IDToken",
         on_delete=models.CASCADE,
         blank=True,
         null=True,
         related_name="access_token",
     )
     application = models.ForeignKey(
-        oauth2_settings.APPLICATION_MODEL,
+        "Application",
         on_delete=models.CASCADE,
         blank=True,
         null=True,
@@ -442,7 +447,7 @@ class AbstractAccessToken(models.Model):
 
 class AccessToken(AbstractAccessToken):
     class Meta(AbstractAccessToken.Meta):
-        swappable = "OAUTH2_PROVIDER_ACCESS_TOKEN_MODEL"
+        pass
 
 
 class AbstractRefreshToken(models.Model):
@@ -462,16 +467,16 @@ class AbstractRefreshToken(models.Model):
 
     id = models.BigAutoField(primary_key=True)
     user = models.ForeignKey(
-        settings.AUTH_USER_MODEL,
+        get_user_model(),
         on_delete=models.CASCADE,
         related_name="%(app_label)s_%(class)s",
     )
     token = models.CharField(max_length=5000)
     application = models.ForeignKey(
-        oauth2_settings.APPLICATION_MODEL, on_delete=models.CASCADE
+        "Application", on_delete=models.CASCADE
     )
     access_token = models.OneToOneField(
-        oauth2_settings.ACCESS_TOKEN_MODEL,
+        "AccessToken",
         on_delete=models.SET_NULL,
         blank=True,
         null=True,
@@ -517,7 +522,7 @@ class AbstractRefreshToken(models.Model):
 
 class RefreshToken(AbstractRefreshToken):
     class Meta(AbstractRefreshToken.Meta):
-        swappable = "OAUTH2_PROVIDER_REFRESH_TOKEN_MODEL"
+        pass
 
 
 class AbstractIDToken(models.Model):
@@ -538,7 +543,7 @@ class AbstractIDToken(models.Model):
 
     id = models.BigAutoField(primary_key=True)
     user = models.ForeignKey(
-        settings.AUTH_USER_MODEL,
+        get_user_model(),
         on_delete=models.CASCADE,
         blank=True,
         null=True,
@@ -548,7 +553,7 @@ class AbstractIDToken(models.Model):
         unique=True, default=uuid.uuid4, editable=False, verbose_name="JWT Token ID"
     )
     application = models.ForeignKey(
-        oauth2_settings.APPLICATION_MODEL,
+        "Application",
         on_delete=models.CASCADE,
         blank=True,
         null=True,
@@ -615,7 +620,7 @@ class AbstractIDToken(models.Model):
 
 class IDToken(AbstractIDToken):
     class Meta(AbstractIDToken.Meta):
-        swappable = "OAUTH2_PROVIDER_ID_TOKEN_MODEL"
+        pass
 
 
 def get_application_model():

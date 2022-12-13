@@ -1,5 +1,5 @@
 from django.http import HttpRequest
-from .models import ConfigurationGraph
+from .models import ConfigurationGraph, create_private_fakt
 from oauth2_provider.models import AbstractApplication, get_application_model
 from uuid import uuid4
 import collections.abc
@@ -25,19 +25,13 @@ def get_fitting_graph(request: HttpRequest) -> ConfigurationGraph:
     return graph
 
 
-def configure_new_app(user, name: str, scopes: str, graph: ConfigurationGraph):
+def configure_new_app(user, name: str, scopes: str, version: str, identifier: str, graph: ConfigurationGraph):
 
-    client_secret = str(uuid4())
 
-    new_app = get_application_model().objects.create(
-        name=name,
-        user=user,
-        client_secret=client_secret,
-        redirect_uris="",
-        client_type="confidential",
-        authorization_grant_type="client-credentials",
-        algorithm=AbstractApplication.RS256_ALGORITHM,
-    )
+    app = create_private_fakt(identifier, version, user, user, scopes)
+
+
+    client_app = app.application
 
     config = {}
 
@@ -48,18 +42,20 @@ def configure_new_app(user, name: str, scopes: str, graph: ConfigurationGraph):
         config,
         {
             "herre": {
-                "client_id": new_app.client_id,
-                "client_secret": client_secret,
-                "grant_type": new_app.authorization_grant_type,
-                "scopes": scopes,
-                "name": new_app.name,
+                "client_id": client_app.client_id,
+                "client_secret": app.client_secret,
+                "grant_type": client_app.authorization_grant_type,
+                "scopes": app.scopes,
+                "name": client_app.name,
+                "version": app.version,
+                "identifier": app.identifier,
             }
         },
     )
 
 
 def configure_new_public_app(
-    user, name: str, scopes: str, redirect_uri: str, graph: ConfigurationGraph
+    user, name: str, scopes: str, redirect_uri: str, version: str, identifier: str, graph: ConfigurationGraph
 ):
     client_secret = str(uuid4())
 
@@ -69,6 +65,8 @@ def configure_new_public_app(
         client_secret=client_secret,
         redirect_uris=redirect_uri,
         client_type="public",
+        identifier=identifier,
+        version=version,
         authorization_grant_type="authorization-code",
         algorithm=AbstractApplication.RS256_ALGORITHM,
     )

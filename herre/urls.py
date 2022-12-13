@@ -23,7 +23,6 @@ from django.contrib import admin
 from django.shortcuts import render
 from django.views.decorators.csrf import csrf_exempt
 from balder.views import BalderView
-from rest_framework import routers, serializers, viewsets
 
 from django.conf import settings
 from django.conf.urls.static import static
@@ -36,22 +35,16 @@ def index(request):
     return render(request, "index-oslo.html")
 
 
-router = routers.DefaultRouter()
-router.register(r"app", DownloadApplicationViewSet)
-
-
 "hsssssssssssssss"
 
 urlpatterns = (
     [
         path("", index, name="index"),
         path("auth/", Application.as_view()),  # Testing ground for access token testing
-        path("apid/", include(router.urls)),  # Testing ground for access token testing
         path("avatar/", include("avatar.urls")),
         path("o/me/", Me.as_view()),  # Testing ground for access token testing
-        path(
-            "accounts/", include("registration.backends.default.urls"), name="accounts"
-        ),
+        path("accounts/", include("accounts.urls")),  # new
+        path("accounts/", include("django.contrib.auth.urls"), name="auth"),
         path("graphql", BalderView, name="graphql"),
         path("admin/", admin.site.urls),
         path("o/", include("oauth2_provider.urls", namespace="oauth2_provider")),

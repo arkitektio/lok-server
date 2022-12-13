@@ -47,6 +47,16 @@ class Command(BaseCommand):
             help="The name this application",
         )
         parser.add_argument(
+            "--identifier",
+            type=str,
+            help="The name this application",
+        )
+        parser.add_argument(
+            "--version",
+            type=str,
+            help="The name this application",
+        )
+        parser.add_argument(
             "--skip-authorization",
             action="store_true",
             help="The ID of the new application",

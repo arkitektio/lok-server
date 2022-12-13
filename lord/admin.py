@@ -10,5 +10,5 @@ class UserAdmin(BaseUserAdmin):
 
 
 admin.site.register(HerreUser, UserAdmin)
-admin.site.register(AppImage)
-admin.site.register(GroupImage)
+admin.site.register(GroupProfile)
+admin.site.register(Profile)

@@ -4,10 +4,10 @@
 {% block header_text %}herre{% endblock %}
 {% load static %}
 {% block content %}
-    <div class="cover-container d-flex w-100 h-100 p-3 mx-auto flex-column">
-      <header class="masthead mb-auto">
-        <div class="inner">
-          <h3 class="masthead-brand">Herre</h3>
+    <div class="flex flex w-[50%] h-full p-3 mx-auto flex-column">
+      <header class="flex flex-row">
+          <h3 class="flex-initial my-auto">Herre</h3>
+          <div class="flex-grow"></div>
           <nav class="nav nav-masthead justify-content-center">
             <a class="nav-link" href="#">Home</a>
             {% if user.is_superuser %}
@@ -15,30 +15,29 @@
             {% endif %}
             <a class="nav-link" href="{% url 'graphql' %}">GraphQL</a>
             {% if user.is_authenticated %}
-            <a class="nav-link" href="{% url 'auth_logout' %}">Logout</a>
+            <a class="nav-link" href="{% url 'logout' %}">Logout</a>
             {% else %}
-            <a class="nav-link" href="{% url 'auth_login' %}?next={% url 'index' %}">Login</a>
+            <a class="nav-link" href="{% url 'login' %}?next={% url 'index' %}">Login</a>
             {% endif %}
           </nav>
-        </div>
       </header>
 
-      <main role="main" class="inner cover">
-        <div class="img-wrap">
-          <img src="{% static 'img/auth.png' %}">
+      <main role="main" class="flex flex-col items-center text-center flex-grow">
+        <div class="flex w-[600px]">
+          <img src="{% static 'img/auth.png' %}" width="600" height="600">
         </div>
           
           <br/>
-          <h1 class="cover-heading"><p>Herre</p> </h1>
-        <p class="lead">Herre is the authentication microservice for Arnheim<br/> Please do create an account!</p>
-        <p class="lead">
+          <h1 class="font-bold text-3xl"><p>Herre</p> </h1>
+        <div class="font-light mt-2 mb-4">Herre is the authentication microservice for Arnheim<br/> Please do create an account!</p></div>
+        <div class="font-bold mt-2 mb-4">
           {% if not user.is_authenticated %}
-          <a href="{% url 'registration_register' %}" class="btn btn-lg btn-secondary">Create Account</a>
+          <a href="{% url 'signup' %}" class="p-3 border border-1 rounded-md border-red-300 text-red-300">Create Account</a>
           {% endif %}
-        </p>
+        </div>
       </main>
 
-      <footer class="mastfoot mt-auto">
+      <footer class="font-light text-xs flex-initial text-center">
         <div class="inner">
           <p><a href="https://github.com/jhnnsrs/herre">herre</a>, by <a href="https://github.com/jhnnsrs">@jhnnsrs</a>.</p>
         </div>
