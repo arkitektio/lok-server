@@ -20,6 +20,7 @@ from .serializers import (
     UserSerializer,
 )
 from django.http import FileResponse, request
+from django.conf import settings
 from rest_framework import viewsets, renderers
 from rest_framework.decorators import action
 import yaml
@@ -124,6 +125,16 @@ class Callback(APIView):
 
     def get(self, request, format=None):
         return HttpResponse("OK")
+
+
+
+@method_decorator(csrf_exempt, name="dispatch")
+class WellKnownFakts(APIView):
+    """Well Known fakts Viewset (only allows get)"""
+
+    def get(self, request, format=None):
+        return Response({"name": settings.FAKT_NAME, "version": "0.0.1", "description": "This is the best server", "claim": request.build_absolute_uri("/f/claim") , "base_url": request.build_absolute_uri("/f/")})
+
 
 
 

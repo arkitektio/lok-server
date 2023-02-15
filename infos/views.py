@@ -348,7 +348,7 @@ class ChallengeView(View):
 
                 graph = graph if device_code.graph else get_fitting_graph(request)
 
-                fakt = create_private_fakt(device_code.identifier, device_code.version, device_code.user, device_code.user, device_code.scopes, kind="user")
+                fakt = create_private_fakt(device_code.identifier, device_code.version, device_code.user, device_code.user, device_code.scopes)
 
                 
 
@@ -396,6 +396,14 @@ class RetrieveView(View):
 
         try: 
             faktapp = app.fakt_applications.filter(application__redirect_uris__contains=redirect_uri).first()
+            if not faktapp:
+                return JsonResponse(
+                    data={
+                        "status": "error",
+                        "message": "There is no client for this app registed on this redirect_uri. Please use a different grant",
+                    }
+                )
+
             if not faktapp.kind == FaktKindChoices.WEBSITE.value:
                 return JsonResponse(
                     data={

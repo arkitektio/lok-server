@@ -10,6 +10,11 @@ class HerreUser(AbstractUser):
     def is_faktsadmin(self):
         return self.groups.filter(name="admin").exists()
 
+    @property
+    def avatar(self):
+        if self.profile:
+            return self.profile.avatar.url if self.profile.avatar else None
+
 
 class Profile(models.Model):
     name = models.CharField(max_length=1000, null=True, blank=True)

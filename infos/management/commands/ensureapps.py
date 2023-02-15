@@ -31,7 +31,7 @@ class Command(BaseCommand):
             tenant = get_user_model().objects.get(username=app["TENANT"])
 
             if app["GRANT_TYPE"] == "client-credentials":
-                models.create_private_fakt(app["IDENTIFIER"], app["VERSION"], tenant, tenant, app["SCOPES"],  app["KIND"], client_id=app["CLIENT_ID"], client_secret=app["CLIENT_SECRET"])
+                models.create_private_fakt(app["IDENTIFIER"], app["VERSION"], tenant, tenant, app["SCOPES"],  client_id=app["CLIENT_ID"], client_secret=app["CLIENT_SECRET"])
             else:
-                models.create_public_fakt(app["IDENTIFIER"], app["VERSION"], tenant, app["REDIRECT_URIS"], app["SCOPES"],  app["KIND"], client_id=app["CLIENT_ID"], client_secret=app["CLIENT_SECRET"])
+                models.create_public_fakt(app["IDENTIFIER"], app["VERSION"], tenant, app["REDIRECT_URIS"], app["SCOPES"],  client_id=app["CLIENT_ID"], client_secret=app["CLIENT_SECRET"])
 

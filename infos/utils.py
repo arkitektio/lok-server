@@ -41,7 +41,7 @@ def configure_new_app(user, name: str, scopes: str, version: str, identifier: st
     return update_nested(
         config,
         {
-            "herre": {
+            "lok": {
                 "client_id": client_app.client_id,
                 "client_secret": app.client_secret,
                 "grant_type": client_app.authorization_grant_type,
@@ -79,7 +79,7 @@ def configure_new_public_app(
     return update_nested(
         config,
         {
-            "herre": {
+            "lok": {
                 "grant_type": new_app.authorization_grant_type,
                 "client_id": new_app.client_id,
                 "client_secret": client_secret,
@@ -100,7 +100,7 @@ def claim_public_app(app, scopes, graph: ConfigurationGraph):
     return update_nested(
         config,
         {
-            "herre": {
+            "lok": {
                 "client_id": app.client_id,
                 "client_secret": app.client_secret,
                 "grant_type": app.authorization_grant_type,
@@ -121,7 +121,7 @@ def claim_app(app, client_secret, scopes, graph: ConfigurationGraph):
     return update_nested(
         config,
         {
-            "herre": {
+            "lok": {
                 "client_id": app.client_id,
                 "client_secret": client_secret,
                 "grant_type": app.authorization_grant_type,

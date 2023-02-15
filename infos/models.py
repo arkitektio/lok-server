@@ -135,7 +135,7 @@ class FaktApplication(models.Model):
 
 
 
-def create_public_fakt(identifier: str, version: str, creator: str, redirect_uris: List[str], scopes: List[str], kind, client_secret=None, client_id=None):
+def create_public_fakt(identifier: str, version: str, creator: str, redirect_uris: List[str], scopes: List[str], client_secret=None, client_id=None):
     f, _ = App.objects.get_or_create(identifier=identifier, version=version)
     try:
          
@@ -144,14 +144,14 @@ def create_public_fakt(identifier: str, version: str, creator: str, redirect_uri
         app.app = f
         app.creator = creator
         app.scopes = scopes
-        app.kind = kind
+        app.kind = FaktKindChoices.WEBSITE.value
         app.client_secret = client_secret or app.client_secret
         app.client_id = client_id or app.client_id
         app.save()
 
         app.application.name = f"@{identifier}:{version}"
         app.application.user = creator
-        app.application.client_type = "public" if kind == FaktKindChoices.WEBSITE.value else "confidential"
+        app.application.client_type = "public"
         app.application.algorithm = Application.RS256_ALGORITHM
         app.application.authorization_grant_type = Application.GRANT_AUTHORIZATION_CODE
         app.application.redirect_uris = " ".join(redirect_uris)
@@ -165,7 +165,7 @@ def create_public_fakt(identifier: str, version: str, creator: str, redirect_uri
 
         app = Application.objects.create(
             user=creator,
-            client_type= "public" if kind == FaktKindChoices.WEBSITE.value else "confidential",
+            client_type= "public",
             algorithm=Application.RS256_ALGORITHM,
             name=f"@{identifier}:{version}",
             authorization_grant_type=Application.GRANT_AUTHORIZATION_CODE,
@@ -177,14 +177,14 @@ def create_public_fakt(identifier: str, version: str, creator: str, redirect_uri
 
         return FaktApplication.objects.create(
             app=f, creator=creator,
-            kind=kind,
+            kind=FaktKindChoices.WEBSITE.value,
             scopes=scopes,
             client_id=client_id, client_secret=client_secret, application=app
 
         )
 
 
-def create_private_fakt(identifier: str, version: str, user: str, creator: str, scopes: List[str], kind, client_secret=None, client_id=None):
+def create_private_fakt(identifier: str, version: str, user: str, creator: str, scopes: List[str], client_secret=None, client_id=None):
     f, _ = App.objects.get_or_create(identifier=identifier, version=version)
     try:
         app = FaktApplication.objects.get(client_id=client_id)

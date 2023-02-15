@@ -19,7 +19,7 @@ class CreatePrivateFakt(BalderMutation):
 
     def mutate(root, info, version, identifier, scopes, imitate=None, **kwargs):
         # TODO: assert scopes can manage apps
-        return models.create_private_fakt(identifier, version, info.context.user, info.context.user, scopes)
+        return models.create_private_fakt(identifier, version, info.context.user, info.context.user, scopes, "")
 
     class Meta:
         type = types.FaktApplication
