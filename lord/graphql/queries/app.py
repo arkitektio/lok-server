@@ -69,3 +69,38 @@ class ApplicationQuery(BalderQuery):
     class Meta:
         type = types.Application
         operation = "application"
+
+
+class ApplicationsQuery(BalderQuery):
+    def resolve(root, info):
+         
+        return ApplicationModel.objects.all()
+
+    class Meta:
+        list = True
+        type = types.Application
+        operation = "clients"
+
+
+class ApplicationsQuery(BalderQuery):
+    def resolve(root, info):
+         
+        return ApplicationModel.objects.filter(user=info.context.user)
+
+    class Meta:
+        list = True
+        type = types.Application
+        operation = "myclients"
+
+
+class ApplicationQuery(BalderQuery):
+    class Arguments:
+        id = graphene.ID(description="The ID to search by", required=True)
+
+    resolve = lambda root, info, id: ApplicationModel.objects.get(
+        client_id=id
+    )
+
+    class Meta:
+        type = types.Application
+        operation = "client"

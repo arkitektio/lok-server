@@ -5,10 +5,6 @@ from oauth2_provider.models import get_application_model
 
 
 class ConfigureForm(forms.Form):
-    name = forms.CharField(
-        required=True,
-        help_text="Give this specific app a memorable name",
-    )
     redirect_uri = forms.CharField(widget=forms.HiddenInput(), required=False)
     grant = forms.CharField(widget=forms.HiddenInput(), required=True)
     version = forms.CharField(help_text="Declare a version app", required=True, empty_value="latest")

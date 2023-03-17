@@ -20,7 +20,14 @@ class Scope(graphene.ObjectType):
 provider_settings = settings.OAUTH2_PROVIDER
 
 
-def return_filtered_scopes(search):
+def return_filtered_scopes(search, ids: list = None):
+    if ids:
+        return [
+            Scope(value=key, label=value, description=provider_settings["SCOPES"][key])
+            for key, value in provider_settings["SCOPES"].items()
+            if key in ids
+        ]
+
     return [
         Scope(value=key, label=value, description=provider_settings["SCOPES"][key])
         for key, value in provider_settings["SCOPES"].items()
@@ -37,12 +44,12 @@ scopelist = [
 class ScopesQuery(BalderQuery):
     class Arguments:
         search = graphene.String(description="Unique app name for user")
+        values = graphene.List(graphene.ID, description="Unique app name for user")
 
-    def resolve(root, info, *args, search=None):
-        if not search:
-
+    def resolve(root, info, *args, search=None, values=None):
+        if not search and not values:
             return scopelist
-        return return_filtered_scopes(search)
+        return return_filtered_scopes(search, ids=values)
 
     class Meta:
         list = True

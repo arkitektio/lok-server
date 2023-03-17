@@ -4,7 +4,7 @@ from oauth2_provider.models import AbstractApplication, get_application_model
 from uuid import uuid4
 import collections.abc
 from .errors import NoConfigurationFound
-
+from django.conf import settings
 
 def update_nested(d, u):
     for k, v in u.items():
@@ -113,7 +113,9 @@ def claim_public_app(app, scopes, graph: ConfigurationGraph):
 
 def claim_app(app, client_secret, scopes, graph: ConfigurationGraph):
 
-    config = {}
+    config = {"self": {
+        "name": settings.FAKT_NAME,
+    }}
 
     for m in graph.elements.all():
         config[m.name] = m.values

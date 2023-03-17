@@ -20,6 +20,7 @@ from oauth2_provider.models import Application, get_application_model
 from enum import Enum
 import json
 from uuid import uuid4
+from typing import List
 from .models import ConfigurationGraph, DeviceCode, FaktApplication
 import datetime
 from .utils import (
@@ -49,6 +50,17 @@ class ConfigurationRequest:
     grant: ConfigureGrant
     claim: Optional[str] = None  #
     device_code: Optional[str] = None
+
+
+@dataclass
+class Manifest:
+    version: str
+    identifier: str
+    scopes: List[str]
+    image: Optional[str] = None
+
+
+
 
 
 class ConfigureMixin:
@@ -128,12 +140,12 @@ class ConfigureView(BaseConfigurationView, FormView):
 
         initial_data = {
             "redirect_uri": self.request.GET.get("redirect_uri", None),
-            "name": self.request.GET.get("name", None),
             "scopes": self.request.GET.get("scope", "").split(" "),
             "state": self.request.GET.get("state", None),
             "grant": self.request.GET.get("grant", None),
             "version": self.request.GET.get("version", None),
             "identifier": self.request.GET.get("identifier", None),
+            "image": self.request.GET.get("image", None),
             "device_code": self.request.GET.get("device_code", None),
         }
 
@@ -150,7 +162,6 @@ class ConfigureView(BaseConfigurationView, FormView):
         scopes = form.cleaned_data["scopes"]
         version = form.cleaned_data["version"]
         identifier = form.cleaned_data["identifier"]
-        name = form.cleaned_data["name"]
 
         if grant == ConfigureGrant.DEVICE_CODE:
 
@@ -161,7 +172,6 @@ class ConfigureView(BaseConfigurationView, FormView):
             )
 
             challenge.user = self.request.user
-            challenge.name = name
             challenge.scopes = scopes
             challenge.version = version
             challenge.identifier = identifier
@@ -172,57 +182,7 @@ class ConfigureView(BaseConfigurationView, FormView):
 
             return self.render_to_response(self.get_context_data(**kwargs))
 
-        if grant == ConfigureGrant.USER_REDIRECT:
-
-            state = form.cleaned_data["state"]
-            redirect_uri = form.cleaned_data["redirect_uri"]
-
-            graph = get_fitting_graph(self.request)
-
-            config = configure_new_app(self.request.user, name, scopes, version, identifier, graph)
-
-            qs = urllib.parse.urlencode({"config": json.dumps(config), "state": state})
-
-            success_url = redirect_uri + f"?{qs}"
-
-            logger.debug("Success url for the request: {0}".format(success_url))
-            return self.redirect(success_url)
-
-        if grant == ConfigureGrant.PUBLIC_REDIRECT:
-
-            name = form.cleaned_data["name"]
-            state = form.cleaned_data["state"]
-            redirect_uri = form.cleaned_data["redirect_uri"]
-
-            graph = get_fitting_graph(self.request)
-
-            config = configure_new_public_app(
-                self.request.user, name, scopes, redirect_uri, version, identifier, graph
-            )
-
-            qs = urllib.parse.urlencode({"config": json.dumps(config), "state": state})
-
-            success_url = redirect_uri + f"?{qs}"
-
-            logger.debug("Success url for the request: {0}".format(success_url))
-            return self.redirect(success_url)
-
-        if grant == ConfigureGrant.CLAIM:
-
-            app = form.cleaned_data["claim"]
-            state = form.cleaned_data["state"]
-            redirect_uri = form.cleaned_data["redirect_uri"]
-
-            graph = get_fitting_graph(self.request)
-
-            config = claim_public_app(app, scopes, graph)
-
-            qs = urllib.parse.urlencode({"config": json.dumps(config), "state": state})
-
-            success_url = redirect_uri + f"?{qs}"
-
-            logger.debug("Success url for the request: {0}".format(success_url))
-            return self.redirect(success_url)
+       
 
         raise Exception("Not Impelemnted")
 
@@ -261,23 +221,8 @@ class ConfigureView(BaseConfigurationView, FormView):
 
 class DeviceView(LoginRequiredMixin, FormView):
     """
-    Implements an endpoint to handle *Authorization Requests* as in :rfc:`4.1.1` and prompting the
-    user with a form to determine if she authorizes the client application to access her data.
-    This endpoint is reached two times during the authorization process:
-    * first receive a ``GET`` request from user asking authorization for a certain client
-    application, a form is served possibly showing some useful info and prompting for
-    *authorize/do not authorize*.
-
-    * then receive a ``POST`` request possibly after user authorized the access
-
-    Some informations contained in the ``GET`` request and needed to create a Grant token during
-    the ``POST`` request would be lost between the two steps above, so they are temporarily stored in
-    hidden fields on the form.
-    A possible alternative could be keeping such informations in the session.
-
-    The endpoint is used in the following flows:
-    * Authorization code
-    * Implicit grant
+    This is the start view for the device flow.
+    It will redirect to the device code view.
     """
 
     template_name = "infos/device.html"
@@ -311,12 +256,7 @@ class DeviceView(LoginRequiredMixin, FormView):
 @method_decorator(csrf_exempt, name="dispatch")
 class ChallengeView(View):
     """
-    Implements an endpoint to provide access tokens
-
-    The endpoint is used in the following flows:
-    * Authorization code
-    * Password
-    * Client credentials
+    An endpoint that is challenged in the course of a device code flow.
     """
 
     def post(self, request, *args, **kwargs):
@@ -378,9 +318,9 @@ class RetrieveView(View):
 
     def post(self, request, *args, **kwargs):
         json_data = json.loads(request.body)
-        identifier = json_data["identifier"]
-        version = json_data["version"]
-        redirect_uri = json_data["redirect_uri"]
+        manifest = json_data["manifest"]
+        identifier = manifest["identifier"]
+        version = manifest["version"]
 
         try:
             app = App.objects.get(identifier=identifier, version=version)
@@ -395,7 +335,7 @@ class RetrieveView(View):
        
 
         try: 
-            faktapp = app.fakt_applications.filter(application__redirect_uris__contains=redirect_uri).first()
+            faktapp = app.fakt_applications.first()
             if not faktapp:
                 return JsonResponse(
                     data={
@@ -433,12 +373,8 @@ class RetrieveView(View):
 @method_decorator(csrf_exempt, name="dispatch")
 class ClaimView(View):
     """
-    Implements an endpoint to provide access tokens
-
-    The endpoint is used in the following flows:
-    * Authorization code
-    * Password
-    * Client credentials
+    Implements an endpoint to retrieve a faktsclaim given a
+    token that was generated by the platform
     """
 
     def post(self, request, *args, **kwargs):

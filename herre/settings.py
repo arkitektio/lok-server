@@ -169,6 +169,7 @@ CHANNEL_LAYERS = {
         "BACKEND": "channels_redis.core.RedisChannelLayer",
         "CONFIG": {
             "hosts": [(conf.redis.host, conf.redis.port)],
+            "prefix": "lok"
         },
     },
 }
@@ -342,7 +343,11 @@ ENSURED_APPS = [
     for app in conf.apps
 ]
 
+# Setup support for ss
 USE_X_FORWARDED_HOST = True
+SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
+
+
 
 LOGIN_REDIRECT_URL = "/"
 LOGIN_URL = "login"
