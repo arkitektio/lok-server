@@ -8,7 +8,7 @@ class ConfigurationError(Exception):
 
 class ConfigurationRequestMalformed(ConfigurationError):
     """
-    Raised when a configuration request is malformed.
+    Raised when a configuration request is malformed
     """
 
     pass

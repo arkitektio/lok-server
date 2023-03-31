@@ -29,10 +29,12 @@ from .utils import (
     configure_new_app,
     configure_new_public_app,
     get_fitting_graph,
+    create_api_token,
 )
 from django.utils import timesince
 from django.shortcuts import redirect
 from infos.models import create_private_fakt, App, FaktKindChoices
+
 logger = logging.getLogger(__name__)
 
 
@@ -58,9 +60,6 @@ class Manifest:
     identifier: str
     scopes: List[str]
     image: Optional[str] = None
-
-
-
 
 
 class ConfigureMixin:
@@ -136,7 +135,6 @@ class ConfigureView(BaseConfigurationView, FormView):
 
     def get_initial(self):
         # TODO: move this scopes conversion from and to string into a utils function
-         
 
         initial_data = {
             "redirect_uri": self.request.GET.get("redirect_uri", None),
@@ -157,14 +155,12 @@ class ConfigureView(BaseConfigurationView, FormView):
         return initial_data
 
     def form_valid(self, form):
-
         grant = form.cleaned_data["grant"]
         scopes = form.cleaned_data["scopes"]
         version = form.cleaned_data["version"]
         identifier = form.cleaned_data["identifier"]
 
         if grant == ConfigureGrant.DEVICE_CODE:
-
             device_code = form.cleaned_data["device_code"]
 
             challenge, _ = DeviceCode.objects.get_or_create(
@@ -181,8 +177,6 @@ class ConfigureView(BaseConfigurationView, FormView):
             kwargs["success"] = True
 
             return self.render_to_response(self.get_context_data(**kwargs))
-
-       
 
         raise Exception("Not Impelemnted")
 
@@ -211,7 +205,6 @@ class ConfigureView(BaseConfigurationView, FormView):
         form = self.get_form(self.get_form_class())
         kwargs["form"] = form
         kwargs["grant"] = configuration.grant
-         
 
         # Check to see if the user has already granted access and return
         # a successful response depending on "approval_prompt" url parameter
@@ -229,7 +222,6 @@ class DeviceView(LoginRequiredMixin, FormView):
     form_class = DeviceForm
 
     def get_initial(self):
-
         initial_data = {
             "device_code": self.request.GET.get("device_code", None),
         }
@@ -237,20 +229,16 @@ class DeviceView(LoginRequiredMixin, FormView):
         return initial_data
 
     def form_valid(self, form):
-
         device_code = form.cleaned_data["device_code"]
 
         return redirect(f"/f/configure/?grant=device_code&device_code={device_code}")
 
     def get(self, request, *args, **kwargs):
-
         # following two loc are here only because of https://code.djangoproject.com/ticket/17795
         form = self.get_form(self.get_form_class())
         kwargs["form"] = form
 
         return self.render_to_response(self.get_context_data(**kwargs))
-
-
 
 
 @method_decorator(csrf_exempt, name="dispatch")
@@ -260,7 +248,6 @@ class ChallengeView(View):
     """
 
     def post(self, request, *args, **kwargs):
-
         json_data = json.loads(request.body)
         if "code" in json_data:
             try:
@@ -275,7 +262,6 @@ class ChallengeView(View):
 
             delta = datetime.datetime.now(timezone.utc) - device_code.created_at
             if (delta.seconds // 60) > 12:
-                 
                 device_code.delete()
                 return JsonResponse(
                     data={
@@ -284,13 +270,18 @@ class ChallengeView(View):
                     }
                 )
 
+            # scopes will only be set if the user has verified the challenge
             if device_code.scopes:
+                token = create_api_token()
 
-                graph = graph if device_code.graph else get_fitting_graph(request)
-
-                fakt = create_private_fakt(device_code.identifier, device_code.version, device_code.user, device_code.user, device_code.scopes)
-
-                
+                fakt = create_private_fakt(
+                    device_code.identifier,
+                    device_code.version,
+                    device_code.user,
+                    device_code.user,
+                    device_code.scopes,
+                    token=token,
+                )
 
                 return JsonResponse(
                     data={
@@ -307,6 +298,7 @@ class ChallengeView(View):
             )
 
         raise Exception("Malformed Request")
+
 
 @method_decorator(csrf_exempt, name="dispatch")
 class RetrieveView(View):
@@ -328,13 +320,11 @@ class RetrieveView(View):
             return JsonResponse(
                 data={
                     "status": "error",
-                    "message": f"App does not exist {identifier}:{version}"
+                    "message": f"App does not exist {identifier}:{version}",
                 }
             )
 
-       
-
-        try: 
+        try:
             faktapp = app.fakt_applications.first()
             if not faktapp:
                 return JsonResponse(
@@ -352,12 +342,12 @@ class RetrieveView(View):
                     }
                 )
 
-
-            return JsonResponse(data={
-                        "status": "granted",
-                        "token": faktapp.token,
-                    })
-
+            return JsonResponse(
+                data={
+                    "status": "granted",
+                    "token": faktapp.token,
+                }
+            )
 
         except FaktApplication.DoesNotExist:
             return JsonResponse(
@@ -366,8 +356,6 @@ class RetrieveView(View):
                     "message": "There is not associated app on the platform that supports this redirect uri",
                 }
             )
-
-
 
 
 @method_decorator(csrf_exempt, name="dispatch")
@@ -383,17 +371,16 @@ class ClaimView(View):
 
             token = json_data["token"]
             try:
-                app = FaktApplication.objects.get(
-                    token   = token
-                )
-
+                app = FaktApplication.objects.get(token=token)
 
                 if "graph" in json_data and json_data["graph"]:
                     graph = ConfigurationGraph.objects.get(name=json_data["graph"])
                 else:
                     graph = get_fitting_graph(request)
 
-                configuration = claim_app(app.application, app.client_secret, app.scopes, graph)
+                configuration = claim_app(
+                    app.application, app.client_secret, app.scopes, graph
+                )
 
                 return JsonResponse(
                     data={
@@ -416,4 +403,3 @@ class ClaimView(View):
                     "message": "Malformed Request",
                 }
             )
-

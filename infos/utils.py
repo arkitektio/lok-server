@@ -6,6 +6,7 @@ import collections.abc
 from .errors import NoConfigurationFound
 from django.conf import settings
 
+
 def update_nested(d, u):
     for k, v in u.items():
         if isinstance(v, collections.abc.Mapping):
@@ -15,8 +16,11 @@ def update_nested(d, u):
     return d
 
 
-def get_fitting_graph(request: HttpRequest) -> ConfigurationGraph:
+def create_api_token():
+    return str(uuid4())
 
+
+def get_fitting_graph(request: HttpRequest) -> ConfigurationGraph:
     params = {"host": request.get_host()}
 
     graph = ConfigurationGraph.objects.filter(**params).first()
@@ -25,11 +29,15 @@ def get_fitting_graph(request: HttpRequest) -> ConfigurationGraph:
     return graph
 
 
-def configure_new_app(user, name: str, scopes: str, version: str, identifier: str, graph: ConfigurationGraph):
-
-
+def configure_new_app(
+    user,
+    name: str,
+    scopes: str,
+    version: str,
+    identifier: str,
+    graph: ConfigurationGraph,
+):
     app = create_private_fakt(identifier, version, user, user, scopes)
-
 
     client_app = app.application
 
@@ -55,7 +63,13 @@ def configure_new_app(user, name: str, scopes: str, version: str, identifier: st
 
 
 def configure_new_public_app(
-    user, name: str, scopes: str, redirect_uri: str, version: str, identifier: str, graph: ConfigurationGraph
+    user,
+    name: str,
+    scopes: str,
+    redirect_uri: str,
+    version: str,
+    identifier: str,
+    graph: ConfigurationGraph,
 ):
     client_secret = str(uuid4())
 
@@ -91,7 +105,6 @@ def configure_new_public_app(
 
 
 def claim_public_app(app, scopes, graph: ConfigurationGraph):
-
     config = {}
 
     for m in graph.elements.all():
@@ -112,10 +125,11 @@ def claim_public_app(app, scopes, graph: ConfigurationGraph):
 
 
 def claim_app(app, client_secret, scopes, graph: ConfigurationGraph):
-
-    config = {"self": {
-        "name": settings.FAKT_NAME,
-    }}
+    config = {
+        "self": {
+            "name": settings.FAKT_NAME,
+        }
+    }
 
     for m in graph.elements.all():
         config[m.name] = m.values

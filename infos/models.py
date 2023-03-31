@@ -2,6 +2,7 @@ from django.db import models
 from typing import Dict, Any
 from django.contrib.auth import get_user_model
 from oauth2_provider.generators import generate_client_id, generate_client_secret
+
 # Create your models here.
 from django.core.exceptions import ObjectDoesNotExist
 from oauth2_provider.models import Application
@@ -36,7 +37,6 @@ class ConfigurationElement(models.Model):
         return values
 
 
-
 class DeviceCode(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
     code = models.CharField(max_length=100, unique=True)
@@ -52,7 +52,6 @@ class DeviceCode(models.Model):
 
 class Member(models.Model):
     name = models.CharField(max_length=7000)
-
 
 
 def validate_semver(version: str):
@@ -79,23 +78,26 @@ class IdentifierField(models.CharField):
         super().__init__(*args, **kwargs)
 
 
-
+# TODO: Rename to manifest
 class App(models.Model):
     identifier = IdentifierField()
     version = VersionField()
     name = models.CharField(max_length=1000)
-    logo = models.ImageField(max_length=1000, null=True, blank=True, storage=PrivateMediaStorage())
+    logo = models.ImageField(
+        max_length=1000, null=True, blank=True, storage=PrivateMediaStorage()
+    )
 
     class Meta:
         constraints = [
-        models.UniqueConstraint(
-            fields=["identifier","version"],
-            name="Only one per identifier and version",
-        )
-    ]
+            models.UniqueConstraint(
+                fields=["identifier", "version"],
+                name="Only one per identifier and version",
+            )
+        ]
 
     def __str__(self):
         return f"{self.identifier}:{self.version}"
+
 
 class FaktKindChoices(models.TextChoices):
     WEBSITE = "website", "Website"
@@ -104,44 +106,69 @@ class FaktKindChoices(models.TextChoices):
 
 
 class FaktApplication(models.Model):
-    app = models.ForeignKey(App, on_delete=models.CASCADE, related_name="fakt_applications", null=True) #TODO: fix this in the future should not be null
+    app = models.ForeignKey(
+        App, on_delete=models.CASCADE, related_name="fakt_applications", null=True
+    )  # TODO: fix this in the future should not be null
     application = models.OneToOneField(Application, on_delete=models.CASCADE)
     kind = models.CharField(max_length=1000, choices=FaktKindChoices.choices, null=True)
     token = models.CharField(default=uuid.uuid4, unique=True, max_length=10000)
-    client_id = models.CharField(max_length=1000, unique=True, default=generate_client_id)
+    client_id = models.CharField(
+        max_length=1000, unique=True, default=generate_client_id
+    )
     client_secret = models.CharField(max_length=1000, default=generate_client_secret)
     scopes = models.JSONField(default=list)
     logo = models.ImageField(max_length=1000, null=True, blank=True)
-    creator = models.ForeignKey(get_user_model(), on_delete=models.CASCADE, related_name="managed_applications")
-    user = models.ForeignKey(get_user_model(), on_delete=models.CASCADE, related_name="fakt_applications", null=True)
+    creator = models.ForeignKey(
+        get_user_model(), on_delete=models.CASCADE, related_name="managed_applications"
+    )
+    user = models.ForeignKey(
+        get_user_model(),
+        on_delete=models.CASCADE,
+        related_name="fakt_applications",
+        null=True,
+    )
 
     class Meta:
         constraints = [
-        models.UniqueConstraint(
-            fields=["app","application"],
-            condition=Q(kind__in=[FaktKindChoices.WEBSITE.value, FaktKindChoices.DESKTOP.value]),
-            name="Only one unique app per identifier and version",
-        ),
-        models.UniqueConstraint(
-            fields=["app","application", "user"],
-            condition=Q(kind__in=[FaktKindChoices.USER.value]),
-            name="Only one unique app per identifier and version if it is a user app",
-        )
-    ]
+            models.UniqueConstraint(
+                fields=["app", "application"],
+                condition=Q(
+                    kind__in=[
+                        FaktKindChoices.WEBSITE.value,
+                        FaktKindChoices.DESKTOP.value,
+                    ]
+                ),
+                name="Only one unique app per identifier and version",
+            ),
+            models.UniqueConstraint(
+                fields=["app", "application", "user"],
+                condition=Q(kind__in=[FaktKindChoices.USER.value]),
+                name="Only one unique app per identifier and version if it is a user app",
+            ),
+        ]
 
     def __str__(self) -> str:
         return f"{self.app} for {self.application}"
 
 
-
-
-def create_public_fakt(identifier: str, version: str, creator: str, redirect_uris: List[str], scopes: List[str], client_secret=None, client_id=None):
+def create_public_fakt(
+    identifier: str,
+    version: str,
+    creator: str,
+    redirect_uris: List[str],
+    scopes: List[str],
+    client_secret=None,
+    client_id=None,
+    token: str = None,
+):
     f, _ = App.objects.get_or_create(identifier=identifier, version=version)
     try:
-         
         app = FaktApplication.objects.get(client_id=client_id)
-        assert app.client_secret == client_secret, "Client secret does not match. Cannot overwrite"
+        assert (
+            app.client_secret == client_secret
+        ), "Client secret does not match. Cannot overwrite"
         app.app = f
+        app.token = token
         app.creator = creator
         app.scopes = scopes
         app.kind = FaktKindChoices.WEBSITE.value
@@ -165,7 +192,7 @@ def create_public_fakt(identifier: str, version: str, creator: str, redirect_uri
 
         app = Application.objects.create(
             user=creator,
-            client_type= "public",
+            client_type="public",
             algorithm=Application.RS256_ALGORITHM,
             name=f"@{identifier}:{version}",
             authorization_grant_type=Application.GRANT_AUTHORIZATION_CODE,
@@ -174,26 +201,40 @@ def create_public_fakt(identifier: str, version: str, creator: str, redirect_uri
             client_secret=client_secret,
         )
 
-
         return FaktApplication.objects.create(
-            app=f, creator=creator,
+            app=f,
+            creator=creator,
             kind=FaktKindChoices.WEBSITE.value,
+            token=token,
             scopes=scopes,
-            client_id=client_id, client_secret=client_secret, application=app
-
+            client_id=client_id,
+            client_secret=client_secret,
+            application=app,
         )
 
 
-def create_private_fakt(identifier: str, version: str, user: str, creator: str, scopes: List[str], client_secret=None, client_id=None):
+def create_private_fakt(
+    identifier: str,
+    version: str,
+    user: str,
+    creator: str,
+    scopes: List[str],
+    client_secret=None,
+    client_id=None,
+    token: str = None,
+):
     f, _ = App.objects.get_or_create(identifier=identifier, version=version)
     try:
         app = FaktApplication.objects.get(client_id=client_id)
-        assert app.client_secret == client_secret, "Client secret does not match. Cannot overwrite"
+        assert (
+            app.client_secret == client_secret
+        ), "Client secret does not match. Cannot overwrite"
         app.creator = creator
         app.scopes = scopes
         app.kind = FaktKindChoices.USER.value
         app.client_secret = client_secret or app.client_secret
         app.client_id = client_id or app.client_id
+        app.token = token
         app.app = f
         app.save()
 
@@ -225,10 +266,13 @@ def create_private_fakt(identifier: str, version: str, user: str, creator: str, 
         )
 
         return FaktApplication.objects.create(
-            app=f, creator=creator,
+            app=f,
+            creator=creator,
             user=user,
+            token=token,
             kind=FaktKindChoices.USER.value,
             scopes=scopes,
-            client_id=client_id, client_secret=client_secret, application=app
-
+            client_id=client_id,
+            client_secret=client_secret,
+            application=app,
         )

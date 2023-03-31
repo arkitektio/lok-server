@@ -167,10 +167,7 @@ CHANNEL_LAYERS = {
     "default": {
         # This example app uses the Redis channel layer implementation channels_redis
         "BACKEND": "channels_redis.core.RedisChannelLayer",
-        "CONFIG": {
-            "hosts": [(conf.redis.host, conf.redis.port)],
-            "prefix": "lok"
-        },
+        "CONFIG": {"hosts": [(conf.redis.host, conf.redis.port)], "prefix": "lok"},
     },
 }
 
@@ -339,14 +336,14 @@ ENSURED_APPS = [
         "IDENTIFIER": app.identifier,
         "CONFIDENTIAL": app.get("confidential", True),
         "VERSION": app.version,
+        "TOKEN": app.token,
     }
     for app in conf.apps
 ]
 
 # Setup support for ss
 USE_X_FORWARDED_HOST = True
-SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
-
+SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
 
 
 LOGIN_REDIRECT_URL = "/"
