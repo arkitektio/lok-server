@@ -21,20 +21,20 @@ from enum import Enum
 import json
 from uuid import uuid4
 from typing import List
-from .models import ConfigurationGraph, DeviceCode, FaktApplication
+from .models import ConfigurationGraph, DeviceCode, Client, create_private_client, App, Release, ClientType, ConfigurationTemplate
 import datetime
 from .utils import (
-    claim_app,
-    claim_public_app,
-    configure_new_app,
-    configure_new_public_app,
+    claim_client,
     get_fitting_graph,
     create_api_token,
+    download_logo,
+    create_linking_context,
+    get_fitting_template_for_context,
+    render_template,
 )
 from django.utils import timesince
 from django.shortcuts import redirect
-from infos.models import create_private_fakt, App, FaktKindChoices
-
+import uuid
 logger = logging.getLogger(__name__)
 
 
@@ -137,48 +137,37 @@ class ConfigureView(BaseConfigurationView, FormView):
         # TODO: move this scopes conversion from and to string into a utils function
 
         initial_data = {
-            "redirect_uri": self.request.GET.get("redirect_uri", None),
-            "scopes": self.request.GET.get("scope", "").split(" "),
-            "state": self.request.GET.get("state", None),
-            "grant": self.request.GET.get("grant", None),
-            "version": self.request.GET.get("version", None),
-            "identifier": self.request.GET.get("identifier", None),
-            "image": self.request.GET.get("image", None),
             "device_code": self.request.GET.get("device_code", None),
         }
 
-        if self.request.GET.get("claim", None):
-            initial_data["claim"] = get_application_model().objects.get(
-                client_id=self.request.GET.get("claim")
-            )
+        if self.request.GET.get("device_code", None):
+            x = DeviceCode.objects.get(code=self.request.GET.get("device_code"))
+            initial_data["scopes"] = x.scopes
+        else:
+            raise NotImplementedError("Only device code is supported at the moment")
 
         return initial_data
+    
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context['code'] = DeviceCode.objects.get(code=self.request.GET.get("device_code"))
+        return context
 
     def form_valid(self, form):
-        grant = form.cleaned_data["grant"]
-        scopes = form.cleaned_data["scopes"]
-        version = form.cleaned_data["version"]
-        identifier = form.cleaned_data["identifier"]
+        device_code = form.cleaned_data["device_code"]
 
-        if grant == ConfigureGrant.DEVICE_CODE:
-            device_code = form.cleaned_data["device_code"]
+        challenge = DeviceCode.objects.get(
+            code=device_code,
+        )
 
-            challenge, _ = DeviceCode.objects.get_or_create(
-                code=device_code,
-            )
+        challenge.user = self.request.user
+        challenge.save()
 
-            challenge.user = self.request.user
-            challenge.scopes = scopes
-            challenge.version = version
-            challenge.identifier = identifier
-            challenge.save()
+        kwargs = {}
+        kwargs["success"] = True
 
-            kwargs = {}
-            kwargs["success"] = True
+        return self.render_to_response(self.get_context_data(**kwargs))
 
-            return self.render_to_response(self.get_context_data(**kwargs))
-
-        raise Exception("Not Impelemnted")
 
     def get(self, request, *args, **kwargs):
         try:
@@ -239,6 +228,71 @@ class DeviceView(LoginRequiredMixin, FormView):
         kwargs["form"] = form
 
         return self.render_to_response(self.get_context_data(**kwargs))
+    
+
+@method_decorator(csrf_exempt, name="dispatch")
+class StartChallengeView(View):
+    """
+    An endpoint that is challenged in the course of a device code flow.
+    """
+
+    def generate_code(self):
+        """Generates a random 6-digit alpha-numeric code"""
+
+        return "".join([str(uuid.uuid4())[-1] for _ in range(6)])
+
+    def post(self, request, *args, **kwargs):
+        json_data = json.loads(request.body)
+        if "manifest" in json_data:
+            manifest = json_data["manifest"]
+            code = self.generate_code()
+
+            logo = manifest.get("logo", None)
+            version = manifest.get("version", None)
+            identifier = manifest.get("identifier", None)
+            scopes = manifest.get("scopes", None)
+
+            if not version or not identifier or not scopes:
+                return JsonResponse(
+                    data={
+                        "status": "error",
+                        "error": "Malformed manifest, required fields: version, identifier, scopes",
+                    }
+                )
+
+            try:
+                logo = download_logo(logo) if logo else None
+            except Exception as e:
+                logger.error(f"Error downloading logo: {logo}", exc_info=True)
+                return JsonResponse(
+                    data={
+                        "status": "error",
+                        "error": "Error downloading logo",
+                    }
+                )
+            
+            device_code = DeviceCode.objects.create(code=code, scopes=manifest["scopes"], version=manifest["version"], identifier=manifest["identifier"])
+            if logo:
+                device_code.logo.save(f"{identifier}{version}.png", logo, save=True)
+                device_code.save()
+
+            return JsonResponse(
+                data={
+                    "status": "granted",
+                    "code": code,
+                }
+            )
+
+
+        return JsonResponse(
+                data={
+                    "status": "error",
+                    "error": "Missing manifest",
+                }
+            )
+
+
+
 
 
 @method_decorator(csrf_exempt, name="dispatch")
@@ -271,15 +325,18 @@ class ChallengeView(View):
                 )
 
             # scopes will only be set if the user has verified the challenge
-            if device_code.scopes:
+            if device_code.user:
                 token = create_api_token()
 
-                fakt = create_private_fakt(
-                    device_code.identifier,
-                    device_code.version,
+                fakt = create_private_client(
+                    Manifest(
+                        identifier=device_code.identifier,
+                        version=device_code.version,
+                        scopes=device_code.scopes,
+
+                    ),
                     device_code.user,
                     device_code.user,
-                    device_code.scopes,
                     token=token,
                 )
 
@@ -315,18 +372,26 @@ class RetrieveView(View):
         version = manifest["version"]
 
         try:
-            app = App.objects.get(identifier=identifier, version=version)
+            app = App.objects.get(identifier=identifier)
+            release = Release.objects.get(app=app, version=version)
+        except Release.DoesNotExist:
+            return JsonResponse(
+                data={
+                    "status": "error",
+                    "message": f"Release does not exist {identifier}:{version}",
+                }
+            )
         except App.DoesNotExist:
             return JsonResponse(
                 data={
                     "status": "error",
-                    "message": f"App does not exist {identifier}:{version}",
+                    "message": f"App does not exist {identifier}",
                 }
             )
 
         try:
-            faktapp = app.fakt_applications.first()
-            if not faktapp:
+            client = release.clients.first()
+            if not client:
                 return JsonResponse(
                     data={
                         "status": "error",
@@ -334,26 +399,26 @@ class RetrieveView(View):
                     }
                 )
 
-            if not faktapp.kind == FaktKindChoices.WEBSITE.value:
+            if not client.kind == ClientType.WEBSITE.value:
                 return JsonResponse(
                     data={
                         "status": "error",
-                        "message": "App is not public. Please use a different grant",
+                        "message": "Client is not public. Please use a different grant",
                     }
                 )
 
             return JsonResponse(
                 data={
                     "status": "granted",
-                    "token": faktapp.token,
+                    "token": client.token,
                 }
             )
 
-        except FaktApplication.DoesNotExist:
+        except Client.DoesNotExist:
             return JsonResponse(
                 data={
                     "status": "error",
-                    "message": "There is not associated app on the platform that supports this redirect uri",
+                    "message": "There is not associated client on the platform that supports this redirect uri",
                 }
             )
 
@@ -371,28 +436,44 @@ class ClaimView(View):
 
             token = json_data["token"]
             try:
-                app = FaktApplication.objects.get(token=token)
+                client = Client.objects.get(token=token)
 
-                if "graph" in json_data and json_data["graph"]:
-                    graph = ConfigurationGraph.objects.get(name=json_data["graph"])
+                context = create_linking_context(request, client)
+
+                if "template" in json_data and json_data["template"]:
+                    try:
+                        template = ConfigurationTemplate.objects.get(name=json_data["template"])
+                    except ConfigurationGraph.DoesNotExist:
+                        return JsonResponse(
+                            data={
+                                "status": "error",
+                                "message": f'Template {json_data["template"]}does not exist',
+                            }
+                        )
                 else:
-                    graph = get_fitting_graph(request)
+                    template = get_fitting_template_for_context(context)
 
-                configuration = claim_app(
-                    app.application, app.client_secret, app.scopes, graph
-                )
+                template = template.render(context)
 
                 return JsonResponse(
                     data={
                         "status": "granted",
-                        "config": configuration,
+                        "config": template,
                     }
                 )
-            except FaktApplication.DoesNotExist:
+            except Client.DoesNotExist:
                 return JsonResponse(
                     data={
                         "status": "error",
                         "message": "Application not found",
+                    }
+                )
+            except Exception as e:
+                logger.error(e , exc_info=True)
+                return JsonResponse(
+                    data={
+                        "status": "error",
+                        "message": "Error creating configuration",
                     }
                 )
         except Exception as e:

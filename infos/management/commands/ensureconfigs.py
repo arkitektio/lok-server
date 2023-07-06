@@ -2,11 +2,12 @@ from django.contrib.auth import get_user_model
 from django.core.management.base import BaseCommand
 from django.conf import settings
 import os
-from infos.models import ConfigurationGraph, ConfigurationElement
+from infos.models import ConfigurationGraph, ConfigurationElement, ConfigurationTemplate, Linker
+from infos.forms import ConfigurationTemplateForm, FilterForm, LinkerForm
 import yaml
-
 # import required module
 from pathlib import Path
+
 
 # assign directory
 directory = "files"
@@ -20,27 +21,60 @@ class Command(BaseCommand):
 
     def handle(self, *args, **kwargs):
 
-        directory = "fakts"
+        # Ensuring templates
+
 
         # iterate over files in
         # that directory
-        files = Path(directory).glob("*.yaml")
-        for file in files:
+        templates = Path(settings.GRAPH_TEMPLATES_DIR).glob("*.yaml")
+        for file in templates:
             filename = os.path.basename(file).split(".")[0]
 
             with open(file, "r") as file:
-                graph_dict = yaml.load(file, Loader=yaml.FullLoader)
+                template = file.read()
 
-            info = graph_dict["info"]
-            services = graph_dict["services"]
+            form = ConfigurationTemplateForm({"body": template, "name": filename})
+            assert form.is_valid(), form.errors
+            graph, _ = ConfigurationTemplate.objects.update_or_create(
+                name=filename, defaults=dict(body=template)
+            )
+            print("Ensured template", filename)
 
-            graph, _ = ConfigurationGraph.objects.get_or_create(
-                name=info["name"], host=info["host"]
+        linkers = Path(settings.GRAPH_LINKERS_DIR).glob("*.yaml")
+        for file in linkers:
+            filename = os.path.basename(file).split(".")[0]
+
+            with open(file, "r") as file:
+                values = yaml.load(file, Loader=yaml.FullLoader)
+
+            template = values.pop("template")
+            filters = values.pop("filters")
+            assert len(filters) >= 1, "At least one filter must be specified"
+
+
+
+            try:
+                x = ConfigurationTemplate.objects.get(name=template)
+            except ConfigurationTemplate.DoesNotExist:
+                raise Exception(f"Template {template} does not exist")
+            
+
+            link_name = values.pop("name")
+
+            linker_form = LinkerForm({**values, "template": x})
+            assert linker_form.is_valid(), linker_form.errors
+            linker, _ = Linker.objects.update_or_create(
+                name=link_name, defaults=linker_form.cleaned_data
             )
 
-            for key, value in services.items():
-                el = ConfigurationElement.objects.update_or_create(
-                    name=key, graph=graph, defaults={"values": value}
-                )
+            linker.filters.all().delete()
 
-             
+            validated_filters = []
+
+            for filter in filters:
+                filter_form = FilterForm({"linker": linker, **filter })
+                assert filter_form.is_valid(), filter_form.errors
+                validated_filters.append(filter_form.save())
+
+            
+

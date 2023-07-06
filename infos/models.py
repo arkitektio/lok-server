@@ -10,6 +10,41 @@ from typing import List
 from .storage import PrivateMediaStorage
 from django.db.models import Q
 import uuid
+import json
+from django.core.exceptions import ValidationError
+from jinja2 import Template, TemplateSyntaxError, TemplateError
+import yaml
+from pydantic import BaseModel, Field
+import re
+from django.conf import settings
+from typing import Optional
+
+class Manifest(BaseModel):
+    identifier: str
+    version: str
+    scopes: List[str]
+    public: bool = False
+    redirect_uris: List[str] = []
+
+class LinkingRequest(BaseModel):
+    host: str
+    port: Optional[str] = None
+    is_secure: bool = False
+
+class LinkingClient(BaseModel):
+    authorization_grant_type: str
+    client_type: str
+    client_id: str
+    client_secret: str
+    name: str
+    scopes: List[str]
+
+class LinkingContext(BaseModel):
+    deployment_name: str = Field(default=settings.DEPLOYMENT_NAME)
+    request: LinkingRequest
+    "Everything is a string"
+    manifest: Manifest
+    client: LinkingClient
 
 
 class ConfigurationGraph(models.Model):
@@ -34,7 +69,88 @@ class ConfigurationElement(models.Model):
         return f"{self.name} ons {self.graph}"
 
     def parse(self, template) -> Dict[str, Any]:
-        return values
+        return json.parse(template)
+    
+
+
+class ConfigurationTemplate(models.Model):
+    """ A template for a configuration"""
+    name = models.CharField(max_length=1000, unique=True)
+    body = models.TextField()
+
+    def render(self, context) -> Dict[str, Any]:
+        return yaml.load(Template(self.body).render(context), Loader=yaml.SafeLoader)
+
+
+class Linker(models.Model):
+
+    name = models.CharField(max_length=1000, unique=True)
+    template = models.ForeignKey(
+        ConfigurationTemplate, on_delete=models.CASCADE, related_name="linkers"
+    )
+    priority = models.IntegerField()
+
+    def parse(self, template) -> Dict[str, Any]:
+        return json.parse(template)
+    
+    def rank(self, context: LinkingContext) -> int:
+        for filter in self.filters.all():
+            if not filter.matches(context):
+                return -1
+
+        return self.priority
+
+
+
+class Filter(models.Model):
+    FILTER_CHOICES = [
+        ("host_regex", "Host matches regex"),
+        ("host_is", "Host is"),
+        ("host_is_not", "Host is not"),
+        ("port_is", "Port is"),
+        ("port_is_not", "Port is not"),
+        ("version_is", "Version is"),
+        ("version_is_not", "Version is not"),
+        ("version_regex", "Version matches regex"),
+        ("identifier_is", "Identifier is"),
+        ("identifier_is_not", "Identifier is not"),
+        ("identifier_regex", "Identifier matches regex"),
+        ("user_is", "Checks if user is certain id"),
+        ("user_is_developer", "Checks if the user is developer"),
+    ]
+    linker = models.ForeignKey(
+        Linker, on_delete=models.CASCADE, related_name="filters"
+    )
+    method = models.CharField(max_length=1000, choices=FILTER_CHOICES)
+    value = models.CharField(max_length=1000)
+
+
+    def matches(self, context: LinkingContext):
+        if self.method == "host_regex":
+            return re.match(self.value, context.request.host)
+        if self.method == "host_is":
+            return context.request.host == self.value
+        if self.method == "host_is_not":
+            return context.request.host != self.value
+        if self.method == "port_is":
+            return context.request.port == self.value
+        if self.method == "port_is_not":
+            return context.request.port != self.value
+        if self.method == "version_is":
+            return context.manifest.version == self.value
+        if self.method == "version_is_not":
+            return context.manifest.version != self.value
+        if self.method == "version_regex":
+            return re.match(self.value, context.manifest.version)
+        if self.method == "identifier_is":
+            return context.manifest.identifier == self.value
+        if self.method == "identifier_is_not":
+            return context.manifest.identifier != self.value
+        if self.method == "identifier_regex":
+            return re.match(self.value, context.manifest.identifier)
+        return False
+
+
 
 
 class DeviceCode(models.Model):
@@ -47,6 +163,9 @@ class DeviceCode(models.Model):
     scopes = models.JSONField(default=list)
     graph = models.ForeignKey(
         ConfigurationGraph, related_name="codes", on_delete=models.CASCADE, null=True
+    )
+    logo = models.ImageField(
+        max_length=1000, null=True, blank=True, storage=PrivateMediaStorage()
     )
 
 
@@ -77,21 +196,35 @@ class IdentifierField(models.CharField):
         kwargs["max_length"] = 1000
         super().__init__(*args, **kwargs)
 
-
-# TODO: Rename to manifest
 class App(models.Model):
+    name = models.CharField(max_length=1000)
     identifier = IdentifierField()
+    logo = models.ImageField(
+        max_length=1000, null=True, blank=True, storage=PrivateMediaStorage()
+    )
+
+class Release(models.Model):
+    app = models.ForeignKey(App, on_delete=models.CASCADE, related_name="releases")
     version = VersionField()
+    is_latest = models.BooleanField(default=False)
+    is_dev = models.BooleanField(default=False)
     name = models.CharField(max_length=1000)
     logo = models.ImageField(
         max_length=1000, null=True, blank=True, storage=PrivateMediaStorage()
     )
 
+    def is_latest(self):
+        return self.app.releases.filter(is_latest=True).count() == 1
+    
+    def is_dev(self):
+        return "dev" in self.version
+
+
     class Meta:
         constraints = [
             models.UniqueConstraint(
-                fields=["identifier", "version"],
-                name="Only one per identifier and version",
+                fields=["app", "version"],
+                name="Only one per app and version",
             )
         ]
 
@@ -99,94 +232,97 @@ class App(models.Model):
         return f"{self.identifier}:{self.version}"
 
 
-class FaktKindChoices(models.TextChoices):
+class ClientType(models.TextChoices):
     WEBSITE = "website", "Website"
     DESKTOP = "desktop", "Dekstop"
     USER = "user", "User"
 
 
-class FaktApplication(models.Model):
-    app = models.ForeignKey(
-        App, on_delete=models.CASCADE, related_name="fakt_applications", null=True
-    )  # TODO: fix this in the future should not be null
-    application = models.OneToOneField(Application, on_delete=models.CASCADE)
-    kind = models.CharField(max_length=1000, choices=FaktKindChoices.choices, null=True)
-    token = models.CharField(default=uuid.uuid4, unique=True, max_length=10000)
+class Client(models.Model):
+    release = models.ForeignKey(
+        Release, on_delete=models.CASCADE, related_name="clients", null=True
+    ) 
+    oauth2_client = models.OneToOneField(Application, on_delete=models.CASCADE, related_name="client")
+    kind = models.CharField(max_length=1000, choices=ClientType.choices, null=True)
+    token = models.CharField(default=uuid.uuid4, unique=True, max_length=10000) # the api token
     client_id = models.CharField(
         max_length=1000, unique=True, default=generate_client_id
     )
     client_secret = models.CharField(max_length=1000, default=generate_client_secret)
     scopes = models.JSONField(default=list)
-    logo = models.ImageField(max_length=1000, null=True, blank=True)
+
     creator = models.ForeignKey(
-        get_user_model(), on_delete=models.CASCADE, related_name="managed_applications"
+        get_user_model(), on_delete=models.CASCADE, related_name="managed_clients"
     )
     user = models.ForeignKey(
         get_user_model(),
         on_delete=models.CASCADE,
-        related_name="fakt_applications",
+        related_name="clients",
         null=True,
     )
 
     class Meta:
         constraints = [
             models.UniqueConstraint(
-                fields=["app", "application"],
-                condition=Q(
-                    kind__in=[
-                        FaktKindChoices.WEBSITE.value,
-                        FaktKindChoices.DESKTOP.value,
-                    ]
-                ),
-                name="Only one unique app per identifier and version",
-            ),
-            models.UniqueConstraint(
-                fields=["app", "application", "user"],
-                condition=Q(kind__in=[FaktKindChoices.USER.value]),
-                name="Only one unique app per identifier and version if it is a user app",
-            ),
+                fields=["release", "user"],
+                name="Only one release per user ()",
+            )
         ]
 
+
     def __str__(self) -> str:
-        return f"{self.app} for {self.application}"
+        return f"{self.kind} Client for {self.release}"
 
 
-def create_public_fakt(
-    identifier: str,
-    version: str,
+def create_public_client(
+    manifest: Manifest,
     creator: str,
-    redirect_uris: List[str],
-    scopes: List[str],
     client_secret=None,
     client_id=None,
     token: str = None,
+    logo: str=None,
 ):
-    f, _ = App.objects.get_or_create(identifier=identifier, version=version)
+    assert manifest.scopes, "No scopes defined"
+    assert manifest.identifier, "No identifier defined"
+    assert manifest.version, "No version defined"
+    assert manifest.redirect_uris, "No redirect_uris defined"
+    from .utils import download_logo
+    app, _  = App.objects.get_or_create(identifier=manifest.identifier)
+    release, _ = Release.objects.get_or_create(app=app, version=manifest.version)
+
+    if logo and not release.logo:
+        try:
+            logo = download_logo(logo)
+            release.logo.save(f"{manifest.identifier}-{manifest.version}.png", logo, save=True)
+            release.save()
+        except Exception as e:
+            print(e)
+        
     try:
-        app = FaktApplication.objects.get(client_id=client_id)
+        app = Client.objects.get(token=token)
         assert (
             app.client_secret == client_secret
         ), "Client secret does not match. Cannot overwrite"
-        app.app = f
+        app.release = release
         app.token = token
         app.creator = creator
-        app.scopes = scopes
-        app.kind = FaktKindChoices.WEBSITE.value
+        app.scopes = manifest.scopes
+        app.kind = ClientType.WEBSITE.value
         app.client_secret = client_secret or app.client_secret
         app.client_id = client_id or app.client_id
         app.save()
 
-        app.application.name = f"@{identifier}:{version}"
-        app.application.user = creator
-        app.application.client_type = "public"
-        app.application.algorithm = Application.RS256_ALGORITHM
-        app.application.authorization_grant_type = Application.GRANT_AUTHORIZATION_CODE
-        app.application.redirect_uris = " ".join(redirect_uris)
-        app.application.client_id = app.client_id
-        app.application.client_secret = app.client_secret
-        app.application.save()
+        app.oauth2_client.name = f"@{manifest.identifier}:{manifest.version}"
+        app.oauth2_client.user = creator
+        app.oauth2_client.client_type = "public"
+        app.oauth2_client.algorithm = Application.RS256_ALGORITHM
+        app.oauth2_client.authorization_grant_type = Application.GRANT_AUTHORIZATION_CODE
+        app.oauth2_client.redirect_uris = " ".join(manifest.redirect_uris)
+        app.oauth2_client.client_id = app.client_id
+        app.oauth2_client.client_secret = app.client_secret
+        app.oauth2_client.save()
 
-    except FaktApplication.DoesNotExist:
+    except Client.DoesNotExist:
         client_secret = client_secret or generate_client_secret()
         client_id = client_id or generate_client_id()
 
@@ -194,63 +330,48 @@ def create_public_fakt(
             user=creator,
             client_type="public",
             algorithm=Application.RS256_ALGORITHM,
-            name=f"@{identifier}:{version}",
+            name=f"@{manifest.identifier}:{manifest.version}",
             authorization_grant_type=Application.GRANT_AUTHORIZATION_CODE,
-            redirect_uris=" ".join(redirect_uris),
+            redirect_uris=" ".join(manifest.redirect_uris),
             client_id=client_id,
             client_secret=client_secret,
         )
 
-        return FaktApplication.objects.create(
-            app=f,
+        return Client.objects.create(
+            release=release,
             creator=creator,
-            kind=FaktKindChoices.WEBSITE.value,
+            kind=ClientType.WEBSITE.value,
             token=token,
-            scopes=scopes,
+            scopes=manifest.scopes,
             client_id=client_id,
             client_secret=client_secret,
-            application=app,
+            oauth2_client=app,
         )
 
 
-def create_private_fakt(
-    identifier: str,
-    version: str,
+def create_private_client(
+    manifest: Manifest,
     user: str,
     creator: str,
-    scopes: List[str],
     client_secret=None,
     client_id=None,
     token: str = None,
-):
-    f, _ = App.objects.get_or_create(identifier=identifier, version=version)
+    logo: str=None,
+):  
+    from .utils import download_logo
+    app, _  = App.objects.get_or_create(identifier=manifest.identifier)
+    release, _ = Release.objects.get_or_create(app=app, version=manifest.version)
+
+    if logo :
+        logo = download_logo(logo)
+        release.logo.save(f"{manifest.identifier}-{manifest.version}.png", logo, save=True)
+        release.save()
+
     try:
-        app = FaktApplication.objects.get(client_id=client_id)
-        assert (
-            app.client_secret == client_secret
-        ), "Client secret does not match. Cannot overwrite"
-        app.creator = creator
-        app.scopes = scopes
-        app.kind = FaktKindChoices.USER.value
-        app.client_secret = client_secret or app.client_secret
-        app.client_id = client_id or app.client_id
-        app.token = token
-        app.app = f
-        app.save()
-
-        app.application.name = f"@{identifier}:{version}"
-        app.application.user = creator
-        app.application.client_type = "confidential"
-        app.application.algorithm = Application.RS256_ALGORITHM
-        app.application.authorization_grant_type = Application.GRANT_CLIENT_CREDENTIALS
-        app.application.redirect_uris = ""
-        app.application.client_id = app.client_id
-        app.application.client_secret = app.client_secret
-        app.application.save()
-
+        app = Client.objects.get(release=release, user=user)
         return app
 
-    except FaktApplication.DoesNotExist:
+    except Client.DoesNotExist:
         client_secret = client_secret or generate_client_secret()
         client_id = client_id or generate_client_id()
 
@@ -258,21 +379,23 @@ def create_private_fakt(
             user=user,
             client_type="confidential",
             algorithm=Application.RS256_ALGORITHM,
-            name=f"@{identifier}:{version}",
+            name=f"@{manifest.identifier}:{manifest.version}",
             authorization_grant_type=Application.GRANT_CLIENT_CREDENTIALS,
             redirect_uris="",
             client_id=client_id,
             client_secret=client_secret,
         )
 
-        return FaktApplication.objects.create(
-            app=f,
+        return Client.objects.create(
+            release=release,
             creator=creator,
             user=user,
             token=token,
-            kind=FaktKindChoices.USER.value,
-            scopes=scopes,
+            kind=ClientType.USER.value,
+            scopes=manifest.scopes,
             client_id=client_id,
             client_secret=client_secret,
-            application=app,
+            oauth2_client=app,
         )
+
+

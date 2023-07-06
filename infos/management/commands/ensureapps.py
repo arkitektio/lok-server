@@ -29,24 +29,27 @@ class Command(BaseCommand):
         for app in apps:
             tenant = get_user_model().objects.get(username=app["TENANT"])
 
+            manifest = models.Manifest(
+                identifier=app["IDENTIFIER"],
+                version=app["VERSION"],
+                scopes=app["SCOPES"],
+                redirect_uris=app["REDIRECT_URIS"],
+
+            )
+
             if app["GRANT_TYPE"] == "client-credentials":
-                models.create_private_fakt(
-                    app["IDENTIFIER"],
-                    app["VERSION"],
+                models.create_private_client(
+                    manifest,
                     tenant,
                     tenant,
-                    app["SCOPES"],
                     client_id=app["CLIENT_ID"],
                     client_secret=app["CLIENT_SECRET"],
                     token=app["TOKEN"],
                 )
             else:
-                models.create_public_fakt(
-                    app["IDENTIFIER"],
-                    app["VERSION"],
+                models.create_public_client(
+                    manifest,
                     tenant,
-                    app["REDIRECT_URIS"],
-                    app["SCOPES"],
                     client_id=app["CLIENT_ID"],
                     client_secret=app["CLIENT_SECRET"],
                     token=app["TOKEN"],

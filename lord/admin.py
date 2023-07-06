@@ -12,3 +12,4 @@ class UserAdmin(BaseUserAdmin):
 admin.site.register(HerreUser, UserAdmin)
 admin.site.register(GroupProfile)
 admin.site.register(Profile)
+admin.site.register(Channel)
