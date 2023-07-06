@@ -4,59 +4,23 @@
 {% load i18n %}
 {% block content %}
 
-<div class="block-center" style='font-family: Roboto, sans-serif'>
+<div class="flex  text-white h-full w-full justify-center align-center">
     {% if success %}
-    <span> Successfullly done everythign</span>
-    {% elif not error %}
+    <div class=" max-w-[40rem] max-h-[10rem] border border-1 border-gray-200 p-3 rounded rounded-md mt-3 align-center flex  flex-col justify-center p-4 "><span class="text-3xl"> Successfully authorized!</span> <span class="text-xl font-light"> You can close this page now</span></div>
+    {% else %}
     <form id="authorizationForm" method="post">
-        <div class="col mr-auto"><img width=100 src="{%  static 'img/oslo_combined.svg' %}" /></div>
+        <div class=" max-w-[40rem] border border-1 border-gray-200 p-3 rounded rounded-md mt-3 align-center flex  flex-col justify-center">
+            
+            <img width=100 src="{%  static 'img/lok.png' %}" />
 
-        {% if request.user.is_authenticated %}
-        <h5 class="block-center-heading">{% trans "You're logged in as" %} {{ request.user.username }}</h5>
-        {% endif %}
+            <h1 class="text-3xl mt-2"><b> Hallo {{ request.user.username }}</b></h1>
+            <h3 class="text-xl font-bold mt-2">{% trans "Authorization Request" %}</h3>
 
+        <h1 class="text-3xl font-light">{{ code.identifier}}</h1>
+        <h2 class="text-2xl font-light">{{ code.version}}</h2>
 
-        {% if grant == "claim" %}
-            <h3 class="block-center-heading">{% trans "This app claims to be" %} {{ claim }}</h3>
-
-            <span> This will be regarded as a public app, that users can use to sign in. Only admin users are allowed to
-                authorized and configure public apps</span>
-
-
-
-
-            {% if request.user.is_faktsadmin %}
-            <div class="mt-2">
-                <form method="post">{% csrf_token %}
-                    {{ form.as_p }}
-    
-                    {{ form.errors }}
-                    {{ form.non_field_errors }}
-    
-                    <div class="control-group">
-    
-                        <br />
-                        <br />
-                        <div class="controls btn-group">
-                            <input type="submit" class="btn btn-lg btn-danger" value="Cancel" />
-                            <input type="submit" class="btn btn-lg btn-primary" name="allow" value="Configure" />
-                        </div>
-                    </div>
-                </form>
-            </div>
-
-
-        {% else %}
-        <span> You are not an admin and you can't authorize new apps. Login as Another account</span>
-
-        {% endif %}
-        {% endif %}
-
-        {% if grant == "user_redirect" %}
-        <h3 class="block-center-heading">{% trans "This app wants to become a new Userapp" %} {{ claim }}</h3>
         <div>
-            <span> This will be regarded as an app belonging to one user. And that user is you! This app will be able to
-                gain access to</span>
+            <span> is requesting permission to access your account using OAuth2 Device Code Flow. By granting access, you will allow the app to perform specific actions based on the requested scopes. Please review the requested permissions below before proceeding. Your security and privacy are our top priorities.y</span>
         </div>
         <div class="mt-2">
             <form method="post">{% csrf_token %}
@@ -71,87 +35,19 @@
                     <br />
                     <div class="controls btn-group">
                         <input type="submit" class="btn btn-lg btn-danger" value="Cancel" />
-                        <input type="submit" class="btn btn-lg btn-primary" name="allow" value="Configure" />
-                    </div>
-                </div>
-            </form>
-        </div>
-        {% endif %}
-
-        {% if grant == "public_redirect" %}
-        <h3 class="block-center-heading">{% trans "This app wants to become a new Public App" %} {{ claim }}</h3>
-        <div>
-            <span> This will be regarded as a public app, that users can use to sign in. Only admin users are allowed to
-                authorized and configure public apps</span>
-
-        </div>
-        {% if request.user.is_faktsadmin %}
-        <div class="mt-2">
-            <form method="post">{% csrf_token %}
-                {{ form.as_p }}
-
-                {{ form.errors }}
-                {{ form.non_field_errors }}
-
-                <div class="control-group">
-
-                    <br />
-                    <br />
-                    <div class="controls btn-group">
-                        <input type="submit" class="btn btn-lg btn-danger" value="Cancel" />
-                        <input type="submit" class="btn btn-lg btn-primary" name="allow" value="Configure" />
+                        <input type="submit" class="btn btn-lg btn-primary" name="allow" value="Allow" />
                     </div>
                 </div>
             </form>
         </div>
 
-        {% else %}
-        <span> You are not an admin and you can't authorize new apps. Login as Another account</span>
-
-        {% endif %}
-        {% endif %}
-
-        {% if grant == "device_code" %}
-        <h3 class="block-center-heading">{% trans "This app wants to become a new Userapp" %} {{ device_code }}
-            {{created_at}}</h3>
-        <div>
-            <span> This will be regarded as an app belonging to one user. And that user is you! This app will be able to
-                gain access to</span>
-        </div>
-        <div class="mt-2">
-            <form method="post">{% csrf_token %}
-                {{ form.as_p }}
-
-                {{ form.errors }}
-                {{ form.non_field_errors }}
-
-                <div class="control-group">
-
-                    <br />
-                    <br />
-                    <div class="controls btn-group">
-                        <input type="submit" class="btn btn-lg btn-danger" value="Cancel" />
-                        <input type="submit" class="btn btn-lg btn-primary" name="allow" value="Configure" />
-                    </div>
-                </div>
-            </form>
-        </div>
-        {% endif %}
-
-        <div class="mt-2">
-            <a class="btn btn-group-sm" href="{%  url 'login' %}?next={{request.get_full_path|urlencode}}">Change
+        <div class="mt-3">
+            <a class="border rounded rounded-md border-1 px-2 py-1 hover:bg-slate-500" href="{%  url 'login' %}?next={{request.get_full_path|urlencode}}">Change
                 Account</a>
         </div>
+        {% endif %}
+    </div>
 </div>
 </form>
 
-{{ form.errors }}
-{{ form.non_field_errors }}
-
-{% else %}
-<h2>Error: {{ error.error }}</h2>
-<p>{{ error.description }}</p>
-
-{% endif %}
-</div>
 {% endblock %}

@@ -14,7 +14,7 @@
         "--django-settings-module=arbeid.settings"
     ],
     "python.languageServer": "Pylance",
-    "window.title": "${dirty}Herre${separator} ${activeEditorShort}${separator}${rootName}${separator}$",
+    "window.title": "${dirty}Lok${separator} ${activeEditorShort}${separator}${rootName}${separator}$",
     "workbench.colorCustomizations": {
         "activityBarBadge.background": "#5C6BC0",
         "list.activeSelectionForeground": "#5C6BC0",

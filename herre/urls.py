@@ -53,6 +53,4 @@ urlpatterns = (
         path("callback/", Callback.as_view(), name="callback"),
         path(".well-known/fakts", WellKnownFakts.as_view()),
     ]
-    + static(settings.STATIC_URL, document_root=settings.STATIC_ROOT)
-    + static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
 )

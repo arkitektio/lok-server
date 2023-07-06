@@ -4,6 +4,7 @@ import django_filters
 import graphene
 from django import forms
 from graphene_django.forms.converter import convert_form_field
+from lord.models import Channel
 
 
 class IDChoiceField(forms.JSONField):
@@ -27,7 +28,6 @@ class IDChoiceFilter(django_filters.MultipleChoiceFilter):
 
 
 class IdsFilter(django_filters.FilterSet):
-
     ids = IDChoiceFilter(label="Filter by values")
 
     def my_values_filter(self, queryset, name, value):
@@ -36,12 +36,13 @@ class IdsFilter(django_filters.FilterSet):
         else:
             return queryset
 
+
 class UserFilter(IdsFilter, django_filters.FilterSet):
     search = django_filters.CharFilter(
-        field_name="username", lookup_expr="icontains", label="Search for substring of username"
+        field_name="username",
+        lookup_expr="icontains",
+        label="Search for substring of username",
     )
-
-
 
     class Meta:
         model = get_user_model()
@@ -50,9 +51,28 @@ class UserFilter(IdsFilter, django_filters.FilterSet):
 
 class GroupFilter(IdsFilter, django_filters.FilterSet):
     search = django_filters.CharFilter(
-        field_name="name", lookup_expr="icontains", label="Search for substring of username"
+        field_name="name",
+        lookup_expr="icontains",
+        label="Search for substring of username",
     )
 
     class Meta:
         model = Group
+        fields = ["name"]
+
+
+class ChannelFilter(IdsFilter, django_filters.FilterSet):
+    search = django_filters.CharFilter(
+        field_name="name",
+        lookup_expr="icontains",
+        label="Search for substring of username",
+    )
+    user = django_filters.ModelChoiceFilter(
+        field_name="user",
+        label="Filter by user",
+        queryset=get_user_model().objects.all(),
+    )
+
+    class Meta:
+        model = Channel
         fields = ["name"]

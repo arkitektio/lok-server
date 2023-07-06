@@ -22,8 +22,8 @@ def custom_token_generator(request, refresh_token=False):
         "scope": " ".join(request.scopes),
         "iss": "herre",
         "client_id": app.client_id,
-        "version": app.faktapplication.app.version,
-        "identifier": app.faktapplication.app.identifier,
+        "version": app.client.release.version,
+        "identifier": app.client.release.app.identifier,
     }
      
     return common.generate_signed_token(settings.OAUTH2_JWT["PRIVATE_KEY"], request)

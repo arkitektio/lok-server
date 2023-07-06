@@ -6,7 +6,7 @@ import graphene
 from infos.utils import create_api_token
 
 
-class CreatePrivateFakt(BalderMutation):
+class CreatePrivateClient(BalderMutation):
     class Arguments:
         version = graphene.String(
             required=True, description="The Repo of the Docker (Repo on Dockerhub)"
@@ -19,28 +19,40 @@ class CreatePrivateFakt(BalderMutation):
             description="The ID of the User to imitate (only managers can do this)",
             required=False,
         )
+        logo_url = graphene.String(
+            description="The Logo of this Apps",
+            required=False,
+        )
+
         scopes = graphene.List(
             graphene.String,
             description="A list of potential scopes for this app",
             required=True,
         )
 
-    def mutate(root, info, version, identifier, scopes, imitate=None, **kwargs):
+    def mutate(root, info, version, identifier, scopes, imitate=None, logo_url=None, **kwargs):
         # TODO: assert scopes can manage apps
         token = create_api_token()
-        return models.create_private_fakt(
-            identifier,
-            version,
+
+
+        manifest = models.Manifest(
+            identifier=identifier,
+            version=version,
+            scopes=scopes,
+            redirect_uris=[],   
+        )
+
+        return models.create_private_client(
+            manifest,
             info.context.user,
             info.context.user,
-            scopes,
-            "",
             token=token,
+            logo=logo_url,
         )
 
     class Meta:
-        type = types.FaktApplication
-        operation = "createPrivateFakt"
+        type = types.Client
+        operation = "createPrivateClient"
 
 
 class PublicFaktType(graphene.Enum):
@@ -48,7 +60,7 @@ class PublicFaktType(graphene.Enum):
     WEBSITE = "website"
 
 
-class CreatePublicFakt(BalderMutation):
+class CreatePublicClient(BalderMutation):
     class Arguments:
         version = graphene.String(
             required=True, description="The Repo of the Docker (Repo on Dockerhub)"
@@ -65,55 +77,51 @@ class CreatePublicFakt(BalderMutation):
             description="A list of potential redirects for this app",
             required=True,
         )
+        logo_url = graphene.String(
+            description="The Logo of this Apps",
+            required=False,
+        )
         scopes = graphene.List(
             graphene.String,
             description="A list of potential scopes for this app",
             required=True,
         )
 
-    def mutate(root, info, version, identifier, kind, redirect_uris, scopes):
+    def mutate(root, info, version, identifier, kind, redirect_uris, scopes, logo_url):
         # TODO: assert scopes can manage apps
         # TODO: assert permissions to create public apps
-        return models.create_public_fakt(
-            identifier, version, info.context.user, redirect_uris, scopes, kind
+        token = create_api_token()
+
+        manifest = models.Manifest(
+            identifier=identifier,
+            version=version,
+            scopes=scopes,
+            redirect_uris=[],   
+        )
+
+        return models.create_public_client(
+            manifest, info.context.user, logo=logo_url, token=token
         )
 
     class Meta:
-        type = types.FaktApplication
-        operation = "createPublicFakt"
+        type = types.Client
+        operation = "createPublicClient"
 
 
-class DeletePrivateFaktResult(graphene.ObjectType):
+class DeleteClientResult(graphene.ObjectType):
     id = graphene.ID()
 
 
-class DeletePrivateFakt(BalderMutation):
+class DeleteClient(BalderMutation):
     class Arguments:
         id = graphene.ID(description="The ID of the application", required=True)
 
     def mutate(root, info, *args, id=None):
-        app = models.PrivateFaktApplication.objects.get(id=id)
+        app = models.Client.objects.get(id=id)
         assert True, "You are not allowed to delete this Application"
+        assert app.creator == info.context.user or info.context.user.is_superuser, "You are not the creator and therefore not allowed to delete this Application"
         app.delete()
         return {"id": id}
 
     class Meta:
-        type = DeletePrivateFaktResult
-
-
-class DeletePublicFaktResult(graphene.ObjectType):
-    id = graphene.ID()
-
-
-class DeletePublicFakt(BalderMutation):
-    class Arguments:
-        id = graphene.ID(description="The ID of the application", required=True)
-
-    def mutate(root, info, *args, id=None):
-        app = models.PublicFaktApplication.objects.get(id=id)
-        assert True, "You are not allowed to delete this Application"
-        app.delete()
-        return {"id": id}
-
-    class Meta:
-        type = DeletePublicFaktResult
+        type = DeleteClientResult

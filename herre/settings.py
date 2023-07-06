@@ -28,7 +28,7 @@ DEBUG = conf.django.debug or False
 
 FAKT_NAME = conf.deployment.name
 ALLOWED_HOSTS = conf.django.hosts
-
+DEPLOYMENT_NAME = conf.deployment.name
 
 AWS_ACCESS_KEY_ID = conf.minio.access_key
 AWS_SECRET_ACCESS_KEY = conf.minio.secret_key
@@ -57,6 +57,7 @@ INSTALLED_APPS = [
     "django.contrib.sessions",
     "django.contrib.messages",
     "django.contrib.staticfiles",
+    "whitenoise.runserver_nostatic",
     "oauth2_provider",
     "django_filters",
     "rest_framework",
@@ -73,6 +74,10 @@ INSTALLED_APPS = [
     "crispy_forms",
     "infos",
 ]
+
+
+GRAPH_TEMPLATES_DIR = os.path.join(BASE_DIR, "fakts", "templates")
+GRAPH_LINKERS_DIR = os.path.join(BASE_DIR, "fakts", "linkers")
 
 
 SUPERUSERS = [
@@ -105,6 +110,7 @@ LOKGROUPS = [
 MIDDLEWARE = [
     "corsheaders.middleware.CorsMiddleware",
     "django.middleware.security.SecurityMiddleware",
+    "whitenoise.middleware.WhiteNoiseMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "oauth2_provider.middleware.OAuth2TokenMiddleware",
     "django.middleware.common.CommonMiddleware",
@@ -286,10 +292,18 @@ OAUTH2_PROVIDER = {
     },
     "ACCESS_TOKEN_EXPIRE_SECONDS": conf.token_expire_seconds
     or 60 * 60 * 24,  # TOkens are valid for 24 Hours
-    "ALLOWED_REDIRECT_URI_SCHEMES": ["http", "https", "com.example.feuer"],
     "OAUTH2_VALIDATOR_CLASS": "lord.oauth.validator.CustomOAuth2Validator",
     "OAUTH2_SERVER_CLASS": "lord.oauth.server.JWTServer",
-    "ALLOWED_REDIRECT_URI_SCHEMES": ["http", "https", "tauri", "arkitekt"],
+    "ALLOWED_REDIRECT_URI_SCHEMES": [
+        "http",
+        "https",
+        "tauri",
+        "arkitekt",
+        "exp",
+        "orkestrator",
+        "doks",
+        "kranken",
+    ],
     # }
     # ... any other settings you want
 }

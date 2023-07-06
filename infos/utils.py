@@ -1,10 +1,14 @@
 from django.http import HttpRequest
-from .models import ConfigurationGraph, create_private_fakt
+from .models import ConfigurationGraph, create_private_client, Client, Manifest, ConfigurationTemplate, Linker, LinkingContext, LinkingClient, LinkingRequest
 from oauth2_provider.models import AbstractApplication, get_application_model
 from uuid import uuid4
 import collections.abc
 from .errors import NoConfigurationFound
 from django.conf import settings
+from urllib.request import urlopen
+from django.core.files import File
+from django.core.files.temp import NamedTemporaryFile
+ 
 
 
 def update_nested(d, u):
@@ -29,102 +33,73 @@ def get_fitting_graph(request: HttpRequest) -> ConfigurationGraph:
     return graph
 
 
-def configure_new_app(
-    user,
-    name: str,
-    scopes: str,
-    version: str,
-    identifier: str,
-    graph: ConfigurationGraph,
-):
-    app = create_private_fakt(identifier, version, user, user, scopes)
 
-    client_app = app.application
+def create_linking_context(request: HttpRequest, client: Client) -> LinkingContext:
 
-    config = {}
 
-    for m in graph.elements.all():
-        config[m.name] = m.values
+    host_string =  request.get_host().split(":")
+    if len(host_string) == 2:
+        host = host_string[0]
+        port = host_string[1]
+    else:
+        host = host_string[0]
+        port = None
 
-    return update_nested(
-        config,
-        {
-            "lok": {
-                "client_id": client_app.client_id,
-                "client_secret": app.client_secret,
-                "grant_type": client_app.authorization_grant_type,
-                "scopes": app.scopes,
-                "name": client_app.name,
-                "version": app.version,
-                "identifier": app.identifier,
-            }
-        },
+
+
+
+    return LinkingContext(
+        request=LinkingRequest(
+            host=host,
+            port=port,
+            is_secure=request.is_secure(),
+        ),
+        manifest=Manifest(
+            identifier=client.release.app.identifier,
+            version=client.release.version,
+            scopes=client.scopes,
+            redirect_uris=client.oauth2_client.redirect_uris.split(" "),
+        ), 
+        client=LinkingClient(
+            client_id=client.client_id,
+            client_secret=client.client_secret,
+            client_type=client.oauth2_client.client_type,
+            authorization_grant_type=client.oauth2_client.authorization_grant_type,
+            name=client.oauth2_client.name,
+            scopes=client.scopes,
+        )
     )
 
 
-def configure_new_public_app(
-    user,
-    name: str,
-    scopes: str,
-    redirect_uri: str,
-    version: str,
-    identifier: str,
-    graph: ConfigurationGraph,
-):
-    client_secret = str(uuid4())
+def get_fitting_template_for_context(context: LinkingContext) -> ConfigurationTemplate:
 
-    new_app = get_application_model().objects.create(
-        name=name,
-        user=user,
-        client_secret=client_secret,
-        redirect_uris=redirect_uri,
-        client_type="public",
-        identifier=identifier,
-        version=version,
-        authorization_grant_type="authorization-code",
-        algorithm=AbstractApplication.RS256_ALGORITHM,
-    )
+    linkers = Linker.objects.all()
 
-    config = {}
+    x = []
+    for i in linkers:
+        rank = i.rank(context)
+        print(rank, i.template.name)
+        if rank != -1:
+            x.append((i, rank))
 
-    for m in graph.elements.all():
-        config[m.name] = m.values
+    
 
-    return update_nested(
-        config,
-        {
-            "lok": {
-                "grant_type": new_app.authorization_grant_type,
-                "client_id": new_app.client_id,
-                "client_secret": client_secret,
-                "scopes": scopes,
-                "name": new_app.name,
-            }
-        },
-    )
+    x.sort(key=lambda x: x[1], reverse=True)
+
+    if len(x) == 0:
+        raise NoConfigurationFound(f"Could not find a fitting configuration for {context}")
+    else:
+        return x[0][0].template
 
 
-def claim_public_app(app, scopes, graph: ConfigurationGraph):
-    config = {}
-
-    for m in graph.elements.all():
-        config[m.name] = m.values
-
-    return update_nested(
-        config,
-        {
-            "lok": {
-                "client_id": app.client_id,
-                "client_secret": app.client_secret,
-                "grant_type": app.authorization_grant_type,
-                "name": app.name,
-                "scopes": scopes,
-            }
-        },
-    )
+def render_template(template: ConfigurationTemplate, context: LinkingContext) -> dict:
+    return template.render(context)
 
 
-def claim_app(app, client_secret, scopes, graph: ConfigurationGraph):
+
+
+
+def claim_client(client: Client, graph: ConfigurationGraph):
     config = {
         "self": {
             "name": settings.FAKT_NAME,
@@ -138,11 +113,26 @@ def claim_app(app, client_secret, scopes, graph: ConfigurationGraph):
         config,
         {
             "lok": {
-                "client_id": app.client_id,
-                "client_secret": client_secret,
-                "grant_type": app.authorization_grant_type,
-                "name": app.name,
-                "scopes": scopes,
+                "client_id": client.client_id,
+                "client_secret": client.client_secret,
+                "grant_type": client.oauth2_client.authorization_grant_type,
+                "name": client.oauth2_client.name,
+                "scopes": client.scopes,
             }
         },
+    )
+
+
+def download_logo(url: str) -> File:
+    img_tmp = NamedTemporaryFile(delete=True)
+    with urlopen(url) as uo:
+        assert uo.status == 200
+        img_tmp.write(uo.read())
+        img_tmp.flush()
+    return File(img_tmp)
+
+
+def download_placeholder(identifier: str, version: str) -> File:
+    return download_logo(
+        f"https://eu.ui-avatars.com/api/?name={identifier}&background=random"
     )

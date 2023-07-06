@@ -7,7 +7,7 @@ import logging
 import graphene
 
 
-class App(BalderQuery):
+class Release(BalderQuery):
     class Arguments:
         id = graphene.ID(description="The FaktApp ID")
         identifier = graphene.String(description="Unique app name for user")
@@ -16,23 +16,23 @@ class App(BalderQuery):
 
     def resolve(root, info, *args, name=None, identifier=None, version=None, id=None, client_id=None):
         if id:
-            return models.App.objects.get(id=id)
+            return models.Release.objects.get(id=id)
         if client_id:
-            return models.Client.objects.get(client_id=client_id).release.app
+            return models.Client.objects.get(client_id=client_id).release
         
-        return models.App.objects.get(identifier=identifier, version=version)
+        return models.Release.objects.get(identifier=identifier, version=version)
 
     class Meta:
         list = False
-        type = types.App
-        operation = "app"
+        type = types.Release
+        operation = "release"
 
 
 
-class AppsQuery(BalderQuery):
+class ReleaseQuery(BalderQuery):
 
     class Meta:
         list = True
-        type = types.App
-        filter = filters.AppFilter
-        operation = "apps"
+        type = types.Release
+        filter = filters.ReleaseFilter
+        operation = "releases"

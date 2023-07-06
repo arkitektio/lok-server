@@ -2,7 +2,12 @@ import graphene
 from balder.types import BalderObject
 from balder.types.query import BalderQuery
 from oauth2_provider.models import get_application_model
-from .models import HerreUser as HerreUserModel, Profile, GroupProfile
+from .models import (
+    HerreUser as HerreUserModel,
+    Profile as ProfileModel,
+    GroupProfile as GroupProfileModel,
+    Channel as ChannelModel,
+)
 from lord.filters import UserFilter, GroupFilter
 from django.contrib.auth.models import Group as HerreGroupModel
 
@@ -12,7 +17,6 @@ class HerreUser(BalderObject):
 
     @staticmethod
     def resolve_roles(root, info, *args, **kwargs):
-         
         return [group.name for group in root.groups.all()]
 
     class Meta:
@@ -33,11 +37,13 @@ class HerreUser(BalderObject):
 
 
 class Group(BalderObject):
-
-
-
     class Meta:
         model = HerreGroupModel
+
+
+class Channel(BalderObject):
+    class Meta:
+        model = ChannelModel
 
 
 class GroupProfile(BalderObject):
@@ -48,10 +54,9 @@ class GroupProfile(BalderObject):
         if root.avatar:
             return root.avatar.url
 
-
-
     class Meta:
-        model = GroupProfile
+        model = GroupProfileModel
+
 
 class Profile(BalderObject):
     avatar = graphene.String()
@@ -62,7 +67,7 @@ class Profile(BalderObject):
             return root.avatar.url
 
     class Meta:
-        model = Profile
+        model = ProfileModel
 
 
 class Application(BalderObject):
@@ -81,7 +86,6 @@ class Application(BalderObject):
 
     @staticmethod
     def resolve_image(root, info, *args, **kwargs):
-
         app_image = root.image.first()
         if app_image:
             try:
