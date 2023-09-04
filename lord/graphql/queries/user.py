@@ -28,25 +28,23 @@ class UserQuery(BalderQuery):
 
     class Meta:
         list = False
-        type = types.HerreUser
+        type = types.User
         operation = "user"
 
 
 class MeQuery(BalderQuery):
-    
     def resolve(root, info, *args, **kwargs):
         return info.context.user
 
     class Meta:
         list = False
-        type = types.HerreUser
+        type = types.User
         operation = "me"
 
 
 class UsersQuery(BalderQuery):
-
     class Meta:
         list = True
-        type = types.HerreUser
+        type = types.User
         filter = filters.UserFilter
         operation = "users"

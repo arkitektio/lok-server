@@ -29,7 +29,7 @@ class ChangeMe(BalderMutation):
         return user
 
     class Meta:
-        type = types.HerreUser
+        type = types.User
         operation = "changeMe"
 
 
@@ -55,7 +55,7 @@ class UpdateUser(BalderMutation):
         # do something with your file
 
         user = models.HerreUser.objects.get(id=id)
-        #TODO: check if user is allowed to change this user
+        # TODO: check if user is allowed to change this user
         user.first_name = first_name or user.first_name
         user.last_name = last_name or user.last_name
         user.email = email or user.email
@@ -66,14 +66,12 @@ class UpdateUser(BalderMutation):
             user.profile = models.Profile()
             user.profile.avatar = avatar or user.profile.avatar
 
-            
         user.profile.save()
 
-        
         user.save()
 
         return user
 
     class Meta:
-        type = types.HerreUser
+        type = types.User
         operation = "updateUser"

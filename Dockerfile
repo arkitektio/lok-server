@@ -4,11 +4,15 @@ LABEL maintainer="jhnnsrs@gmail.com"
 
 # Install dependencies
 RUN pip install poetry rich
+
+# Configure poetry
+RUN poetry config virtualenvs.create false 
 ENV PYTHONUNBUFFERED=1
+
 
 # Copy dependencies
 COPY pyproject.toml /
-RUN poetry config virtualenvs.create false 
+COPY poetry.lock /
 RUN poetry install
 
 

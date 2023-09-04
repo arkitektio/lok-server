@@ -61,23 +61,11 @@ class PublishToChannel(BalderMutation):
 
     def mutate(root, info, *args, channel=None, message=None, title=None):
         app = models.Channel.objects.get(id=channel)
-        try:
-            x = requests.post(
-                "https://exp.host/--/api/v2/push/send",
-                json={
-                    "to": app.token,
-                    "title": title,
-                    "body": message,
-                },
-            )
-            status = x.json()["data"]["status"]
 
-            return {"channel": app, "status": status}
-        except Exception as e:
-            logger.error("Publish error", exc_info=True)
-            return {"channel": app, "status": "Error"}
-
-        return app
+        return {
+            "channel": channel,
+            "status": channel.publish(message=message, title=title),
+        }
 
     class Meta:
         type = PublishResult
@@ -101,21 +89,12 @@ class NotifyUser(BalderMutation):
 
         results = []
         for channel in publish_channels:
-            print("OINOINOINOINOIn")
-            try:
-                x = requests.post(
-                    "https://exp.host/--/api/v2/push/send",
-                    json={
-                        "to": channel.token,
-                        "title": title,
-                        "body": message,
-                    },
-                )
-                status = x.json()["data"]["status"]
-                results.append({"channel": channel, "status": status})
-            except Exception as e:
-                logger.error("Publish error", exc_info=True)
-                results.append({"channel": channel, "status": "Error"})
+            results.append(
+                {
+                    "channel": channel,
+                    "status": channel.publish(message=message, title=title),
+                }
+            )
 
         return results
 

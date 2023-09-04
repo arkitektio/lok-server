@@ -50,6 +50,7 @@ DEFAULT_FILE_STORAGE = "storages.backends.s3boto3.S3Boto3Storage"
 CORS_ORIGIN_ALLOW_ALL = True
 
 INSTALLED_APPS = [
+    "daphne",
     "registration",
     "django.contrib.admin",
     "django.contrib.auth",
@@ -69,6 +70,7 @@ INSTALLED_APPS = [
     "health_check.db",
     "accounts",
     "lord",
+    "komment",
     "graphene_django",
     "django_probes",
     "crispy_forms",
