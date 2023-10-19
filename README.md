@@ -1,3 +1,3 @@
-# herre server
+# lok server
 
 s
