@@ -12,12 +12,14 @@ class Command(BaseCommand):
 
         for lokuser in lokusers:
             User = get_user_model()
-            if User.objects.filter(email=lokuser['EMAIL']).exists():
-                user = User.objects.get(email=lokuser["EMAIL"])
+            if User.objects.filter(username=str(lokuser['USERNAME'])).exists():
+                user = User.objects.get(username=str(lokuser["USERNAME"]))
             else:
-                user = User.objects.create_user(username=lokuser['USERNAME'],
-                                            email=lokuser['EMAIL'],
-                                            password=lokuser['PASSWORD'],
+                user = User.objects.create_user(username=str(lokuser['USERNAME']),
+                                            email=lokuser.get('EMAIL',None),
+                                            password=str(lokuser['PASSWORD']),
                                             )
 
-            user.groups.set([Group.objects.get_or_create(name=groupname)[0] for groupname in set(lokuser.get("GROUPS",[]) + [group.name for group in user.groups.all()])])
+            user.groups.set([Group.objects.get_or_create(name=str(groupname))[0] for groupname in set(lokuser.get("GROUPS",[]) + [group.name for group in user.groups.all()])])
+            print(f"User {user} created")
+            user.save()

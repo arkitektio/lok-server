@@ -27,11 +27,11 @@ class Command(BaseCommand):
         apps = settings.ENSURED_APPS or []
 
         for app in apps:
-            tenant = get_user_model().objects.get(username=app["TENANT"])
+            tenant = get_user_model().objects.get(username=str(app["TENANT"]))
 
             manifest = models.Manifest(
-                identifier=app["IDENTIFIER"],
-                version=app["VERSION"],
+                identifier=str(app["IDENTIFIER"]),
+                version=str(app["VERSION"]),
                 scopes=app["SCOPES"],
                 redirect_uris=app["REDIRECT_URIS"],
 
@@ -42,15 +42,15 @@ class Command(BaseCommand):
                     manifest,
                     tenant,
                     tenant,
-                    client_id=app["CLIENT_ID"],
-                    client_secret=app["CLIENT_SECRET"],
-                    token=app["TOKEN"],
+                    client_id=str(app["CLIENT_ID"]),
+                    client_secret=str(app["CLIENT_SECRET"]),
+                    token=str(app["TOKEN"]),
                 )
             else:
                 models.create_public_client(
                     manifest,
                     tenant,
-                    client_id=app["CLIENT_ID"],
-                    client_secret=app["CLIENT_SECRET"],
-                    token=app["TOKEN"],
+                    client_id=str(app["CLIENT_ID"]),
+                    client_secret=str(app["CLIENT_SECRET"]),
+                    token=str(app["TOKEN"]),
                 )

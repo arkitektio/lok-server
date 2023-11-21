@@ -21,4 +21,4 @@ echo "=> Collecting Static.."
 python manage.py collectstatic --noinput
 
 echo "=> Starting Django with Runserver"
-python manage.py runserver 0.0.0.0:8000
+python manage.py runserver 0.0.0.0:80
