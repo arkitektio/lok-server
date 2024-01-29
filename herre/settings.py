@@ -41,7 +41,7 @@ AWS_S3_FILE_OVERWRITE = False
 AWS_QUERYSTRING_EXPIRE = 3600
 
 
-AWS_STORAGE_BUCKET_NAME = conf.minio.buckets[0].name
+AWS_STORAGE_BUCKET_NAME = conf.minio.buckets.media
 AWS_DEFAULT_ACL = "private"
 AWS_S3_USE_SSL = True
 AWS_S3_SECURE_URLS = False  # Should resort to True if using in Production behind TLS
@@ -50,6 +50,7 @@ DEFAULT_FILE_STORAGE = "storages.backends.s3boto3.S3Boto3Storage"
 CORS_ORIGIN_ALLOW_ALL = True
 
 INSTALLED_APPS = [
+    "daphne",
     "registration",
     "django.contrib.admin",
     "django.contrib.auth",
@@ -69,6 +70,7 @@ INSTALLED_APPS = [
     "health_check.db",
     "accounts",
     "lord",
+    "komment",
     "graphene_django",
     "django_probes",
     "crispy_forms",
@@ -83,7 +85,7 @@ GRAPH_LINKERS_DIR = os.path.join(BASE_DIR, "fakts", "linkers")
 SUPERUSERS = [
     {
         "USERNAME": conf.django.admin.username,
-        "EMAIL": conf.django.admin.email,
+        "EMAIL": "fake@fake.com",
         "PASSWORD": conf.django.admin.password,
     }
 ]
@@ -91,7 +93,7 @@ SUPERUSERS = [
 LOKUSERS = [
     {
         "USERNAME": su.username,
-        "EMAIL": su.email,
+        "EMAIL": su.get("email", None),
         "PASSWORD": su.password,
         "GROUPS": su.get("groups", []),
     }

@@ -12,7 +12,7 @@ from lord.filters import UserFilter, GroupFilter
 from django.contrib.auth.models import Group as HerreGroupModel
 
 
-class HerreUser(BalderObject):
+class User(BalderObject):
     roles = graphene.List(graphene.String, description="The associated rules of this ")
 
     @staticmethod

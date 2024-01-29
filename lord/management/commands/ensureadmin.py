@@ -10,13 +10,15 @@ class Command(BaseCommand):
     def handle(self, *args, **kwargs):
         superusers = settings.SUPERUSERS
 
+        #TODO: Implement validaiton of superusers
+
         for superuser in superusers:
             User = get_user_model()
-            if not User.objects.filter(username=superuser["USERNAME"]).exists():
+            if not User.objects.filter(username=str(superuser["USERNAME"])).exists():
                 user = User.objects.create_superuser(
-                    username=superuser["USERNAME"],
-                    email=superuser["EMAIL"],
-                    password=superuser["PASSWORD"],
+                    username=str(superuser["USERNAME"]),
+                    email=str(superuser["EMAIL"]),
+                    password=str(superuser["PASSWORD"]),
                 )
 
                 user.groups.set(
