@@ -5,7 +5,8 @@ import re
 import json
 from typing import List, Dict, Any, Union, Optional, Protocol, runtime_checkable
 from pathlib import Path
-from .base_models import Tailnet, TailnetCreate, Machine, MachineDetail, DNSConfig, TailnetLockStatus, NodeLockState
+from .base_models import Tailnet, TailnetCreate, Machine, MachineDetail, DNSConfig, TailnetLockStatus, NodeLockState, TailnetUser
+from .errors import IonscaleError
 from django.conf import settings
 from django.utils.module_loading import import_string
 
@@ -14,15 +15,21 @@ from django.utils.module_loading import import_string
 class IonscaleRepo(Protocol):
     """The behaviour the rest of the app depends on.
 
-    Both :class:`IonscaleRepository` (the real CLI-backed implementation) and the
-    in-memory ``FakeIonscaleRepository`` used in tests satisfy this protocol, so
-    consumers can depend on the interface instead of a concrete class.
+    :class:`ionscale.http_repo.IonscaleHttpRepository` (connect+JSON, the
+    default), :class:`IonscaleRepository` (legacy CLI-backed) and the in-memory
+    ``FakeIonscaleRepository`` used in tests satisfy this protocol, so consumers
+    can depend on the interface instead of a concrete class. Tailnets are
+    addressed by *name* (what ``IonscaleLayer.tailnet_name`` stores); failures
+    surface as :class:`ionscale.errors.IonscaleError`.
     """
 
     def list_tailnets(self) -> List[Tailnet]: ...
     def list_machines(self, tailnet: str) -> List[Machine]: ...
     def get_machine(self, machine_id: str) -> MachineDetail: ...
     def create_tailnet(self, tailnet_input: TailnetCreate) -> Tailnet: ...
+    def get_tailnet_by_organization(self, organization: str) -> Optional[Tailnet]: ...
+    def update_tailnet(self, tailnet: str, *, name: Optional[str] = ..., **flags: bool) -> Tailnet: ...
+    def delete_tailnet(self, tailnet: str, force: bool = ...) -> None: ...
     def get_policy(self, tailnet: str) -> Dict[str, Any]: ...
     def update_policy(self, tailnet: str, policy: Union[Dict[str, Any], str, Path]) -> str: ...
     def set_dns_config(self, tailnet: str, config: DNSConfig) -> str: ...
@@ -30,11 +37,16 @@ class IonscaleRepo(Protocol):
     def get_tailnet_lock_status(self, tailnet: str) -> TailnetLockStatus: ...
     def enable_tailnet_lock(self, tailnet: str) -> None: ...
     def disable_tailnet_lock(self, tailnet: str) -> None: ...
-    def run(self, *preargs) -> str: ...
-    def help(self, *preargs) -> str: ...
+    def list_users(self, tailnet: str) -> List[TailnetUser]: ...
+    def revoke_account(self, external_id: str, organization: Optional[str] = ...) -> List[str]: ...
 
 
 class IonscaleRepository:
+    """Legacy CLI-backed repository: shells out to the ``ionscale`` binary and
+    parses its table output. Prefer :class:`ionscale.http_repo.IonscaleHttpRepository`
+    (configured via ``ionscale.service_token``); this stays for deployments that
+    still hand lok a system admin key and a binary."""
+
     def __init__(self, server_url: str, admin_key: str, binary_path: str = "ionscale"):
         """
         Initializes the repository.
@@ -95,7 +107,7 @@ class IonscaleRepository:
         except subprocess.CalledProcessError as e:
             # Clean the error message to avoid leaking keys if they appear in stderr
             clean_error = e.stderr.replace(self.admin_key, "***")
-            raise RuntimeError(f"Ionscale CLI Error: {clean_error}")
+            raise IonscaleError(_cli_error_code(clean_error), f"Ionscale CLI Error: {clean_error}")
 
     def list_tailnets(self) -> List[Tailnet]:
         """
@@ -449,32 +461,72 @@ class IonscaleRepository:
             ["tailnets", "disable-tailnet-lock", "--tailnet", self._check_arg(tailnet, "tailnet")]
         )
 
-    def run(self, *preargs) -> str:
-        """
-        Runs arbitrary ionscale CLI commands.
-        """
-        output = self._run_command(list(preargs), command_type="")
-        return output
-    
-    def help(self, *preargs) -> str:
-        """
-        Returns the help text of the ionscale CLI.
-        """
-        output = self._run_command(list(preargs) + ["--help"], command_type="")
-        return output
+    def get_tailnet_by_organization(self, organization: str) -> Optional[Tailnet]:
+        # `tailnets list` has no organization column; the HTTP repository is
+        # needed for a reliable lookup.
+        raise IonscaleError("unimplemented", "get_tailnet_by_organization requires ionscale.service_token")
+
+    def update_tailnet(self, tailnet: str, *, name: Optional[str] = None, **flags: bool) -> Tailnet:
+        raise IonscaleError("unimplemented", "update_tailnet requires ionscale.service_token")
+
+    def delete_tailnet(self, tailnet: str, force: bool = False) -> None:
+        args = ["tailnets", "delete", "--tailnet", self._check_arg(tailnet, "tailnet")]
+        if force:
+            args.append("--force")
+        self._run_command(args)
+
+    def list_users(self, tailnet: str) -> List[TailnetUser]:
+        raise IonscaleError("unimplemented", "list_users requires ionscale.service_token")
+
+    def revoke_account(self, external_id: str, organization: Optional[str] = None) -> List[str]:
+        args = ["users", "revoke-account", "--external-id", self._check_arg(external_id, "external id")]
+        if organization:
+            args += ["--org", self._check_arg(organization, "organization")]
+        try:
+            self._run_command(args)
+        except IonscaleError as exc:
+            if exc.code == "not_found":
+                return []
+            raise
+        return []
+
+
+def _cli_error_code(stderr: str) -> str:
+    """Best-effort mapping of connect error text as printed by the CLI."""
+    text = stderr.lower()
+    for code in ("not_found", "already_exists", "permission_denied", "unauthenticated",
+                 "invalid_argument", "failed_precondition", "unavailable", "unimplemented"):
+        if code in text:
+            return code
+    return "unknown"
 
 
 def _build_default_repo() -> IonscaleRepo:
     """Construct the repository configured for the current environment.
 
-    Pluggable via the ``IONSCALE_REPOSITORY`` setting: set it to the dotted path
-    of a zero-argument factory (or class) that returns an :class:`IonscaleRepo`
-    — e.g. ``"ionscale.testing.FakeIonscaleRepository"`` in tests. When unset, the
-    real CLI-backed :class:`IonscaleRepository` is built from the IONSCALE_* settings.
+    Resolution order:
+
+    1. ``IONSCALE_REPOSITORY`` -- dotted path of a zero-argument factory (or
+       class) returning an :class:`IonscaleRepo`, e.g.
+       ``"ionscale.testing.FakeIonscaleRepository"`` in tests.
+    2. ``IONSCALE_SERVICE_TOKEN`` -- the connect+JSON
+       :class:`~ionscale.http_repo.IonscaleHttpRepository` (no binary needed).
+    3. ``IONSCALE_ADMIN_KEY`` -- the legacy CLI-backed :class:`IonscaleRepository`.
     """
     dotted = getattr(settings, "IONSCALE_REPOSITORY", None)
     if dotted:
         return import_string(dotted)()
+    if getattr(settings, "IONSCALE_SERVICE_TOKEN", None):
+        from .http_repo import IonscaleHttpRepository
+
+        return IonscaleHttpRepository(
+            server_url=settings.IONSCALE_SERVER_URL,
+            service_token=settings.IONSCALE_SERVICE_TOKEN,
+            timeout=getattr(settings, "IONSCALE_TIMEOUT", 10.0),
+            verify=getattr(settings, "IONSCALE_VERIFY_TLS", True),
+        )
+    if not getattr(settings, "IONSCALE_ADMIN_KEY", None):
+        raise ValueError("ionscale is configured without a service_token or admin_key")
     return IonscaleRepository(
         server_url=settings.IONSCALE_SERVER_URL,
         admin_key=settings.IONSCALE_ADMIN_KEY,
@@ -487,9 +539,8 @@ _repo: Optional[IonscaleRepo] = None
 def get_ionscale_repo() -> IonscaleRepo:
     """Return the active ionscale repository, building it lazily on first use.
 
-    Lazy construction means importing this module never requires the ``ionscale``
-    binary (or any live config) — it is only needed when an ionscale operation
-    actually runs. Call this at use-time rather than importing a module-level
+    Lazy construction means importing this module never requires live config —
+    it is only needed when an ionscale operation actually runs. Call this at use-time rather than importing a module-level
     instance, so a repository swapped in via :func:`set_ionscale_repo` is seen by
     every consumer.
     """

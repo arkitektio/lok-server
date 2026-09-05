@@ -57,6 +57,11 @@ OIDC_ISSUER = conf.oidc_issuer
 
 if conf.ionscale is not None:
     IONSCALE_SERVER_URL = conf.ionscale.server_url
+    # Static `svc_` token: lok drives ionscale over connect+JSON with it.
+    IONSCALE_SERVICE_TOKEN = conf.ionscale.service_token
+    IONSCALE_VERIFY_TLS = conf.ionscale.verify_tls
+    IONSCALE_TIMEOUT = conf.ionscale.timeout
+    # Legacy CLI credential, only used when no service token is set.
     IONSCALE_ADMIN_KEY = conf.ionscale.admin_key
     IONSCALE_COORD_URL = conf.ionscale.coord_url  # thats the public coord url
     IONSCALE_REPOSITORY = conf.ionscale.repository
@@ -68,6 +73,9 @@ if conf.ionscale is not None:
     IONSCALE_MAGIC_DNS_SUFFIX = conf.ionscale.magic_dns_suffix
 else:
     IONSCALE_SERVER_URL = None
+    IONSCALE_SERVICE_TOKEN = None
+    IONSCALE_VERIFY_TLS = True
+    IONSCALE_TIMEOUT = 10.0
     IONSCALE_ADMIN_KEY = None
     IONSCALE_COORD_URL = None
     IONSCALE_REPOSITORY = None
@@ -76,8 +84,9 @@ else:
     IONSCALE_MAGIC_DNS_SUFFIX = None
 
 # IONSCALE_REPOSITORY: dotted path to a zero-arg factory returning an
-# ionscale.repo.IonscaleRepo. When None, the real CLI-backed IonscaleRepository is
-# used. Tests point it at ionscale.testing.FakeIonscaleRepository (see settings_test).
+# ionscale.repo.IonscaleRepo. When None, the HTTP repository is used with
+# IONSCALE_SERVICE_TOKEN (or, legacy, the CLI-backed one with IONSCALE_ADMIN_KEY).
+# Tests point it at ionscale.testing.FakeIonscaleRepository (see settings_test).
 # IONSCALE_EAGER_INIT: when True, ionscale.apps.IonscaleConfig.ready() builds the
 # repository at boot so misconfiguration fails fast.
 

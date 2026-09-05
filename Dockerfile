@@ -1,28 +1,13 @@
 # syntax=docker/dockerfile:1
-# ---- builder: compile deps + fetch ionscale, then discard the toolchain ----
+# ---- builder: compile deps, then discard the toolchain ----
 FROM python:3.12-slim-bookworm AS builder
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
 ENV UV_COMPILE_BYTECODE=1 \
     UV_LINK_MODE=copy \
     UV_PROJECT_ENVIRONMENT=/opt/venv
-# curl only fetches the ionscale binary (py-ubjson falls back to pure Python, no gcc).
-RUN apt-get update && apt-get install -y --no-install-recommends \
-      curl \
- && rm -rf /var/lib/apt/lists/*
-# IonScale CLI (only the final binary is copied into the runtime layer).
-# Taken from this deployment's own ionscale image rather than an upstream
-# release: the fork adds org-scoped tailnets and tailnet lock, and an upstream
-# CLI lacks those subcommands. The failure is SILENT -- ensure_org_mesh catches
-# and logs, so a stale CLI means organizations quietly never get a tailnet.
-#
-# WARNING: this tag is only as current as the last push of the fork. If
-# ionskale has gained subcommands since (e.g. `tailnets tailnet-lock-status`),
-# this image does NOT have them. Push the fork before relying on this build;
-# the dev stack sidesteps it by bind-mounting a locally built binary over
-# /usr/local/bin/ionscale (see the lok service in docker-compose.yaml).
-# Verify with: docker compose exec lok ionscale tailnets --help
-COPY --from=jhnnsrs/ionskale:latest /usr/local/bin/ionscale /usr/local/bin/ionscale
-RUN chmod +x /usr/local/bin/ionscale
+# lok talks to ionscale over HTTP (ionscale.service_token); no CLI binary is
+# shipped any more. Deployments still on the legacy `admin_key` path must mount
+# an `ionscale` binary themselves.
 WORKDIR /workspace
 # Dependency layer — cached until pyproject.toml / uv.lock change:
 COPY pyproject.toml uv.lock ./
@@ -43,7 +28,6 @@ ENV PYTHONUNBUFFERED=1 \
     UV_PROJECT_ENVIRONMENT=/opt/venv \
     VIRTUAL_ENV=/opt/venv \
     PATH="/opt/venv/bin:$PATH"
-COPY --from=builder /usr/local/bin/ionscale /usr/local/bin/ionscale
 WORKDIR /workspace
 COPY --from=builder /opt/venv /opt/venv
 COPY . .

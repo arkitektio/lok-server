@@ -16,13 +16,22 @@ class TailnetCreate(BaseModel):
     )
 
 
-class DNSConfig(BaseModel):
-    """The per-tailnet DNS configuration pushed via `ionscale tailnets set-dns`.
+class DNSRecord(BaseModel):
+    """A static MagicDNS record (``ionscale.v1.DNSRecord``): gives a service a
+    stable name inside the tailnet, e.g. ``lok.<suffix>`` -> a machine's IP."""
 
-    Mirrors ionscale's ``ionscale.v1.DNSConfig``. Note that ``set-dns`` *replaces*
-    the whole config on every call (the CLI uses presence-based flags), so callers
-    must send the full desired state — lok is the source of truth. The MagicDNS
-    suffix is server-configured (``dns.magic_dns_suffix``) and has no CLI flag.
+    name: str
+    type: str = ""  # "", "A" or "AAAA"; inferred from the address when empty
+    value: str
+
+
+class DNSConfig(BaseModel):
+    """The per-tailnet DNS configuration pushed via ``SetDNSConfig``.
+
+    Mirrors ionscale's ``ionscale.v1.DNSConfig``. ``SetDNSConfig`` *replaces* the
+    whole config on every call, so callers must send the full desired state — lok
+    is the source of truth. The MagicDNS suffix is server-configured
+    (``dns.magic_dns_suffix``) and cannot be set per tailnet.
     """
 
     magic_dns: bool = False
@@ -30,6 +39,7 @@ class DNSConfig(BaseModel):
     override_local_dns: bool = False
     nameservers: List[str] = Field(default_factory=list)
     search_domains: List[str] = Field(default_factory=list)
+    extra_records: List[DNSRecord] = Field(default_factory=list)
 
 
 class Tailnet(BaseModel):
@@ -37,6 +47,8 @@ class Tailnet(BaseModel):
     name: str
     dns_name: Optional[str] = None
     created_at: Optional[datetime] = None
+    # The organization pk the tailnet is bound to (None for unbound tailnets).
+    organization: Optional[str] = None
 
     # Use ConfigDict for Pydantic v2, or class Config for v1
     model_config = {"from_attributes": True}
@@ -74,6 +86,17 @@ class MachineDetail(Machine):
 
 class MachineList(BaseModel):
     machines: List[Machine]
+
+
+class TailnetUser(BaseModel):
+    """A user as known to ionscale (``ionscale.v1.User``)."""
+
+    id: str
+    name: str
+    role: str = ""
+    # The OIDC subject the user logged in with -- lok's user pk. None for users
+    # an older ionscale does not report it for.
+    external_id: Optional[str] = None
 
 
 class NodeLockState(BaseModel):

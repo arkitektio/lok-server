@@ -32,6 +32,7 @@ dependencies = [
     "kante>=0.16.1",
     "whitenoise>=6.6",
     "django-cors-headers>=4.9.0",
+    "httpx>=0.28",
 ]
 
 [dependency-groups]

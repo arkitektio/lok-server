@@ -183,8 +183,19 @@ class IonscaleSettings(BaseModel):
     model_config = ConfigDict(extra="allow")
 
     server_url: str = Field(description="Ionscale server URL.")
-    admin_key: str = Field(description="Ionscale admin API key. Secret — must be set.")
+    service_token: Optional[str] = Field(
+        default=None,
+        description="Static service token (`svc_…`) declared under `auth.service_tokens` in the "
+        "ionscale config. Secret. Lok talks to ionscale over HTTP with it; preferred over `admin_key`.",
+    )
+    admin_key: Optional[str] = Field(
+        default=None,
+        description="Legacy: ionscale system admin key, used to drive the `ionscale` CLI binary. "
+        "Secret. Only needed when `service_token` is not set.",
+    )
     coord_url: str = Field(description="Public coordination URL advertised to clients.")
+    verify_tls: bool = Field(default=True, description="Verify ionscale's TLS certificate (HTTP mode).")
+    timeout: float = Field(default=10.0, description="Per-request timeout in seconds (HTTP mode).")
     magic_dns_suffix: Optional[str] = Field(
         default=None,
         description="MagicDNS suffix served by ionscale (mirrors its dns.magic_dns_suffix). "
@@ -197,6 +208,12 @@ class IonscaleSettings(BaseModel):
         description="Automatically provision the mesh for each new organization on creation. "
         "Requires ionscale to be configured; when disabled, meshes are only created on explicit opt-in.",
     )
+
+    @model_validator(mode="after")
+    def _require_a_credential(self) -> "IonscaleSettings":
+        if not (self.service_token or self.admin_key or self.repository):
+            raise ValueError("ionscale: set `service_token` (preferred) or the legacy `admin_key`")
+        return self
 
 
 class DatalayerBucket(BaseModel):

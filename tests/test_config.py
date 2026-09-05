@@ -233,3 +233,29 @@ def test_allow_insecure_transport_env_override(monkeypatch):
     """The opt-out is a typed config key, overridable via DJANGO__ALLOW_INSECURE_TRANSPORT."""
     monkeypatch.setenv("DJANGO__ALLOW_INSECURE_TRANSPORT", "true")
     assert Settings().django.allow_insecure_transport is True
+
+
+def _ionscale(**kw):
+    from lok_server.configuration import IonscaleSettings
+
+    return IonscaleSettings(server_url="https://mesh.example.org", coord_url="https://mesh.example.org", **kw)
+
+
+def test_ionscale_service_token_is_enough():
+    s = _ionscale(service_token="svc_" + "x" * 40)
+    assert s.admin_key is None
+    assert s.verify_tls is True and s.timeout == 10.0
+
+
+def test_ionscale_legacy_admin_key_still_accepted():
+    assert _ionscale(admin_key="legacy").admin_key == "legacy"
+
+
+def test_ionscale_requires_a_credential():
+    with pytest.raises(ValidationError, match="service_token"):
+        _ionscale()
+
+
+def test_ionscale_repository_hook_needs_no_credential():
+    """Test/fake repositories are wired by dotted path and carry no secret."""
+    assert _ionscale(repository="ionscale.testing.FakeIonscaleRepository").service_token is None
