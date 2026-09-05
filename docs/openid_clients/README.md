@@ -93,10 +93,13 @@ sends the user to the authorize endpoint (`https://go.arkitekt.live/authorize`,
 the kontrol SPA consent page) → the user approves → lok redirects back with a
 code → ionscale exchanges it at `/lok/o/token/`.
 
-## 5. Per-client claim shaping (`sub` and `email`)
+## 5. Per-client claim shaping (`email`)
 
-Two claims lok issues to a relying party can be configured **per client**, on the
-`openid_apps` entry. Both are optional and default to today's behavior.
+The `sub` (subject) claim is always the **user** id: the same human is the same
+subject across every organization they belong to, and relying parties that need
+to keep organizations apart (ionscale does) resolve identities on `(sub, org)`
+instead. What *can* be shaped per client, on the `openid_apps` entry, is the
+`email` claim; it is optional and defaults to today's behavior.
 
 ```yaml
 openid_apps:
@@ -105,21 +108,8 @@ openid_apps:
     client_secret: "<shared secret>"
     redirect_uris:
       - https://my-service.example/oidc/callback
-    membership_is_subject: true                 # optional
     email_template: "{username}@corp.example"   # optional
 ```
-
-**`membership_is_subject`** (default `false`) — controls the `sub` (subject)
-claim in the id_token and the userinfo response:
-
-- `false` — `sub` is the **user** id, so the same human is the same subject
-  across every organization they belong to.
-- `true` — `sub` is the **membership** id, so each (user, organization) pair is a
-  distinct subject the RP treats as a separate identity.
-
-> ⚠️ Flipping this on an existing client changes every user's `sub`, so the
-> relying party sees them all as brand-new identities (new accounts, lost links).
-> Decide it up front per client.
 
 **`email_template`** (default unset) — a format string for the `email` claim,
 rendered per user from a fixed set of membership variables:

@@ -394,17 +394,37 @@ Optional block for outbound email. Omit it entirely to disable email. When prese
 
 ### `ionscale` — tailnet coordinator connection (optional)
 
-Optional connection to an [ionscale](https://github.com/jsiebens/ionscale) tailnet
+Optional connection to an [ionskale](https://github.com/arkitektio/ionskale) tailnet
 coordinator. Omit the whole block to disable it. When present, `server_url`,
-`admin_key` and `coord_url` are required.
+`coord_url` and one credential (`service_token`, or the legacy `admin_key`) are
+required.
+
+Lok talks to ionskale over its HTTP (connect + JSON) API using a **static
+service token**: declare one under `auth.service_tokens` in the ionskale config
+(`{name: lok, token: "svc_…"}`) and put the same value here. Memberships are
+pushed to the tailnet's IAM policy on commit, a removed member is revoked
+immediately (`RevokeAccount`), and deleting an organization or its mesh tears
+the tailnet down. Whatever a control-plane outage made lok miss is repaired by
+`manage.py reconcile_meshes` (`--dry-run`, `--organization <slug|pk>`,
+`--revoke-orphans`).
 
 | Key | Env var | Type | Default | Description |
 |---|---|---|---|---|
-| `server_url` | `IONSCALE__SERVER_URL` | str | **required** | Ionscale server URL. |
-| `admin_key` 🔒 | `IONSCALE__ADMIN_KEY` | str | **required** | Ionscale admin API key. |
-| `coord_url` | `IONSCALE__COORD_URL` | str | **required** | Public coordination URL advertised to clients. |
-| `repository` | `IONSCALE__REPOSITORY` | str | `null` | Dotted path to an `IonscaleRepo` factory (tests). |
-| `eager_init` | `IONSCALE__EAGER_INIT` | bool | `false` | Eagerly initialize the ionscale repo on boot (tests). |
+| `server_url` | `IONSCALE__SERVER_URL` | str | **required** | ionskale server URL (the HTTP API; usually the same as `coord_url`). |
+| `coord_url` | `IONSCALE__COORD_URL` | str | **required** | Public coordination URL advertised to mesh clients. |
+| `service_token` 🔒 | `IONSCALE__SERVICE_TOKEN` | str | `null` | Static service token (`svc_…`) from ionskale's `auth.service_tokens`. Grants system-admin on ionskale; preferred over `admin_key`. |
+| `admin_key` 🔒 | `IONSCALE__ADMIN_KEY` | str | `null` | **Legacy.** ionskale system-admin key used to drive the `ionscale` CLI binary. Only consulted when `service_token` is unset; the lok image no longer ships the binary, so a deployment on this path has to mount one itself. |
+| `verify_tls` | `IONSCALE__VERIFY_TLS` | bool | `true` | Verify ionskale's TLS certificate (HTTP mode). |
+| `timeout` | `IONSCALE__TIMEOUT` | float | `10.0` | Per-request timeout in seconds (HTTP mode). |
+| `magic_dns_suffix` | `IONSCALE__MAGIC_DNS_SUFFIX` | str | `null` | MagicDNS suffix served by ionskale (mirrors its `dns.magic_dns_suffix`); used to render a machine's MagicDNS name as `<name>.<suffix>`. |
+| `auto_create_mesh` | `IONSCALE__AUTO_CREATE_MESH` | bool | `true` | Provision a mesh (one tailnet, bound to the organization) for every new organization. When `false`, meshes are only created on explicit opt-in. |
+| `repository` | `IONSCALE__REPOSITORY` | str | `null` | Dotted path to an `IonscaleRepo` factory (tests). Satisfies the credential requirement on its own. |
+| `eager_init` | `IONSCALE__EAGER_INIT` | bool | `false` | Build the ionscale client on boot, so a broken configuration fails at startup rather than on first use. |
+
+> **Upgrading from `admin_key`:** set `ionscale.service_token` (and the matching
+> `auth.service_tokens` entry on ionskale) *before* pulling a lok image without
+> the bundled binary. On the legacy path a missing binary raises
+> `FileNotFoundError` on first mesh operation (or at boot with `eager_init`).
 
 ### Top-level OIDC / provisioning fields
 
@@ -444,7 +464,6 @@ the full setup, the values that must match across services, and troubleshooting.
 | `client_id` | str | **required** | OAuth2 `client_id`. Must match the relying party's `client_id`. |
 | `client_secret` 🔒 | str | **required** | OAuth2 client secret. Must match the relying party's secret. Override per deployment. |
 | `redirect_uris` | list[str] | `[]` | Allowed OAuth2 redirect URIs (the relying party's callback URL). |
-| `membership_is_subject` | bool | `false` | Use the membership id as the token `sub` (subject) instead of the user id. When `false` the same human is one subject across all their organizations; when `true` each (user, organization) membership is a distinct subject. ⚠️ Flipping this on an existing client changes every user's `sub`, so the relying party sees them as brand-new identities. |
 | `email_template` | str | `null` | Template for the `email` claim, rendered per user from membership variables (e.g. `"{username}@corp.example"`). Available variables: `username`, `user_id`, `email`, `membership_id`, `org_slug`, `org_name`. Validated at boot — an unknown variable or attribute access (e.g. `{user.email}`) fails config load. When unset, the user's own email is used (falling back to a synthetic `<pk>@users.noreply` address). |
 
 ---
