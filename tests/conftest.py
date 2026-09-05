@@ -106,6 +106,25 @@ def ionscale_repo():
     return get_ionscale_repo()
 
 
+@pytest.fixture
+def commit_callbacks(django_capture_on_commit_callbacks):
+    """Run ``transaction.on_commit`` hooks for a block of test code.
+
+    ``ionscale.sync`` only talks to the control plane after the surrounding
+    transaction commits, and ``django_db`` wraps each test in a transaction that
+    never does. Wrap the statements whose side effects you want to observe::
+
+        with commit_callbacks():
+            Membership.objects.create(...)
+        assert ionscale_repo.updated_policies == [...]
+    """
+
+    def _capture():
+        return django_capture_on_commit_callbacks(execute=True)
+
+    return _capture
+
+
 @pytest.fixture(scope="function")
 def aws_credentials():
     """Mocked AWS Credentials for moto."""

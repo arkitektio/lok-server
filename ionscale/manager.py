@@ -88,6 +88,10 @@ def sync(layer: IonscaleLayer) -> IonscaleLayer:
     membership change. Read the current policy and carry everything that is not
     `subs` across.
     """
+    if not ionscale_configured():
+        logger.warning("Ionscale is not configured; skipping member sync for mesh %s", layer)
+        return layer
+
     members = Membership.objects.filter(organization=layer.organization).select_related("user")
 
     repo = get_ionscale_repo()
@@ -145,7 +149,17 @@ def apply_dns_config(layer: IonscaleLayer, raise_on_error: bool = False) -> Ions
     return layer
 
 
+def teardown_tailnet(tailnet_name: str) -> None:
+    """Delete a mesh's tailnet on ionscale. See :func:`ionscale.sync.teardown_tailnet`."""
+    from .sync import teardown_tailnet as _teardown
+
+    _teardown(tailnet_name)
+
+
 def sync_organization_layers(organization) -> None:
-    layers = IonscaleLayer.objects.filter(organization=organization)
-    for layer in layers:
-        sync(layer)
+    """Synchronously push the member list to every mesh of the organization,
+    swallowing failures. Signal handlers use the on-commit variant in
+    :mod:`ionscale.sync` instead."""
+    from .sync import resync_organization
+
+    resync_organization(getattr(organization, "pk", organization))

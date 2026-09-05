@@ -1,6 +1,6 @@
 from django.conf import settings
 from django.contrib.auth import get_user_model
-from django.db.models.signals import post_delete, post_save, pre_delete
+from django.db.models.signals import post_delete, post_save, pre_delete, pre_save
 from django.db.models import Q
 from django.dispatch import receiver
 from allauth.account.signals import user_signed_up
@@ -60,18 +60,49 @@ def notify_user_activation(sender, instance, created, **kwargs):
             # Handle the error as needed, e.g., log it or notify admins
 
 
+# Mesh (ionscale) side effects. All of them run on commit and never raise, so
+# an unreachable control plane cannot fail a membership change here; see
+# ionscale/sync.py and the `reconcile_meshes` command that repairs misses.
+
+
 @receiver(post_save, sender=Membership)
 def sync_ionscale_layers_on_membership_save(sender, instance, **kwargs):
-    from ionscale.manager import sync_organization_layers
+    from ionscale.sync import schedule_resync
 
-    sync_organization_layers(instance.organization)
+    schedule_resync(instance.organization_id)
 
 
 @receiver(post_delete, sender=Membership)
-def sync_ionscale_layers_on_membership_delete(sender, instance, **kwargs):
-    from ionscale.manager import sync_organization_layers
+def revoke_ionscale_access_on_membership_delete(sender, instance, **kwargs):
+    from ionscale.sync import schedule_member_removal
 
-    sync_organization_layers(instance.organization)
+    # Capture the keys now: by commit time the instance's relations may be gone
+    # (user or organization cascade).
+    schedule_member_removal(instance.user_id, instance.organization_id)
+
+
+@receiver(pre_save, sender=User)
+def revoke_ionscale_access_on_deactivation(sender, instance, **kwargs):
+    if instance.pk is None or instance.is_active:
+        return
+    was_active = (
+        User.objects.filter(pk=instance.pk).values_list("is_active", flat=True).first()
+    )
+    if was_active:
+        from ionscale.sync import schedule_user_revocation
+
+        schedule_user_revocation(instance.pk)
+
+
+@receiver(pre_delete, sender=Organization)
+def teardown_ionscale_meshes_for_organization(sender, instance, **kwargs):
+    from fakts.models import IonscaleLayer
+    from ionscale.sync import schedule_teardown
+
+    for tailnet_name in IonscaleLayer.objects.filter(organization=instance).values_list(
+        "tailnet_name", flat=True
+    ):
+        schedule_teardown(tailnet_name)
 
 
 @receiver(pre_delete, sender=Organization)
