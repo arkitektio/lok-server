@@ -215,6 +215,68 @@ def test_update_mesh_rejects_non_member(ionscale_repo):
     assert len(ionscale_repo.dns_configs) == 0
 
 
+@pytest.mark.django_db
+def test_delete_mesh_tears_down_tailnet_after_commit(ionscale_repo, commit_callbacks):
+    """Disabling the mesh deletes the tailnet (forced: machines go with it), but
+    only once the layer's deletion has committed."""
+    from api.management.mutations.ionscale import (
+        delete_ionscale_layer,
+        DeleteIonscaleLayerInput,
+    )
+
+    org = factories.make_organization()
+    mesh = ensure_org_mesh(org)
+    tailnet_name = mesh.tailnet_name
+
+    with commit_callbacks() as callbacks:
+        returned = delete_ionscale_layer(_info_for(org.owner), DeleteIonscaleLayerInput(id=mesh.pk))
+        # inside the transaction: the row is gone, ionscale untouched
+        assert get_org_mesh(org) is None
+        assert ionscale_repo.deleted_tailnets == []
+
+    assert str(returned) == str(mesh.pk)
+    assert len(callbacks) == 1
+    assert ionscale_repo.deleted_tailnets == [(tailnet_name, True)]
+    assert all(t.name != tailnet_name for t in ionscale_repo.tailnets)
+
+
+@pytest.mark.django_db
+def test_delete_mesh_tolerates_missing_tailnet(ionscale_repo, commit_callbacks):
+    """A tailnet already gone on ionscale is not an error: the layer is still removed."""
+    from ionscale.errors import IonscaleError
+    from api.management.mutations.ionscale import (
+        delete_ionscale_layer,
+        DeleteIonscaleLayerInput,
+    )
+
+    org = factories.make_organization()
+    mesh = ensure_org_mesh(org)
+    ionscale_repo.fail_with["delete_tailnet"] = IonscaleError("not_found", "no such tailnet")
+
+    with commit_callbacks():
+        delete_ionscale_layer(_info_for(org.owner), DeleteIonscaleLayerInput(id=mesh.pk))
+
+    assert get_org_mesh(org) is None
+
+
+@pytest.mark.django_db
+def test_delete_mesh_rejects_non_admin(ionscale_repo, commit_callbacks):
+    from api.management.mutations.ionscale import (
+        delete_ionscale_layer,
+        DeleteIonscaleLayerInput,
+    )
+
+    org = factories.make_organization()
+    mesh = ensure_org_mesh(org)
+    outsider = factories.make_user()
+
+    with pytest.raises(GraphQLError), commit_callbacks():
+        delete_ionscale_layer(_info_for(outsider), DeleteIonscaleLayerInput(id=mesh.pk))
+
+    assert get_org_mesh(org) == mesh
+    assert ionscale_repo.deleted_tailnets == []
+
+
 UPDATE_MESH_DNS = """
     mutation Update($input: UpdateIonscaleLayerInput!) {
         updateIonscaleLayer(input: $input) {

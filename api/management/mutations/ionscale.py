@@ -5,8 +5,8 @@ from api.management import types
 import kante
 from fakts import models as fakts_models
 from ionscale.repo import get_ionscale_repo
-from ionscale.manager import sync, ensure_org_mesh, apply_dns_config
-from karakter import models as karakter_models
+from ionscale.manager import ensure_org_mesh, apply_dns_config
+from ionscale.sync import schedule_teardown
 from api.management.authz import DENIED, assert_owner_or_admin, get_or_denied
 from graphql import GraphQLError
 
@@ -43,24 +43,23 @@ class UpdateIonscaleLayerInput:
     id: strawberry.ID = strawberry.field(description="The ID of the Ionscale layer to update.")
     name: str | None = strawberry.field(default=None, description="The name of the tailnet layer.")
     description: str | None = strawberry.field(default=None, description="The description of the tailnet layer.")
-    blocked_for: list[strawberry.ID] | None = strawberry.field(default=None, description="List of membership IDs to block from accessing this layer.")
     magic_dns: bool | None = strawberry.field(default=None, description="Enable or disable MagicDNS for this mesh.")
     https_certs: bool | None = strawberry.field(default=None, description="Enable or disable HTTPS certificates for this mesh. Requires MagicDNS.")
 
 
 def update_ionscale_layer(info: Info, input: UpdateIonscaleLayerInput) -> types.ManagementLayer:
-    """Update an organization's mesh: member blocking and/or DNS (MagicDNS/HTTPS).
+    """Update an organization's mesh: naming and/or DNS (MagicDNS/HTTPS).
 
     Only the organization's owner or admins may reconfigure the mesh (it decides
-    who can reach it and how it resolves names).
+    how its machines resolve names). Access itself is not configured here: every
+    member of the organization is a member of its mesh.
     """
 
     layer = get_or_denied(fakts_models.IonscaleLayer.objects, id=input.id)
 
     assert_owner_or_admin(info, layer.organization)
 
-    # Validate the DNS combination up front, before anything is mutated — a
-    # rejected request must not leave `blocked_for` half-applied.
+    # Validate the DNS combination up front, before anything is mutated.
     if input.magic_dns is not None or input.https_certs is not None:
         magic_dns = input.magic_dns if input.magic_dns is not None else layer.magic_dns_enabled
         https_certs = input.https_certs if input.https_certs is not None else layer.https_enabled
@@ -68,15 +67,12 @@ def update_ionscale_layer(info: Info, input: UpdateIonscaleLayerInput) -> types.
         if https_certs and not magic_dns:
             raise GraphQLError("HTTPS certificates require MagicDNS to be enabled.")
 
-    if input.blocked_for is not None:
-        # Scope to this layer's organization: unscoped ids would let a member of
-        # one tenant attach another tenant's memberships to their mesh.
-        memberships = karakter_models.Membership.objects.filter(
-            id__in=input.blocked_for, organization=layer.organization
-        )
-        layer.blocked_for.set(memberships)
+    if input.name is not None or input.description is not None:
+        if input.name is not None:
+            layer.name = input.name
+        if input.description is not None:
+            layer.description = input.description
         layer.save()
-        sync(layer)
 
     if input.magic_dns is not None or input.https_certs is not None:
         if input.magic_dns is not None:
@@ -99,24 +95,28 @@ def update_ionscale_layer(info: Info, input: UpdateIonscaleLayerInput) -> types.
 class DeleteIonscaleLayerInput:
     """Input for disabling (deleting) an organization's mesh layer."""
 
-    id: strawberry.ID
+    id: strawberry.ID = strawberry.field(
+        description="The mesh to disable. Irreversible: the tailnet and every machine "
+        "enrolled in it are deleted on ionscale as well."
+    )
 
 
 def delete_ionscale_layer(info: Info, input: DeleteIonscaleLayerInput) -> strawberry.ID:
-    """Disable (delete) an organization's mesh layer.
+    """Disable (delete) an organization's mesh layer and tear its tailnet down.
 
-    This previously looked up an ``InstanceAlias`` by the given id and deleted
-    that instead of the layer, so "disable mesh" destroyed an unrelated routing
-    entry -- and did so for any id, in any organization.
-
-    Note: this removes the layer record only. There is no ionscale-side teardown
-    helper, so the tailnet itself is left in place.
+    The tailnet is deleted on ionscale (forced, so enrolled machines go with
+    it) once the layer's deletion has committed; a control-plane failure is
+    logged and left to `manage.py reconcile_meshes`, which reports orphaned
+    tailnets.
     """
     layer = get_or_denied(fakts_models.IonscaleLayer.objects, id=input.id)
 
     assert_owner_or_admin(info, layer.organization)
 
-    layer.delete()
+    tailnet_name = layer.tailnet_name
+    with transaction.atomic():
+        layer.delete()
+        schedule_teardown(tailnet_name)
 
     return input.id
 
