@@ -1,213 +1,193 @@
 import strawberry
 import strawberry_django
+from django.db.models import Q
+from kante.types import Info
 from fakts import models as fakts_models
 from fakts import enums as fakts_enums
-from allauth.socialaccount import models as smodels
 from karakter import models as karakter_models
 
 
 @strawberry_django.order_type(fakts_models.KommunityPartner)
-class ManagementKommunityPartnerOrder:
+class ManagementKommunityPartnerOrdering:
+    id: strawberry.auto
     name: strawberry.auto
-    created_at: strawberry.auto
-    last_reported_at: strawberry.auto
 
 
 @strawberry_django.filter_type(fakts_models.KommunityPartner)
 class ManagementKommunityPartnerFilter:
-    search: str | None = None
-    ids: list[strawberry.ID] | None = None
-    auto_configure: bool | None = None
-    applicable_for_me: bool | None = None
-    has_preconfigured_composition: bool | None = None
+    @strawberry_django.filter_field
+    def ids(self, value: list[strawberry.ID], prefix: str) -> Q:
+        return Q(**{f"{prefix}id__in": value})
 
-    def filter_ids(self, queryset, info):
-        if self.ids is None:
-            return queryset
-        return queryset.filter(id__in=self.ids)
+    @strawberry_django.filter_field
+    def search(self, value: str, prefix: str) -> Q:
+        return Q(**{f"{prefix}name__icontains": value})
 
-    def filter_search(self, queryset, info):
-        if self.search is None:
-            return queryset
-        return queryset.filter(name__icontains=self.search)
+    @strawberry_django.filter_field
+    def auto_configure(self, value: bool, prefix: str) -> Q:
+        return Q(**{f"{prefix}auto_configure": value})
 
-    def filter_auto_configure(self, queryset, info):
-        if self.auto_configure is None:
-            return queryset
-        return queryset.filter(auto_configure=self.auto_configure)
+    @strawberry_django.filter_field
+    def has_preconfigured_hub(self, value: bool, queryset, prefix: str):
+        if value:
+            return (
+                queryset.exclude(preconfigured_hub__isnull=True).exclude(
+                    preconfigured_hub={}
+                ),
+                Q(),
+            )
+        return (
+            queryset.filter(preconfigured_hub__isnull=True)
+            | queryset.filter(preconfigured_hub={}),
+            Q(),
+        )
 
-    def filter_has_preconfigured_composition(self, queryset, info):
-        if self.has_preconfigured_composition is None:
-            return queryset
-        if self.has_preconfigured_composition:
-            return queryset.exclude(preconfigured_composition__isnull=True).exclude(preconfigured_composition={})
-        return queryset.filter(preconfigured_composition__isnull=True) | queryset.filter(preconfigured_composition={})
-
-    def filter_applicable_for_me(self, queryset, info):
+    @strawberry_django.filter_field
+    def applicable_for_me(self, info: Info, value: bool, queryset, prefix: str):
         """Filter partners that apply to the current user based on their filter_config."""
-        if self.applicable_for_me is None:
-            return queryset
-        
         user = info.context.request.user
         if not user.is_authenticated:
-            return queryset.none() if self.applicable_for_me else queryset
-        
+            return (queryset.none() if value else queryset), Q()
+
         # We need to filter in Python since filter_config logic is complex
-        applicable_ids = []
-        for partner in queryset:
-            if partner.applies_to_user(user) == self.applicable_for_me:
-                applicable_ids.append(partner.id)
-        
-        return queryset.filter(id__in=applicable_ids)
+        applicable_ids = [
+            partner.id for partner in queryset if partner.applies_to_user(user) == value
+        ]
+        return queryset.filter(id__in=applicable_ids), Q()
 
 
 @strawberry_django.order_type(fakts_models.IonscaleLayer)
-class ManagementLayerOrder:
+class ManagementLayerOrdering:
+    id: strawberry.auto
     name: strawberry.auto
-    created_at: strawberry.auto
-    last_reported_at: strawberry.auto
 
 
 @strawberry_django.filter_type(fakts_models.IonscaleLayer)
 class ManagementLayerFilter:
-    search: str | None
-    ids: list[strawberry.ID] | None
-    organization: strawberry.ID | None
+    @strawberry_django.filter_field
+    def ids(self, value: list[strawberry.ID], prefix: str) -> Q:
+        return Q(**{f"{prefix}id__in": value})
 
-    def filter_ids(self, queryset, info):
-        if self.ids is None:
-            return queryset
-        return queryset.filter(id__in=self.ids)
+    @strawberry_django.filter_field
+    def search(self, value: str, prefix: str) -> Q:
+        return Q(**{f"{prefix}name__contains": value})
 
-    def filter_search(self, queryset, info):
-        if self.search is None:
-            return queryset
-        return queryset.filter(name__contains=self.search)
-
-    def filter_organization(self, queryset, info):
-        if self.organization is None:
-            return queryset
-        return queryset.filter(organization__id=self.organization)
+    @strawberry_django.filter_field
+    def organization(self, value: strawberry.ID, prefix: str) -> Q:
+        return Q(**{f"{prefix}organization__id": value})
 
 
 @strawberry_django.order_type(fakts_models.DeviceGroup)
-class ManagementDeviceGroupOrder:
+class ManagementDeviceGroupOrdering:
+    id: strawberry.auto
     name: strawberry.auto
-    created_at: strawberry.auto
-    last_reported_at: strawberry.auto
 
 
 @strawberry_django.filter_type(fakts_models.DeviceGroup)
 class ManagementDeviceGroupFilter:
-    search: str | None
-    ids: list[strawberry.ID] | None
-    organization: strawberry.ID | None
+    @strawberry_django.filter_field
+    def ids(self, value: list[strawberry.ID], prefix: str) -> Q:
+        return Q(**{f"{prefix}id__in": value})
 
-    def filter_ids(self, queryset, info):
-        if self.ids is None:
-            return queryset
-        return queryset.filter(id__in=self.ids)
+    @strawberry_django.filter_field
+    def search(self, value: str, prefix: str) -> Q:
+        return Q(**{f"{prefix}name__contains": value})
 
-    def filter_search(self, queryset, info):
-        if self.search is None:
-            return queryset
-        return queryset.filter(name__contains=self.search)
-
-    def filter_organization(self, queryset, info):
-        if self.organization is None:
-            return queryset
-        return queryset.filter(organization__id=self.organization)
+    @strawberry_django.filter_field
+    def organization(self, value: strawberry.ID, prefix: str) -> Q:
+        return Q(**{f"{prefix}organization__id": value})
 
 
-@strawberry_django.order_type(fakts_models.Composition)
-class ManagementCompositionOrder:
+@strawberry_django.order_type(fakts_models.Hub)
+class ManagementHubOrdering:
+    id: strawberry.auto
     name: strawberry.auto
-    created_at: strawberry.auto
-    last_reported_at: strawberry.auto
 
 
-@strawberry_django.filter_type(fakts_models.Composition)
-class ManagementCompositionFilter:
-    search: str | None
-    ids: list[strawberry.ID] | None
-    organization: strawberry.ID | None
+@strawberry_django.filter_type(fakts_models.Hub)
+class ManagementHubFilter:
+    @strawberry_django.filter_field
+    def ids(self, value: list[strawberry.ID], prefix: str) -> Q:
+        return Q(**{f"{prefix}id__in": value})
 
-    def filter_ids(self, queryset, info):
-        if self.ids is None:
-            return queryset
-        return queryset.filter(id__in=self.ids)
+    @strawberry_django.filter_field
+    def search(self, value: str, prefix: str) -> Q:
+        return Q(**{f"{prefix}name__contains": value})
 
-    def filter_search(self, queryset, info):
-        if self.search is None:
-            return queryset
-        return queryset.filter(name__contains=self.search)
-
-    def filter_organization(self, queryset, info):
-        if self.organization is None:
-            return queryset
-        return queryset.filter(organization__id=self.organization)
+    @strawberry_django.filter_field
+    def organization(self, value: strawberry.ID, prefix: str) -> Q:
+        return Q(**{f"{prefix}organization__id": value})
 
 
 @strawberry_django.order_type(fakts_models.Device)
-class ManagementDeviceOrder:
+class ManagementDeviceOrdering:
+    id: strawberry.auto
     name: strawberry.auto
-    created_at: strawberry.auto
-    last_reported_at: strawberry.auto
 
 
 @strawberry_django.filter_type(fakts_models.Device)
 class ManagementDeviceFilter:
-    search: str | None
-    ids: list[strawberry.ID] | None
-    organization: strawberry.ID | None
+    @strawberry_django.filter_field
+    def ids(self, value: list[strawberry.ID], prefix: str) -> Q:
+        return Q(**{f"{prefix}id__in": value})
 
-    def filter_ids(self, queryset, info):
-        if self.ids is None:
-            return queryset
-        return queryset.filter(id__in=self.ids)
+    @strawberry_django.filter_field
+    def search(self, value: str, prefix: str) -> Q:
+        return Q(**{f"{prefix}name__contains": value})
 
-    def filter_search(self, queryset, info):
-        if self.search is None:
-            return queryset
-        return queryset.filter(name__contains=self.search)
-
-    def filter_organization(self, queryset, info):
-        if self.organization is None:
-            return queryset
-        return queryset.filter(organization__id=self.organization)
+    @strawberry_django.filter_field
+    def organization(self, value: strawberry.ID, prefix: str) -> Q:
+        return Q(**{f"{prefix}organization__id": value})
 
 
 @strawberry_django.order_type(karakter_models.Membership)
-class ManagementMembershipOrder:
-    name: strawberry.auto
-    created_at: strawberry.auto
-    last_reported_at: strawberry.auto
+class ManagementMembershipOrdering:
+    id: strawberry.auto
 
 
 @strawberry_django.filter_type(karakter_models.Membership)
 class ManagementMembershipFilter:
-    search: str | None
-    ids: list[strawberry.ID] | None
-    organization: strawberry.ID | None
+    @strawberry_django.filter_field
+    def ids(self, value: list[strawberry.ID], prefix: str) -> Q:
+        return Q(**{f"{prefix}id__in": value})
 
-    def filter_ids(self, queryset, info):
-        if self.ids is None:
-            return queryset
-        return queryset.filter(id__in=self.ids)
+    @strawberry_django.filter_field
+    def search(self, value: str, prefix: str) -> Q:
+        return Q(**{f"{prefix}user__username__icontains": value})
 
-    def filter_search(self, queryset, info):
-        if self.search is None:
-            return queryset
-        return queryset.filter(name__contains=self.search)
+    @strawberry_django.filter_field
+    def organization(self, value: strawberry.ID, prefix: str) -> Q:
+        return Q(**{f"{prefix}organization__id": value})
 
-    def filter_organization(self, queryset, info):
-        if self.organization is None:
-            return queryset
-        return queryset.filter(organization__id=self.organization)
+
+@strawberry_django.order_type(karakter_models.RoleRequest)
+class ManagementRoleRequestOrdering:
+    id: strawberry.auto
+    created_at: strawberry.auto
+
+
+@strawberry_django.filter_type(karakter_models.RoleRequest)
+class ManagementRoleRequestFilter:
+    @strawberry_django.filter_field
+    def ids(self, value: list[strawberry.ID], prefix: str) -> Q:
+        return Q(**{f"{prefix}id__in": value})
+
+    @strawberry_django.filter_field
+    def organization(self, value: strawberry.ID, prefix: str) -> Q:
+        return Q(**{f"{prefix}membership__organization__id": value})
+
+    @strawberry_django.filter_field
+    def membership(self, value: strawberry.ID, prefix: str) -> Q:
+        return Q(**{f"{prefix}membership__id": value})
+
+    @strawberry_django.filter_field
+    def status(self, value: str, prefix: str) -> Q:
+        return Q(**{f"{prefix}status": value})
 
 
 @strawberry_django.order_type(fakts_models.Client)
-class ManagementClientOrder:
+class ManagementClientOrdering:
+    id: strawberry.auto
     name: strawberry.auto
     created_at: strawberry.auto
     last_reported_at: strawberry.auto
@@ -215,253 +195,374 @@ class ManagementClientOrder:
 
 @strawberry_django.filter_type(fakts_models.Client)
 class ManagementClientFilter:
-    search: str | None
-    ids: list[strawberry.ID] | None
-    functional: bool | None
-    organization: strawberry.ID | None
-    role: fakts_enums.ClientRole | None
+    @strawberry_django.filter_field
+    def ids(self, value: list[strawberry.ID], prefix: str) -> Q:
+        return Q(**{f"{prefix}id__in": value})
 
-    def filter_ids(self, queryset, info):
-        if self.ids is None:
-            return queryset
-        return queryset.filter(id__in=self.ids)
+    @strawberry_django.filter_field
+    def search(self, value: str, prefix: str) -> Q:
+        return Q(**{f"{prefix}name__contains": value})
 
-    def filter_search(self, queryset, info):
-        if self.search is None:
-            return queryset
-        return queryset.filter(name__contains=self.search)
+    @strawberry_django.filter_field
+    def functional(self, value: bool, prefix: str) -> Q:
+        return Q(**{f"{prefix}functional": value})
 
-    def filter_functional(self, queryset, info):
-        if self.functional is None:
-            return queryset
-        return queryset.filter(functional=self.functional)
+    @strawberry_django.filter_field
+    def latest_report_resolved(self, value: bool, prefix: str) -> Q:
+        """Whether the client's most recent report has been acknowledged.
 
-    def filter_role(self, queryset, info):
-        if self.role is None:
-            return queryset
-        return queryset.filter(role=self.role.value)
+        Combine with `functional: false` to list the clients that are broken AND
+        not yet triaged — the dashboard's action list.
+        """
+        return Q(**{f"{prefix}latest_report_resolved": value})
 
-    def filter_organization(self, queryset, info):
-        if self.organization is None:
-            return queryset
-        return queryset.filter(organization__id=self.organization)
+    @strawberry_django.filter_field
+    def role(self, value: fakts_enums.ClientRole, prefix: str) -> Q:
+        return Q(**{f"{prefix}role": value.value})
+
+    @strawberry_django.filter_field
+    def organization(self, value: strawberry.ID, prefix: str) -> Q:
+        return Q(**{f"{prefix}organization__id": value})
+
+    @strawberry_django.filter_field
+    def hub(self, value: strawberry.ID, prefix: str) -> Q:
+        return Q(**{f"{prefix}hub__id": value})
+
+
+@strawberry_django.order_type(fakts_models.Report)
+class ManagementReportOrdering:
+    id: strawberry.auto
+    created_at: strawberry.auto
+
+
+@strawberry_django.filter_type(fakts_models.Report)
+class ManagementReportFilter:
+    @strawberry_django.filter_field
+    def ids(self, value: list[strawberry.ID], prefix: str) -> Q:
+        return Q(**{f"{prefix}id__in": value})
+
+    @strawberry_django.filter_field
+    def client(self, value: strawberry.ID, prefix: str) -> Q:
+        return Q(**{f"{prefix}client__id": value})
 
 
 @strawberry_django.order_type(fakts_models.InstanceAlias)
-class ManagementInstanceAliasOrder:
+class ManagementInstanceAliasOrdering:
+    id: strawberry.auto
     name: strawberry.auto
-    created_at: strawberry.auto
-    updated_at: strawberry.auto
 
 
 @strawberry_django.filter_type(fakts_models.InstanceAlias)
 class ManagementInstanceAliasFilter:
-    search: str | None
-    ids: list[strawberry.ID] | None
-    functional: bool | None
+    @strawberry_django.filter_field
+    def ids(self, value: list[strawberry.ID], prefix: str) -> Q:
+        return Q(**{f"{prefix}id__in": value})
 
-    def filter_ids(self, queryset, info):
-        if self.ids is None:
-            return queryset
-        return queryset.filter(id__in=self.ids)
-
-    def filter_search(self, queryset, info):
-        if self.search is None:
-            return queryset
-        return queryset.filter(name__contains=self.search)
-
-    def filter_functional(self, queryset, info):
-        if self.functional is None:
-            return queryset
-        return queryset.filter(functional=self.functional)
+    @strawberry_django.filter_field
+    def search(self, value: str, prefix: str) -> Q:
+        return Q(**{f"{prefix}name__contains": value})
 
 
 @strawberry_django.order_type(fakts_models.ServiceInstanceMapping)
-class ManagementServiceInstanceMappingOrder:
-    name: strawberry.auto
-    created_at: strawberry.auto
-    updated_at: strawberry.auto
+class ManagementServiceInstanceMappingOrdering:
+    id: strawberry.auto
 
 
 @strawberry_django.filter_type(fakts_models.ServiceInstanceMapping)
 class ServiceInstanceMappingFilter:
-    search: str | None
-    ids: list[strawberry.ID] | None
-    organization: strawberry.ID | None
+    @strawberry_django.filter_field
+    def ids(self, value: list[strawberry.ID], prefix: str) -> Q:
+        return Q(**{f"{prefix}id__in": value})
 
-    def filter_ids(self, queryset, info):
-        if self.ids is None:
-            return queryset
-        return queryset.filter(id__in=self.ids)
+    @strawberry_django.filter_field
+    def search(self, value: str, prefix: str) -> Q:
+        return Q(**{f"{prefix}key__icontains": value})
 
-    def filter_search(self, queryset, info):
-        if self.search is None:
-            return queryset
-        return queryset.filter(name__contains=self.search)
-
-    def filter_organization(self, queryset, info):
-        if self.organization is None:
-            return queryset
-        return queryset.filter(organization__id=self.organization)
+    @strawberry_django.filter_field
+    def organization(self, value: strawberry.ID, prefix: str) -> Q:
+        return Q(**{f"{prefix}instance__organization__id": value})
 
 
 @strawberry_django.order_type(fakts_models.ServiceInstance)
-class ManagementServiceInstanceOrder:
-    name: strawberry.auto
-    created_at: strawberry.auto
-    updated_at: strawberry.auto
+class ManagementServiceInstanceOrdering:
+    id: strawberry.auto
 
 
 @strawberry_django.filter_type(fakts_models.ServiceInstance)
 class ManagementServiceInstanceFilter:
-    search: str | None
-    ids: list[strawberry.ID] | None
-    organization: strawberry.ID | None
+    @strawberry_django.filter_field
+    def ids(self, value: list[strawberry.ID], prefix: str) -> Q:
+        return Q(**{f"{prefix}id__in": value})
 
-    def filter_ids(self, queryset, info):
-        if self.ids is None:
-            return queryset
-        return queryset.filter(id__in=self.ids)
+    @strawberry_django.filter_field
+    def search(self, value: str, prefix: str) -> Q:
+        return Q(**{f"{prefix}instance_id__icontains": value})
 
-    def filter_search(self, queryset, info):
-        if self.search is None:
-            return queryset
-        return queryset.filter(name__contains=self.search)
+    @strawberry_django.filter_field
+    def organization(self, value: strawberry.ID, prefix: str) -> Q:
+        return Q(**{f"{prefix}organization__id": value})
 
-    def filter_organization(self, queryset, info):
-        if self.organization is None:
-            return queryset
-        return queryset.filter(organization__id=self.organization)
+    @strawberry_django.filter_field
+    def hub(self, value: strawberry.ID, prefix: str) -> Q:
+        return Q(**{f"{prefix}hub__id": value})
 
 
-@strawberry_django.order_type(smodels.SocialAccount)
-class ManagementSocialAccountOrder:
-    name: strawberry.auto
+@strawberry_django.order_type(fakts_models.RedeemToken)
+class ManagementRedeemTokenOrdering:
+    id: strawberry.auto
     created_at: strawberry.auto
-    updated_at: strawberry.auto
 
 
-@strawberry_django.filter_type(smodels.SocialAccount)
-class ManagementSocialAccountFilter:
-    search: str | None
-    ids: list[strawberry.ID] | None
-    organization: strawberry.ID | None
+@strawberry_django.filter_type(fakts_models.RedeemToken)
+class ManagementRedeemTokenFilter:
+    @strawberry_django.filter_field
+    def ids(self, value: list[strawberry.ID], prefix: str) -> Q:
+        return Q(**{f"{prefix}id__in": value})
 
-    def filter_ids(self, queryset, info):
-        if self.ids is None:
-            return queryset
-        return queryset.filter(id__in=self.ids)
+    @strawberry_django.filter_field
+    def search(self, value: str, prefix: str) -> Q:
+        # Never search on the token itself: a substring match on a bearer
+        # credential is a character-by-character oracle for it.
+        return Q(**{f"{prefix}hub__name__icontains": value})
 
-    def filter_search(self, queryset, info):
-        if self.search is None:
-            return queryset
-        return queryset.filter(name__contains=self.search)
+    @strawberry_django.filter_field
+    def organization(self, value: strawberry.ID, prefix: str) -> Q:
+        return Q(**{f"{prefix}hub__organization__id": value})
 
-    def filter_organization(self, queryset, info):
-        if self.organization is None:
-            return queryset
-        return queryset.filter(organization__id=self.organization)
+    @strawberry_django.filter_field
+    def hub(self, value: strawberry.ID, prefix: str) -> Q:
+        return Q(**{f"{prefix}hub__id": value})
 
 
 @strawberry_django.order_type(karakter_models.Role)
-class ManagementRoleOrder:
-    name: strawberry.auto
-    created_at: strawberry.auto
-    updated_at: strawberry.auto
+class ManagementRoleOrdering:
+    id: strawberry.auto
 
 
 @strawberry_django.filter_type(karakter_models.Role)
 class ManagementRoleFilter:
-    search: str | None
-    ids: list[strawberry.ID] | None
-    organization: strawberry.ID | None
-    creating_instance: strawberry.ID | None
+    @strawberry_django.filter_field
+    def ids(self, value: list[strawberry.ID], prefix: str) -> Q:
+        return Q(**{f"{prefix}id__in": value})
 
-    def filter_ids(self, queryset, info):
-        if self.ids is None:
-            return queryset
-        return queryset.filter(id__in=self.ids)
+    @strawberry_django.filter_field
+    def search(self, value: str, prefix: str) -> Q:
+        return Q(**{f"{prefix}identifier__icontains": value})
 
-    def filter_search(self, queryset, info):
-        if self.search is None:
-            return queryset
-        return queryset.filter(name__contains=self.search)
+    @strawberry_django.filter_field
+    def organization(self, value: strawberry.ID, prefix: str) -> Q:
+        return Q(**{f"{prefix}organization__id": value})
 
-    def filter_organization(self, queryset, info):
-        if self.organization is None:
-            return queryset
-        return queryset.filter(organization__id=self.organization)
-
-    def filter_creating_instance(self, queryset, info):
-        if self.creating_instance is None:
-            return queryset
-        return queryset.filter(creating_instance__id=self.creating_instance)
+    @strawberry_django.filter_field
+    def creating_instance(self, value: strawberry.ID, prefix: str) -> Q:
+        return Q(**{f"{prefix}creating_instance__id": value})
 
 
 @strawberry_django.order_type(karakter_models.Scope)
-class ManagementScopeOrder:
-    name: strawberry.auto
-    created_at: strawberry.auto
-    updated_at: strawberry.auto
+class ManagementScopeOrdering:
+    id: strawberry.auto
 
 
 @strawberry_django.filter_type(karakter_models.Scope)
 class ManagementScopeFilter:
-    search: str | None
-    ids: list[strawberry.ID] | None
-    organization: strawberry.ID | None
-    creating_instance: strawberry.ID | None
+    @strawberry_django.filter_field
+    def ids(self, value: list[strawberry.ID], prefix: str) -> Q:
+        return Q(**{f"{prefix}id__in": value})
 
-    def filter_ids(self, queryset, info):
-        if self.ids is None:
-            return queryset
-        return queryset.filter(id__in=self.ids)
+    @strawberry_django.filter_field
+    def search(self, value: str, prefix: str) -> Q:
+        return Q(**{f"{prefix}identifier__icontains": value})
 
-    def filter_search(self, queryset, info):
-        if self.search is None:
-            return queryset
-        return queryset.filter(name__contains=self.search)
+    @strawberry_django.filter_field
+    def organization(self, value: strawberry.ID, prefix: str) -> Q:
+        return Q(**{f"{prefix}organization__id": value})
 
-    def filter_organization(self, queryset, info):
-        if self.organization is None:
-            return queryset
-        return queryset.filter(organization__id=self.organization)
-
-    def filter_creating_instance(self, queryset, info):
-        if self.creating_instance is None:
-            return queryset
-        return queryset.filter(creating_instance__id=self.creating_instance)
+    @strawberry_django.filter_field
+    def creating_instance(self, value: strawberry.ID, prefix: str) -> Q:
+        return Q(**{f"{prefix}creating_instance__id": value})
 
 
 @strawberry_django.order_type(fakts_models.IonscaleAuthKey)
-class ManagementIonscaleAuthKeyOrder:
+class ManagementIonscaleAuthKeyOrdering:
+    id: strawberry.auto
     created_at: strawberry.auto
-    ephemeral: strawberry.auto
 
 
 @strawberry_django.filter_type(fakts_models.IonscaleAuthKey)
 class ManagementIonscaleAuthKeyFilter:
-    search: str | None
-    ids: list[strawberry.ID] | None
-    layer: strawberry.ID | None
-    ephemeral: bool | None
+    @strawberry_django.filter_field
+    def ids(self, value: list[strawberry.ID], prefix: str) -> Q:
+        return Q(**{f"{prefix}id__in": value})
 
-    def filter_ids(self, queryset, info):
-        if self.ids is None:
-            return queryset
-        return queryset.filter(id__in=self.ids)
+    @strawberry_django.filter_field
+    def search(self, value: str, prefix: str) -> Q:
+        # Never search on the key itself (a live mesh credential).
+        return Q(**{f"{prefix}layer__name__icontains": value})
 
-    def filter_search(self, queryset, info):
-        if self.search is None:
-            return queryset
-        return queryset.filter(key__contains=self.search)
+    @strawberry_django.filter_field
+    def layer(self, value: strawberry.ID, prefix: str) -> Q:
+        return Q(**{f"{prefix}layer__id": value})
 
-    def filter_layer(self, queryset, info):
-        if self.layer is None:
-            return queryset
-        return queryset.filter(layer__id=self.layer)
+    @strawberry_django.filter_field
+    def ephemeral(self, value: bool, prefix: str) -> Q:
+        return Q(**{f"{prefix}ephemeral": value})
 
-    def filter_ephemeral(self, queryset, info):
-        if self.ephemeral is None:
-            return queryset
-        return queryset.filter(ephemeral=self.ephemeral)
+
+@strawberry_django.order_type(karakter_models.Organization)
+class ManagementOrganizationOrdering:
+    id: strawberry.auto
+    name: strawberry.auto
+
+
+@strawberry_django.order_type(karakter_models.User)
+class ManagementUserOrdering:
+    id: strawberry.auto
+
+
+@strawberry_django.order_type(fakts_models.Service)
+class ManagementServiceOrdering:
+    id: strawberry.auto
+    name: strawberry.auto
+
+
+@strawberry_django.order_type(fakts_models.ServiceRelease)
+class ManagementServiceReleaseOrdering:
+    id: strawberry.auto
+
+
+@strawberry_django.order_type(fakts_models.App)
+class ManagementAppOrdering:
+    id: strawberry.auto
+    name: strawberry.auto
+
+
+@strawberry_django.order_type(fakts_models.Release)
+class ManagementReleaseOrdering:
+    id: strawberry.auto
+    name: strawberry.auto
+
+
+@strawberry_django.order_type(fakts_models.UsedAlias)
+class ManagementUsedAliasOrdering:
+    id: strawberry.auto
+
+
+# --- Minimal per-type filters ------------------------------------------------
+#
+# Several management types used to borrow a filter class declared for a
+# *different* model (``karakter_filters.OrganizationFilter`` on invites, device
+# codes, com channels ...; ``ProfileFilter`` on system messages). Their ``search``
+# then filtered on a column the model does not have and every search request
+# 500'd with a FieldError. Each type now gets its own filter over real columns.
+
+
+@strawberry_django.filter_type(karakter_models.Invite)
+class ManagementInviteFilter:
+    @strawberry_django.filter_field
+    def ids(self, value: list[strawberry.ID], prefix: str) -> Q:
+        return Q(**{f"{prefix}id__in": value})
+
+    @strawberry_django.filter_field
+    def search(self, value: str, prefix: str) -> Q:
+        return Q(**{f"{prefix}created_for__name__icontains": value})
+
+    @strawberry_django.filter_field
+    def organization(self, value: strawberry.ID, prefix: str) -> Q:
+        return Q(**{f"{prefix}created_for__id": value})
+
+    @strawberry_django.filter_field
+    def status(self, value: str, prefix: str) -> Q:
+        return Q(**{f"{prefix}status": value})
+
+
+@strawberry_django.filter_type(fakts_models.DeviceCode)
+class ManagementDeviceCodeFilter:
+    @strawberry_django.filter_field
+    def ids(self, value: list[strawberry.ID], prefix: str) -> Q:
+        return Q(**{f"{prefix}id__in": value})
+
+    @strawberry_django.filter_field
+    def search(self, value: str, prefix: str) -> Q:
+        return Q(**{f"{prefix}client__name__icontains": value})
+
+    @strawberry_django.filter_field
+    def organization(self, value: strawberry.ID, prefix: str) -> Q:
+        return Q(**{f"{prefix}organization__id": value})
+
+
+@strawberry_django.filter_type(fakts_models.DeviceCode)
+class ManagementHubDeviceCodeFilter:
+    @strawberry_django.filter_field
+    def ids(self, value: list[strawberry.ID], prefix: str) -> Q:
+        return Q(**{f"{prefix}id__in": value})
+
+    @strawberry_django.filter_field
+    def search(self, value: str, prefix: str) -> Q:
+        return Q(**{f"{prefix}client__name__icontains": value})
+
+    @strawberry_django.filter_field
+    def organization(self, value: strawberry.ID, prefix: str) -> Q:
+        return Q(**{f"{prefix}organization__id": value})
+
+
+@strawberry_django.filter_type(fakts_models.MeshDeviceCode)
+class ManagementMeshDeviceCodeFilter:
+    @strawberry_django.filter_field
+    def ids(self, value: list[strawberry.ID], prefix: str) -> Q:
+        return Q(**{f"{prefix}id__in": value})
+
+    @strawberry_django.filter_field
+    def search(self, value: str, prefix: str) -> Q:
+        return Q(**{f"{prefix}requested_machine_name__icontains": value}) | Q(
+            **{f"{prefix}machine_name__icontains": value}
+        )
+
+
+@strawberry_django.filter_type(karakter_models.ComChannel)
+class ManagementComChannelFilter:
+    @strawberry_django.filter_field
+    def ids(self, value: list[strawberry.ID], prefix: str) -> Q:
+        return Q(**{f"{prefix}id__in": value})
+
+    @strawberry_django.filter_field
+    def search(self, value: str, prefix: str) -> Q:
+        return Q(**{f"{prefix}name__icontains": value})
+
+
+@strawberry_django.filter_type(fakts_models.Client)
+class ManagementOAuth2ClientFilter:
+    @strawberry_django.filter_field
+    def ids(self, value: list[strawberry.ID], prefix: str) -> Q:
+        return Q(**{f"{prefix}id__in": value})
+
+    @strawberry_django.filter_field
+    def search(self, value: str, prefix: str) -> Q:
+        return Q(**{f"{prefix}name__icontains": value})
+
+
+@strawberry_django.filter_type(karakter_models.SystemMessage)
+class ManagementSystemMessageFilter:
+    @strawberry_django.filter_field
+    def ids(self, value: list[strawberry.ID], prefix: str) -> Q:
+        return Q(**{f"{prefix}id__in": value})
+
+    @strawberry_django.filter_field
+    def search(self, value: str, prefix: str) -> Q:
+        return Q(**{f"{prefix}title__icontains": value})
+
+
+@strawberry_django.filter_type(fakts_models.ServiceRelease)
+class ManagementServiceReleaseFilter:
+    @strawberry_django.filter_field
+    def ids(self, value: list[strawberry.ID], prefix: str) -> Q:
+        return Q(**{f"{prefix}id__in": value})
+
+    @strawberry_django.filter_field
+    def search(self, value: str, prefix: str) -> Q:
+        return Q(**{f"{prefix}service__name__icontains": value}) | Q(
+            **{f"{prefix}version__icontains": value}
+        )
+
+    @strawberry_django.filter_field
+    def service(self, value: strawberry.ID, prefix: str) -> Q:
+        return Q(**{f"{prefix}service__id": value})

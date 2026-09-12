@@ -1,9 +1,13 @@
 from kante import Info
 import strawberry
+from graphql import GraphQLError
 from karakter import types, models
+from karakter.authz import get_or_denied, get_user
 from django.utils import timezone
 from datetime import timedelta
 import kante
+
+from api.management.authz import assert_owner
 
 
 @kante.input
@@ -22,11 +26,18 @@ def create_invite(info: Info, input: CreateInviteInput) -> types.Invite:
     Returns an invite with a unique token that can be shared.
     The link can only be used once and expires after the specified days.
     If no roles are specified, the 'guest' role will be assigned.
+
+    Requires the caller to own the organization, matching `createInvite` on the
+    management API. An invite token is a bearer credential that grants membership
+    and whatever roles it carries, so minting one for an arbitrary organization must
+    not be possible just by passing its id.
     """
     if input.organization:
-        organization = models.Organization.objects.get(id=input.organization)
+        organization = models.Organization.objects.filter(id=input.organization).first()
     else:
         organization = info.context.request.organization
+
+    assert_owner(info, organization)
 
     # Calculate expiration date if specified
     expires_at = None
@@ -73,23 +84,23 @@ def accept_invite(info: Info, input: AcceptInviteInput) -> types.Membership:
 
     Validates the invite token and adds the user to the organization.
     """
-    try:
-        invite = models.Invite.objects.get(token=input.token)
-    except models.Invite.DoesNotExist:
-        raise Exception("Invalid invite token")
+    # `Invite.token` is a UUIDField: a non-UUID string raised `ValidationError`
+    # (a 500) here rather than a clean denial. `get_or_denied` folds that, and a
+    # genuinely unknown token, into the uniform denied error.
+    invite = get_or_denied(models.Invite.objects, token=input.token)
 
     # Check if invite is still valid
     if not invite.is_valid():
         if invite.status == models.Invite.Status.ACCEPTED:
-            raise Exception("This invite has already been accepted")
+            raise GraphQLError("This invite has already been accepted")
         elif invite.status == models.Invite.Status.DECLINED:
-            raise Exception("This invite has been declined")
+            raise GraphQLError("This invite has been declined")
         elif invite.status == models.Invite.Status.CANCELLED:
-            raise Exception("This invite has been cancelled")
+            raise GraphQLError("This invite has been cancelled")
         else:
-            raise Exception("This invite has expired")
+            raise GraphQLError("This invite has expired")
 
-    user = info.context.request.user
+    user = get_user(info)
     organization = invite.created_for
 
     # Check if user is already a member
@@ -138,16 +149,13 @@ def decline_invite(info: Info, input: DeclineInviteInput) -> types.Invite:
 
     Marks the invite as declined.
     """
-    try:
-        invite = models.Invite.objects.get(token=input.token)
-    except models.Invite.DoesNotExist:
-        raise Exception("Invalid invite token")
+    invite = get_or_denied(models.Invite.objects, token=input.token)
 
     # Check if invite is still pending
     if invite.status != models.Invite.Status.PENDING:
-        raise Exception(f"This invite has already been {invite.status}")
+        raise GraphQLError(f"This invite has already been {invite.status}")
 
-    user = info.context.request.user
+    user = get_user(info)
     invite.decline(user)
 
     return invite
@@ -166,18 +174,13 @@ def cancel_invite(info: Info, input: CancelInviteInput) -> types.Invite:
 
     Marks the invite as cancelled.
     """
-    try:
-        invite = models.Invite.objects.get(id=input.id)
-    except models.Invite.DoesNotExist:
-        raise Exception("Invalid invite ID")
-
-    # Check if user is the creator
-    if invite.created_by != info.context.request.user:
-        raise Exception("Only the invite creator can cancel it")
+    # Scoped to the creator in the lookup itself, so "not yours" and "does not
+    # exist" read identically and the id cannot be used as an existence oracle.
+    invite = get_or_denied(models.Invite.objects, id=input.id, created_by=get_user(info))
 
     # Check if invite is still pending
     if invite.status != models.Invite.Status.PENDING:
-        raise Exception(f"Cannot cancel an invite that has been {invite.status}")
+        raise GraphQLError(f"Cannot cancel an invite that has been {invite.status}")
 
     invite.cancel()
 

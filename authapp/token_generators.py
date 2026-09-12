@@ -8,7 +8,7 @@ This module:
 - Exposes a public JWK set via ``get_jwks`` used by token consumers to
   validate signatures.
 - Adds application-specific claims (roles, preferred_username, sub,
-  scope, active_org) to tokens emitted for clients/users.
+  scope, org) to tokens emitted for clients/users.
 
 Notes:
 - The module intentionally exports only the public JWK (is_private=False)
@@ -36,6 +36,17 @@ private_key = serialization.load_pem_private_key(settings.PRIVATE_KEY.encode("ut
 jwk = RSAKey.import_key(settings.PRIVATE_KEY)
 jwk_dict = jwk.as_dict(private=True, kid=settings.KEY_ID, use="sig")  # signing key — MUST include private material
 
+# The *public* half of the same key, as published at /o/jwks/ and used by every
+# in-process verifier (e.g. the bearer validator). This is the ONLY JWK that may
+# ever leave this module towards anything that is not the signer.
+public_jwk_dict = jwk.as_dict(private=False, kid=settings.KEY_ID, use="sig")
+assert not any(k in public_jwk_dict for k in ("d", "p", "q", "dp", "dq", "qi")), "public JWK leaked private members"
+
+
+def public_jwks() -> dict:
+    """The published JWK set ({"keys": [...]}) — public members only."""
+    return {"keys": [public_jwk_dict]}
+
 
 class MyJWTBearerTokenGenerator(JWTBearerTokenGenerator):
     """Custom JWT Bearer token generator that adds application claims.
@@ -57,9 +68,13 @@ class MyJWTBearerTokenGenerator(JWTBearerTokenGenerator):
         """
         return {"keys": [jwk_dict]}
 
-    def _get_fakts_client(self, client: Any) -> Any | None:
+    def _get_app_client(self, client: Any) -> Any | None:
+        """The client itself when it is a bound app client (has a release)."""
+        return client if getattr(client, "release_id", None) else None
+
+    def _get_hub(self, client: Any) -> Any | None:
         try:
-            return client.client
+            return client.hub_identity
         except ObjectDoesNotExist:
             return None
 
@@ -89,7 +104,7 @@ class MyJWTBearerTokenGenerator(JWTBearerTokenGenerator):
         - preferred_username: the user's username
         - sub: the user's id (subject)
         - scope: the resolved scope string
-        - active_org: the client's organization slug
+        - org: the client's organization pk (identity; the slug is a mutable handle)
         """
         membership = self._get_membership(client, user)
 
@@ -97,7 +112,8 @@ class MyJWTBearerTokenGenerator(JWTBearerTokenGenerator):
             # fall back to the client's configured scope
             scope = client.scope
 
-        fakts_client = self._get_fakts_client(client)
+        fakts_client = self._get_app_client(client)
+        hub = self._get_hub(client)
 
         # TODO: Implement correct scoping rules; for now expose roles and
         # some basic user identifiers used by resource servers.
@@ -107,17 +123,45 @@ class MyJWTBearerTokenGenerator(JWTBearerTokenGenerator):
             "preferred_username": membership.user.username,
             "sub": str(membership.user.id),
             "scope": scope,
-            "active_org": membership.organization.slug,
+            # The organization *pk*, not its slug. A slug is a user-chosen,
+            # mutable handle; keying the tenancy boundary on it meant the
+            # boundary moved whenever someone renamed their organization.
+            # Matches what `sub` already does for users (`str(user.id)`).
+            "org": str(membership.organization_id),
             "client_app": fakts_client.release.app.identifier if fakts_client and fakts_client.release and fakts_client.release.app else None,
             "client_release": fakts_client.release.version if fakts_client and fakts_client.release else None,
             "client_device": fakts_client.node.node_id if fakts_client and fakts_client.node else None,
             "client_role": fakts_client.role if fakts_client else None,
+            "hub": hub.identifier if hub else None,
         }
 
     def get_audiences(self, client: Any, user: Any, scope: Optional[str]) -> str | list[str]:
         """Return the audience claim(s) for the token.
 
-        The audience identifies intended recipients of the token. Return
-        a list if there are multiple audiences.
+        For a fakts client the audiences are the **ServiceInstance ids** of its
+        granted instance mappings — the resource servers this token was actually
+        composed for — plus ``lok`` itself (lok consumes its own tokens, e.g. at
+        ``/f/report/``). For non-fakts clients (plain OIDC relying parties) the
+        audience is the client itself, per RFC 9068 practice.
+
+        These used to be ``Service.identifier`` strings, which are unique only
+        *per organization* (see the "Only one service identifier per
+        organization" constraint on ``fakts.Service``). Two tenants both running
+        e.g. ``@mikro/mikro`` therefore minted tokens carrying the *same*
+        audience, so a resource server checking ``aud`` against its own
+        identifier would accept a token issued for another tenant's instance. An
+        instance id is globally unique, so the audience now names exactly one
+        resource server.
         """
-        return ["rekuest"]
+        fakts_client = self._get_app_client(client)
+        if fakts_client is not None:
+            # `instance_id` is the FK column already on the mapping row, so this
+            # needs no join at all (it previously select_related through three
+            # tables to reach the service identifier).
+            instances = sorted(
+                {str(pk) for pk in fakts_client.mappings.values_list("instance_id", flat=True)}
+            )
+            return ["lok", *instances]
+        if self._get_hub(client) is not None:
+            return ["lok"]
+        return [client.client_id]

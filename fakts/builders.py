@@ -5,6 +5,6 @@ re-exports it so existing imports (``from fakts.builders import create_client``)
 keep working. Prefer importing from ``fakts.services.clients`` in new code.
 """
 
-from fakts.services.clients import create_client, create_development_client
+from fakts.services.clients import bind_client, create_public_client
 
-__all__ = ["create_client", "create_development_client"]
+__all__ = ["bind_client", "create_public_client"]

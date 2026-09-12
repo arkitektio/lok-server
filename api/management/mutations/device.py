@@ -4,12 +4,13 @@ from api.management import types
 from karakter import models
 from karakter.hashers import hash_device_id
 import kante
+from api.management.authz import assert_member, get_or_denied
 from fakts import models as fakts_models
 
 
 @kante.input
 class CreateDeviceInput:
-    """Input for creating a single-use magic invite link for an organization"""
+    """Input for registering a device (compute node) in an organization."""
 
     organization: strawberry.ID
     device_id: strawberry.ID
@@ -17,8 +18,11 @@ class CreateDeviceInput:
 
 
 def create_device(info: Info, input: CreateDeviceInput) -> types.ManagementDevice:
-    """ """
-    organization = models.Organization.objects.get(id=input.organization)
+    """Register (or rename) a device in an organization, keyed by its hashed device id."""
+    organization = get_or_denied(models.Organization.objects, id=input.organization)
+
+    assert_member(info, organization)
+
     c, _ = fakts_models.Device.objects.update_or_create(organization=organization, node_id=hash_device_id(input.device_id, organization), defaults=dict(name=input.name))
 
     return c
@@ -26,18 +30,19 @@ def create_device(info: Info, input: CreateDeviceInput) -> types.ManagementDevic
 
 @kante.input
 class UpdateDeviceInput:
-    """Input for creating a single-use magic invite link for an organization"""
+    """Input for renaming a device."""
 
     id: strawberry.ID
     name: str
 
 
 def update_device(info: Info, input: UpdateDeviceInput) -> types.ManagementDevice:
-    """ """
+    """Rename a device."""
 
-    user = info.context.request.user
+    device = get_or_denied(fakts_models.Device.objects, id=input.id)
 
-    device = fakts_models.Device.objects.get(id=input.id)
+    assert_member(info, device.organization)
+
     device.name = input.name
     device.save()
 
@@ -46,21 +51,16 @@ def update_device(info: Info, input: UpdateDeviceInput) -> types.ManagementDevic
 
 @kante.input
 class DeleteDeviceInput:
-    """Input for accepting an organization invite"""
+    """Input for deleting a device."""
 
     id: strawberry.ID
 
 
 def delete_device(info: Info, input: DeleteDeviceInput) -> strawberry.ID:
-    """
-    Accept an invite to join an organization.
+    """Delete a device, returning the deleted id."""
+    device = get_or_denied(fakts_models.Device.objects, id=input.id)
 
-    Validates the invite token and adds the user to the organization.
-    """
-    try:
-        device = fakts_models.Device.objects.get(id=input.id)
-    except fakts_models.Device.DoesNotExist:
-        raise Exception("Invalid device ID")
+    assert_member(info, device.organization)
 
     device.delete()
     return input.id

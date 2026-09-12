@@ -1,10 +1,14 @@
 from enum import Enum
 import strawberry
 from django.db.models import TextChoices
-from allauth.socialaccount.providers import registry
 
-params = dict(map(lambda x: (x[0].upper(), x[0]), registry.as_choices()))
-ProviderType = strawberry.enum(Enum("ProviderType", params))
+# NOTE: there used to be a `ProviderType` GraphQL enum here, built from allauth's
+# provider registry. It could not survive sub-providers (SAML/OIDC): allauth stores
+# `Provider.sub_id` — i.e. the app's `provider_id`, such as "saml:acme" — in
+# `SocialAccount.provider`, and GraphQL enum members must match
+# /[_A-Za-z][_0-9A-Za-z]*/, which no such id can. Building it from the registry also
+# made the public schema vary with INSTALLED_APPS. `provider` is a plain `str` now,
+# matching what the management API (api/management/types.py) always exposed.
 
 
 class RunEventKindChoices(TextChoices):

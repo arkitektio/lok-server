@@ -10,3 +10,4 @@ __pycache__/
 .mypy_cache/
 *.sqlite3
 .env
+config.yaml

@@ -18,9 +18,11 @@ import logging
 from typing import Optional, cast
 
 import strawberry
+from graphql import GraphQLError
 from kante.types import Info
 
 from karakter import models, types
+from karakter.authz import get_or_denied, get_user
 
 logger = logging.getLogger(__name__)
 
@@ -35,16 +37,6 @@ class RegisterComChannelInput:
     """
 
     token: str
-
-
-def _get_request_user(info: Info) -> Optional[models.User]:
-    """Helper returning the request user or None if unavailable.
-
-    Returning the concrete Django ``User`` model makes subsequent type
-    checks clearer for linters and callers.
-    """
-    request = getattr(info.context, "request", None)
-    return getattr(request, "user", None) if request is not None else None
 
 
 def register_com_channel(info: Info, input: RegisterComChannelInput) -> types.ComChannel:
@@ -63,17 +55,15 @@ def register_com_channel(info: Info, input: RegisterComChannelInput) -> types.Co
         The created or updated ``ComChannel`` instance.
 
     Raises:
-        PermissionError: when the caller is not authenticated.
-        ValueError: when the token is empty.
-        RuntimeError: when a database error occurs.
+        GraphQLError: when the caller is not authenticated, the token is empty,
+            or a database error occurs. Always a `GraphQLError` so the failure
+            is a clean GraphQL error rather than a 500.
     """
-    user = _get_request_user(info)
-    if not user:
-        raise PermissionError("Authentication required to register a communication channel")
+    user = get_user(info)
 
     token = (input.token or "").strip()
     if not token:
-        raise ValueError("Token must not be empty")
+        raise GraphQLError("Token must not be empty")
 
     try:
         channel, _created = models.ComChannel.objects.update_or_create(
@@ -82,7 +72,7 @@ def register_com_channel(info: Info, input: RegisterComChannelInput) -> types.Co
         )
     except Exception as exc:  # broad catch to wrap DB/ORM errors
         logger.exception("Failed to register communication channel for user=%s", getattr(user, "id", None))
-        raise RuntimeError("Failed to register communication channel") from exc
+        raise GraphQLError("Failed to register communication channel") from exc
 
     return cast(types.ComChannel, channel)
 
@@ -116,35 +106,21 @@ def notify_user(info: Info, input: NotifyUserInput) -> bool:
         True when the notification was successfully queued/sent.
 
     Raises:
-        PermissionError: when the caller is not authorized to notify the
-            target user.
-        ValueError: when the target user does not exist or message is
-            empty.
-        RuntimeError: when sending the notification fails.
+        GraphQLError: when the caller is not authenticated, is not allowed to
+            notify the target, the target does not exist, the message is empty,
+            or sending fails. Denials use the uniform "not found / not
+            authorized" text so the target id cannot be used as an existence
+            oracle.
     """
-    caller = _get_request_user(info)
-    if not caller :
-        raise PermissionError("Authentication required to send notifications")
+    caller = get_user(info)
 
-    # Resolve target user
-    try:
-        target_user = models.User.objects.get(id=input.user)
-    except models.User.DoesNotExist:
-        logger.warning("notify_user: target user not found id=%s caller=%s", input.user, getattr(caller, "id", None))
-        raise ValueError("Target user not found")
-
-    # Permission check: allow self-notify or staff
-    if caller != target_user:
-        logger.warning(
-            "notify_user: insufficient permissions caller=%s target=%s",
-            getattr(caller, "id", None),
-            getattr(target_user, "id", None),
-        )
-        raise PermissionError("Insufficient permissions to notify this user at this time ")
+    # Resolve target user. Only self-notification is allowed, so fold the
+    # caller into the lookup: "no such user" and "not you" are the same denial.
+    target_user = get_or_denied(models.User.objects, id=input.user, pk=caller.pk)
 
     message = (input.message or "").strip()
     if not message:
-        raise ValueError("Notification message must not be empty")
+        raise GraphQLError("Notification message must not be empty")
 
     title = (input.title or "").strip()
 
@@ -152,6 +128,6 @@ def notify_user(info: Info, input: NotifyUserInput) -> bool:
         target_user.notify(title, message)
     except Exception as exc:
         logger.exception("Failed to send notification to user=%s", getattr(target_user, "id", None))
-        raise RuntimeError("Failed to send notification") from exc
+        raise GraphQLError("Failed to send notification") from exc
 
     return True

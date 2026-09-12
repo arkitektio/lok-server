@@ -5,6 +5,9 @@ from kante.types import Info
 
 from karakter import models
 from api.management import types
+from api.management.authz import DENIED, assert_owner_or_admin, get_or_denied
+from graphql import GraphQLError
+from karakter.authz import resolve_own_media_store
 
 logger = logging.getLogger(__name__)
 
@@ -16,9 +19,18 @@ class CreateOrganizationProfileInput:
 
 
 def create_organization_profile(info: Info, input: CreateOrganizationProfileInput) -> types.ManagementOrganizationProfile:
-    organization = models.Organization.objects.get(pk=input.organization)
-    profile = models.OrganizationProfile(organization=organization, name=input.name)
-    profile.save()
+    """Create (or, since a profile row is auto-created for every organization,
+    update) the organization's profile."""
+    organization = get_or_denied(models.Organization.objects, pk=input.organization)
+
+    assert_owner_or_admin(info, organization)
+
+    # `OrganizationProfile.organization` is a OneToOne and a post_save signal
+    # creates the row with the organization, so a plain create() always hit
+    # the unique constraint.
+    profile, _ = models.OrganizationProfile.objects.update_or_create(
+        organization=organization, defaults={"name": input.name}
+    )
     return profile
 
 
@@ -31,13 +43,16 @@ class UpdateOrganizationProfileInput:
 
 
 def update_organization_profile(info: Info, input: UpdateOrganizationProfileInput) -> types.ManagementOrganizationProfile:
-    profile = models.OrganizationProfile.objects.get(pk=input.id)
+    profile = get_or_denied(models.OrganizationProfile.objects, pk=input.id)
+
+    assert_owner_or_admin(info, profile.organization)
+
     if input.name:
         profile.name = input.name
     if input.avatar:
-        profile.avatar = models.MediaStore.objects.get(pk=input.avatar)
+        profile.avatar = resolve_own_media_store(info, input.avatar, models.MediaStore)
     if input.banner:
-        profile.banner = models.MediaStore.objects.get(pk=input.banner)
+        profile.banner = resolve_own_media_store(info, input.banner, models.MediaStore)
     profile.save()
     return profile
 
@@ -48,7 +63,7 @@ class DeleteOrganizationProfileInput:
 
 
 def delete_organization_profile(info: Info, input: DeleteOrganizationProfileInput) -> strawberry.ID:
-    profile = models.OrganizationProfile.objects.get(pk=input.id)
-    assert profile.organization.owner == info.context.request.user
+    profile = get_or_denied(models.OrganizationProfile.objects, pk=input.id)
+    assert_owner_or_admin(info, profile.organization)
     profile.delete()
     return input.id

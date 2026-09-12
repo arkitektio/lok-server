@@ -68,6 +68,10 @@ def generate_device_salt() -> str:
     return secrets.token_hex(32)
 
 
+class NotificationsMuted(Exception):
+    """Raised when a member has opted an organization out of notifying them."""
+
+
 class Organization(models.Model):
     """An Organization in the System
 
@@ -80,6 +84,34 @@ class Organization(models.Model):
     description = models.CharField(max_length=4000, null=True, blank=True)
     avatar = models.ForeignKey(MediaStore, on_delete=models.CASCADE, null=True)
     owner = models.ForeignKey("User", on_delete=models.CASCADE, related_name="owned_organizations")
+    brand_hue = models.FloatField(
+        null=True,
+        blank=True,
+        help_text="The organization's default brand hue (0–360). Members can override "
+        "it with their own membership brand hue.",
+    )
+    brand_chroma = models.FloatField(
+        null=True,
+        blank=True,
+        help_text="The organization's default brand chroma (0–1). Members can override "
+        "it with their own membership brand chroma.",
+    )
+    require_device_auth = models.BooleanField(
+        null=True,
+        blank=True,
+        default=None,
+        help_text="When set, clients created in this organization must present a device "
+        "node_id (device authentication). None/False means device auth is not required.",
+    )
+    access_token_lifetime = models.IntegerField(
+        null=True,
+        blank=True,
+        default=None,
+        help_text="Access-token lifetime in seconds for tokens issued to this organization's "
+        "clients. None means the server default (authapp.server.ACCESS_TOKEN_EXPIRES_IN, one "
+        "hour). Clamped into [MIN_ACCESS_TOKEN_EXPIRES_IN, MAX_ACCESS_TOKEN_EXPIRES_IN] at "
+        "token generation, so a stale or oversized value can never outlive the cap.",
+    )
     # Server-only secret. Combined with SECRET_KEY to hash device ids so the same
     # device hashes differently across organizations and is never stored in the clear.
     device_salt = models.CharField(max_length=64, default=generate_device_salt, editable=False)
@@ -98,6 +130,25 @@ class Role(models.Model):
 
     class Meta:
         unique_together = ("identifier", "organization")
+
+
+class RoleSet(models.Model):
+    """A named bundle of Roles within an organization.
+
+    Lets an owner group several roles together so they can be applied at once —
+    either to seed an invite (the invitee receives every role in the set) or to
+    grant to an existing member in a single action.
+    """
+
+    name = models.CharField(max_length=1000)
+    organization = models.ForeignKey(Organization, on_delete=models.CASCADE, related_name="role_sets")
+    roles = models.ManyToManyField(Role, related_name="role_sets", blank=True)
+
+    class Meta:
+        unique_together = ("name", "organization")
+
+    def __str__(self):
+        return f"{self.name} ({self.organization})"
 
 
 class Scope(models.Model):
@@ -119,12 +170,97 @@ class Membership(models.Model):
     organization = models.ForeignKey(Organization, on_delete=models.CASCADE, related_name="memberships")
     roles = models.ManyToManyField(Role, related_name="memberships", blank=True)
     created_through = models.ForeignKey("Invite", on_delete=models.SET_NULL, null=True, related_name="created_memberships")
+    brand_hue = models.FloatField(
+        null=True,
+        blank=True,
+        help_text="Personal brand hue (0–360) this member picked for the organization. "
+        "Tints the UI while this organization is active.",
+    )
+    brand_chroma = models.FloatField(
+        null=True,
+        blank=True,
+        help_text="Personal brand chroma (0–1) this member picked for the organization. "
+        "Sets how saturated the tint is while this organization is active.",
+    )
+    allow_notifications = models.BooleanField(
+        default=True,
+        help_text="Whether this organization may push notifications to the member's "
+        "registered devices. Registering a device (in the companion app) is the "
+        "global consent; this flag is the per-organization mute.",
+    )
 
     class Meta:
         unique_together = ("user", "organization")
 
     def get_user_id(self):
         return str(self.user.pk)
+
+    def notify(self, title: str, message: str) -> List[Tuple[Optional[int], str]]:
+        """Send an organization notification to this member's devices.
+
+        The per-organization opt-in is enforced here rather than at the call
+        site, so no future caller can route around it: a muted membership is
+        never a delivery, whatever the sender believes.
+
+        Raises:
+            NotificationsMuted: when the member has opted this organization out.
+        """
+        if not self.allow_notifications:
+            raise NotificationsMuted(
+                "This member has turned off notifications from this organization."
+            )
+        return self.user.notify(title, message)
+
+
+class RoleRequest(models.Model):
+    """A member's request to be granted an additional Role in their Organization.
+
+    A request only makes sense for an existing membership, so it hangs off the
+    Membership (which pins the user and organization) plus the Role being asked
+    for. The organization's owner or one of its admins approves or declines it;
+    approval adds the role to the membership.
+    """
+
+    class Status(models.TextChoices):
+        PENDING = "pending", "Pending"
+        APPROVED = "approved", "Approved"
+        DECLINED = "declined", "Declined"
+
+    membership = models.ForeignKey(Membership, on_delete=models.CASCADE, related_name="role_requests")
+    role = models.ForeignKey(Role, on_delete=models.CASCADE, related_name="requests")
+    reason = models.CharField(
+        max_length=2000, null=True, blank=True, help_text="Optional note from the member explaining the request."
+    )
+    status = models.CharField(max_length=20, choices=Status.choices, default=Status.PENDING)
+    created_at = models.DateTimeField(auto_now_add=True)
+    resolved_by = models.ForeignKey(
+        "User", on_delete=models.SET_NULL, null=True, blank=True, related_name="resolved_role_requests"
+    )
+    responded_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        constraints = [
+            # At most one *pending* request per (membership, role); resolved
+            # requests don't block asking again later.
+            models.UniqueConstraint(
+                fields=["membership", "role"],
+                condition=models.Q(status="pending"),
+                name="unique_pending_role_request",
+            )
+        ]
+
+    def approve(self, user):
+        self.membership.roles.add(self.role)
+        self.status = self.Status.APPROVED
+        self.resolved_by = user
+        self.responded_at = timezone.now()
+        self.save(update_fields=["status", "resolved_by", "responded_at"])
+
+    def decline(self, user):
+        self.status = self.Status.DECLINED
+        self.resolved_by = user
+        self.responded_at = timezone.now()
+        self.save(update_fields=["status", "resolved_by", "responded_at"])
 
 
 class User(AbstractUser):
@@ -294,6 +430,12 @@ class Invite(models.Model):
     created_for = models.ForeignKey(Organization, on_delete=models.CASCADE, related_name="invites")
     created_at = models.DateTimeField(auto_now_add=True)
     expires_at = models.DateTimeField(null=True, blank=True)
+    public = models.BooleanField(
+        default=False,
+        help_text="If true, anyone with the link can preview the invitation "
+        "(organization, inviter, expiry) before signing in. Private invites "
+        "require authentication before any details are shown.",
+    )
 
     # Status tracking
     status = models.CharField(max_length=20, choices=Status.choices, default=Status.PENDING)

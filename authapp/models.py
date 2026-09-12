@@ -1,135 +1,15 @@
 import time
 from django.db import models
 from django.contrib.auth import get_user_model
-from authlib.oauth2.rfc6749 import ClientMixin, TokenMixin, AuthorizationCodeMixin
-from authlib.oauth2.rfc6749.errors import InvalidClientError
-from django.core.exceptions import ObjectDoesNotExist
+from authlib.oauth2.rfc6749 import TokenMixin, AuthorizationCodeMixin
 
 from karakter.models import Membership
 
 User = get_user_model()
 
 
-def scope_to_list(scope):
-    """Convert a space-separated scope string to a list."""
-    if not scope:
-        return []
-    return [s.strip() for s in scope.split(" ")]
-
-
-def list_to_scope(scope_list):
-    """Convert a list of scopes to a space-separated string."""
-    if not scope_list:
-        return ""
-    return " ".join(scope_list)
-
-
-def generate_client_id() -> str:
-    """Generate a unique client ID for the OAuth2 client."""
-    # Implement your logic to generate a unique client ID
-    import uuid
-
-    return str(uuid.uuid4())
-
-
-def generate_client_secret() -> str:
-    """Generate a unique client secret for the OAuth2 client."""
-    # Implement your logic to generate a unique client secret
-    import secrets
-
-    return secrets.token_urlsafe(32)
-
-
 def now_timestamp():
     return int(time.time())
-
-
-class OAuth2Client(models.Model, ClientMixin):
-    membership = models.ForeignKey(Membership, on_delete=models.CASCADE, related_name="oauth2_clients", null=True, blank=True)
-    client_id = models.CharField(max_length=48, unique=True)
-    client_secret = models.CharField(max_length=120)
-    redirect_uris = models.TextField(blank=True)
-    scope = models.TextField(blank=True, default="openid email profile")
-    token_endpoint_auth_method = models.CharField(max_length=48, default="client_secret_post")
-    grant_types = models.TextField(default="authorization_code refresh_token client_credentials")
-    response_types = models.TextField(blank=True)
-    id_token_signed_response_alg = models.CharField(max_length=48, default="RS256")
-
-    def resolve_membership(self) -> Membership:
-        if self.membership_id:
-            return self.membership
-
-        try:
-            fakts_client = self.client
-        except ObjectDoesNotExist:
-            fakts_client = None
-
-        membership = getattr(fakts_client, "membership", None)
-        if membership:
-            return membership
-
-        raise InvalidClientError(
-            description="Client is no longer attached to an organization membership."
-        )
-
-    @property
-    def user_id(self):
-        """Return the membership associated with this authorization code."""
-        return self.resolve_membership().id
-
-    def __str__(self):
-        return f"{self.client_id}"
-
-    def get_client_id(self):
-        return self.client_id
-
-    def get_default_redirect_uri(self):
-        return self.default_redirect_uri
-
-    def get_allowed_scope(self, scope):
-        if not scope:
-            return ""
-        allowed = set(scope_to_list(self.scope))
-        return list_to_scope([s for s in scope.split() if s in allowed])
-
-    def check_redirect_uri(self, redirect_uri):
-        return True  # TODO: implement proper check when
-        return redirect_uri in self.redirect_uris
-
-    def check_client_secret(self, client_secret):
-        return self.client_secret == client_secret
-
-    def check_endpoint_auth_method(self, method, endpoint):
-        if endpoint == "token":
-            if method == "client_secret_basic":
-                return True
-            if method == "client_secret_post":
-                return True
-
-            raise ValueError(f"Invalid endpoint for {method}")
-
-        return self.token_endpoint_auth_method == method
-
-        # TODO: developers can update this check method
-        return True
-
-    def check_response_type(self, response_type):
-        allowed = self.response_type.split()
-        return response_type in allowed
-
-    def check_grant_type(self, grant_type):
-        if grant_type == "client_credentials":
-            return True
-
-        if grant_type == "refresh_token":
-            return True
-
-        if grant_type == "authorization_code":
-            return True
-
-        raise ValueError(f"Invalid grant type: {grant_type}")
-        allowed = self.grant_type.split()
-        return grant_type in allowed
 
 
 class OAuth2Token(models.Model, TokenMixin):
@@ -139,11 +19,24 @@ class OAuth2Token(models.Model, TokenMixin):
     client_id = models.CharField(max_length=48, db_index=True)
     token_type = models.CharField(max_length=40)
     access_token = models.CharField(max_length=10000, unique=True, null=False)
-    refresh_token = models.CharField(max_length=10000, db_index=True)
+    # `null=True` + `unique=True` is load-bearing: tokens issued without a refresh
+    # token must store NULL, never "". A "" here made
+    # `.get(refresh_token="")` reachable from a request carrying an *empty*
+    # `refresh_token=` parameter (authlib only rejects a missing one), which with
+    # multiple such rows 500s the token endpoint — and with exactly one could
+    # refresh a session without presenting any refresh token at all.
+    refresh_token = models.CharField(max_length=10000, db_index=True, unique=True, null=True, blank=True)
     scope = models.TextField(default="")
     revoked = models.BooleanField(default=False)
     issued_at = models.IntegerField(null=False, default=now_timestamp)
     expires_in = models.IntegerField(null=False, default=0)
+    chain_started_at = models.IntegerField(
+        null=False,
+        default=now_timestamp,
+        help_text="When this token's refresh chain began. Copied through rotation, so the "
+        "30-day sliding refresh window cannot be extended forever — the whole chain "
+        "dies at the absolute cap and a human must re-authorize.",
+    )
 
     def check_client(self, client):
         return self.client_id == client.client_id
@@ -167,12 +60,20 @@ class OAuth2Token(models.Model, TokenMixin):
             return False
         return True
 
+    # Sliding per-token lifetime (30 days) and absolute chain cap (180 days).
+    # Rotation issues a fresh row with a fresh issued_at, so the sliding window
+    # alone would keep a monthly-refreshing session alive forever; the chain cap
+    # bounds the total session lifetime since the original human authorization.
+    REFRESH_TOKEN_LIFETIME = 2592000
+    REFRESH_CHAIN_MAX_LIFETIME = 15552000
+
     def is_refresh_token_active(self) -> bool:
         if self.revoked:
             return False
-        # Assuming refresh tokens expire in 30 days (2592000 seconds)
-        refresh_token_lifetime = 2592000
-        if self.issued_at + refresh_token_lifetime < now_timestamp():
+        now = now_timestamp()
+        if self.issued_at + self.REFRESH_TOKEN_LIFETIME < now:
+            return False
+        if self.chain_started_at + self.REFRESH_CHAIN_MAX_LIFETIME < now:
             return False
         return True
 
@@ -197,6 +98,23 @@ class AuthorizationCode(models.Model, AuthorizationCodeMixin):
 
     # add nonce
     nonce = models.CharField(max_length=120, default="", null=True)
+
+    # PKCE (RFC 7636). Populated from the authorization request when the client
+    # sends one; `CodeChallenge` (registered in authapp.server with
+    # required=True) then requires and verifies a matching `code_verifier` at
+    # token exchange.
+    #
+    # `required=True` does not reject a challenge-less /o/authorize/ — authlib
+    # returns early there when neither code_challenge nor code_challenge_method
+    # is present. Enforcement happens at the *token* request: a public client
+    # (auth method "none") that skipped PKCE can obtain a code but can never
+    # exchange it. Confidential relying parties authenticate with a secret and
+    # are not PKCE-gated.
+    #
+    # (This comment previously said the extension was registered with
+    # required=False, which was the opposite of the actual configuration.)
+    code_challenge = models.CharField(max_length=128, blank=True, default="")
+    code_challenge_method = models.CharField(max_length=10, blank=True, default="")
     # ... other fields and methods ...
 
     @property
@@ -229,3 +147,28 @@ class AuthorizationCode(models.Model, AuthorizationCodeMixin):
 
     def get_amr(self):
         return ["pwd"]  # Authentication Methods References (check what this should be)
+
+
+class UsedNonce(models.Model):
+    """A nonce this client has already spent on a completed token exchange.
+
+    `AuthorizationCode` rows are deleted at exchange, so they cannot answer
+    "has this nonce been used before?" — a consumed nonce simply vanished and
+    was accepted again. This table keeps the answer after the code is gone, so
+    `OpenIDCode.exists_nonce` can actually enforce uniqueness (the property that
+    makes `require_nonce=True` an id_token replay defence rather than just a
+    presence check).
+
+    Rows are only useful while an id_token minted with that nonce could still be
+    replayed, so they are prunable by `created_at`.
+    """
+
+    client_id = models.CharField(max_length=48, db_index=True)
+    nonce = models.CharField(max_length=120)
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    class Meta:
+        unique_together = ("client_id", "nonce")
+
+    def __str__(self):
+        return f"{self.client_id}:{self.nonce}"

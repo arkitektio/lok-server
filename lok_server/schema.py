@@ -9,6 +9,8 @@ from fakts import models as fakts_models
 from karakter import types as karakter_types
 from karakter import models as karakter_models
 from karakter.hashers import hash_device_id
+from karakter.authz import DENIED, get_organization, get_scoped_or_denied, get_user
+from graphql import GraphQLError
 from karakter.graphql import mutations as karakter_mutations
 from karakter.graphql import queries as karakter_queries
 from karakter.graphql import subscriptions as karakter_subscriptions
@@ -83,59 +85,82 @@ class Query:
     def hallo(self, info: Info) -> str:
         return "hallo"
 
+    # NOTE on the single-object roots below: strawberry-django only applies a
+    # type's `get_queryset` to resolvers that return a *QuerySet*. These return
+    # one row by pk, so each must scope itself to the caller's organization (or
+    # user) via `get_scoped_or_denied` / `get_or_denied` — which also turn a
+    # malformed id into the same uniform denial instead of a 500.
+
     @kante.django_field(name="service")
     def detail_service(self, info: Info, id: strawberry.ID) -> fakts_types.Service:
-        return fakts_models.Service.objects.get(id=id)
+        return get_scoped_or_denied(fakts_models.Service.objects, info, id=id)
 
     @kante.django_field()
     def device(self, info: Info, id: strawberry.ID) -> fakts_types.Device:
-        return fakts_models.Device.objects.get(id=id)
-    
-    
-    @kante.django_field()
+        return get_scoped_or_denied(fakts_models.Device.objects, info, id=id)
+
+    @kante.django_field(description="Look a device up by its raw device id, as reported by the client. Device ids are stored as a per-organization hash, so the raw id is hashed with the caller's organization before lookup.")
     def device_by_device_id(self, info: Info, id: strawberry.ID) -> fakts_types.Device:
-        organization = info.context.request.organization
-        return fakts_models.Device.objects.get(node_id=hash_device_id(id, organization), organization=organization)
+        organization = get_organization(info)
+        # Every write path stores `hash_device_id(node_id, organization)`, never
+        # the raw id — so a raw-id lookup could never match a row.
+        try:
+            hashed = hash_device_id(str(id), organization)
+        except Exception:
+            raise GraphQLError(DENIED)
+        return get_scoped_or_denied(fakts_models.Device.objects, info, node_id=hashed)
 
     @kante.django_field()
     def device_group(self, info: Info, id: strawberry.ID) -> fakts_types.DeviceGroup:
-        return fakts_models.DeviceGroup.objects.get(id=id)
-    
+        return get_scoped_or_denied(fakts_models.DeviceGroup.objects, info, id=id)
+
     @kante.django_field()
     def service_release(self, info: Info, id: strawberry.ID) -> fakts_types.ServiceRelease:
-        return fakts_models.ServiceRelease.objects.get(id=id)
-
+        return get_scoped_or_denied(fakts_models.ServiceRelease.objects, info, field="service__organization", id=id)
 
     @kante.django_field()
     def role(self, info: Info, id: strawberry.ID) -> karakter_types.Role:
-        return karakter_models.Role.objects.get(id=id)
+        return get_scoped_or_denied(karakter_models.Role.objects, info, id=id)
 
     @kante.django_field()
     def organization(self, info: Info, id: strawberry.ID) -> karakter_types.Organization:
-        return karakter_models.Organization.objects.get(id=id)
+        # Only the caller's active organization is addressable on this schema.
+        organization = get_organization(info)
+        if str(organization.id) != str(id):
+            raise GraphQLError(DENIED)
+        return organization
 
     @kante.django_field()
     def redeem_token(self, info: Info, id: strawberry.ID) -> fakts_types.RedeemToken:
-        return fakts_models.RedeemToken.objects.get(id=id)
+        # A redeem token is a bearer credential: it is visible only to the user
+        # it was issued to, and only within their active organization.
+        return get_scoped_or_denied(
+            fakts_models.RedeemToken.objects,
+            info,
+            field="hub__organization",
+            id=id,
+            user=get_user(info),
+        )
 
     @kante.django_field()
     def my_redeem_tokens(self, info: Info) -> list[fakts_types.RedeemToken]:
-        return fakts_models.RedeemToken.objects.filter(user=info.context.request.user, composition__organization=info.context.request.organization)
+        return fakts_models.RedeemToken.objects.filter(user=get_user(info), hub__organization=get_organization(info))
 
     @kante.django_field()
     def layer(self, info: Info, id: strawberry.ID) -> fakts_types.Layer:
-        return fakts_models.Layer.objects.get(id=id)
+        return get_scoped_or_denied(fakts_models.Layer.objects, info, id=id)
 
     @kante.django_field()
     def service_instance(self, info: Info, id: strawberry.ID) -> fakts_types.ServiceInstance:
-        return fakts_models.ServiceInstance.objects.get(id=id)
+        return get_scoped_or_denied(fakts_models.ServiceInstance.objects, info, id=id)
 
 
 @strawberry.type
 class Mutation:
-    create_user = strawberry_django.mutation(
-        resolver=karakter_mutations.create_user,
-    )
+    # NOTE: `create_user` was removed. It was unauthenticated user creation, and it
+    # could never have worked — the resolver read `input.user` from an input that only
+    # declares `name`, and assigned it to a `name` field the User model does not have,
+    # so every call raised before touching the database. Nothing can depend on it.
 
     add_user_to_organization = strawberry_django.mutation(
         resolver=karakter_mutations.add_user_to_organization,
@@ -157,6 +182,9 @@ class Mutation:
     create_redeem_token = strawberry_django.mutation(
         resolver=fakts_mutations.create_redeem_token,
     )
+    delete_redeem_token = strawberry_django.mutation(
+        resolver=fakts_mutations.delete_redeem_token,
+    )
 
     reply_to = strawberry_django.mutation(
         resolver=komment_mutations.reply_to,
@@ -168,7 +196,7 @@ class Mutation:
         resolver=fakts_mutations.create_developmental_client,
     )
     render = strawberry_django.mutation(
-        resolver=fakts_mutations.render_composition,
+        resolver=fakts_mutations.render_hub,
     )
     acknowledge_message = strawberry_django.mutation(resolver=karakter_mutations.acknowledge_message)
 
@@ -191,13 +219,6 @@ class Mutation:
 
     update_service_instance = strawberry_django.mutation(
         resolver=fakts_mutations.update_service_instance,
-    )
-
-    create_instance_alias = strawberry_django.mutation(
-        resolver=fakts_mutations.create_instance_alias,
-    )
-    update_instance_alias = strawberry_django.mutation(
-        resolver=fakts_mutations.update_instance_alias,
     )
 
     request_media_upload = strawberry_django.mutation(
@@ -236,6 +257,10 @@ class Mutation:
 
     update_organization = strawberry_django.mutation(
         resolver=karakter_mutations.update_organization,
+    )
+
+    update_membership_colors = strawberry_django.mutation(
+        resolver=karakter_mutations.update_membership_colors,
     )
 
     update_device = strawberry_django.mutation(resolver=fakts_mutations.update_device)

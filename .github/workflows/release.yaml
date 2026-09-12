@@ -3,16 +3,21 @@ name: Release
 on:
   push:
     branches: [main, next, "*.x"] # main: stable, next: prereleases, N.x: maintenance
+  # Releases are tag-only, so a branch whose commits are all released already has
+  # no way to (re)publish its image -- and a non-releasable commit (ci:, chore:)
+  # never cuts one at all. Running this by hand re-evaluates the branch and
+  # rebuilds on its terms, instead of inventing a commit purely to force a build.
+  workflow_dispatch:
 
-# Needed so semantic-release can push the version-bump commit + tag and create
-# the GitHub Release.
+# Needed so semantic-release can push the release tag and create the GitHub
+# Release. Nothing is committed to the branch.
 permissions:
   contents: write
 
 jobs:
   # 1. Run the suite, then let python-semantic-release decide the next version
-  #    from the conventional-commit history, bump pyproject, write CHANGELOG.md,
-  #    commit, tag (vX.Y.Z on main / vX.Y.Z-rc.N on next) and cut a GitHub Release.
+  #    from the conventional-commit history, tag HEAD (vX.Y.Z on main /
+  #    vX.Y.Z-rc.N on next) and cut a GitHub Release with generated notes.
   release:
     runs-on: ubuntu-latest
     outputs:
@@ -38,9 +43,17 @@ jobs:
 
       - name: Python Semantic Release
         id: release
-        uses: python-semantic-release/python-semantic-release@v9
+        uses: python-semantic-release/python-semantic-release@v10
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
+          # Tag-only release: no bump commit is created or pushed, so main and
+          # next never diverge on the version line and local clones never fall
+          # behind the branch. CHANGELOG.md is not written either -- the release
+          # notes live on the GitHub Release. The version exists only as the git
+          # tag, which is what the docker job below consumes; nothing reads
+          # project.version in pyproject.toml at build or run time.
+          commit: false
+          changelog: false
 
       # Append the Docker image pull instructions and a contributors list to the
       # freshly-created Release. This only needs the version + git history, so it
@@ -126,4 +139,3 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-

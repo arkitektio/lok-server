@@ -1,0 +1,80 @@
+{% load i18n %}<!DOCTYPE html>
+<html lang="en" xmlns="http://www.w3.org/1999/xhtml">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="color-scheme" content="light dark">
+  <meta name="supported-color-schemes" content="light dark">
+  <title>{% trans "Your Arkitekt sign-in code" %}</title>
+  <!--[if mso]><style>* { font-family: Arial, sans-serif !important; }</style><![endif]-->
+  <style>
+    /* Progressive enhancement — many clients ignore <style>; inline styles below are the baseline. */
+    @media (prefers-color-scheme: dark) {
+      .a-body   { background: #0b0d12 !important; }
+      .a-card   { background: #14171f !important; border-color: #262b36 !important; }
+      .a-text   { color: #e6e8ec !important; }
+      .a-muted  { color: #9aa2af !important; }
+      .a-code   { background: #0b0d12 !important; color: #ffffff !important; border-color: #2c333f !important; }
+      .a-hr     { border-color: #262b36 !important; }
+    }
+  </style>
+</head>
+<body class="a-body" style="margin:0; padding:0; background:#f4f5f7;">
+  <!-- preheader (hidden) -->
+  <div style="display:none; max-height:0; overflow:hidden; opacity:0;">
+    {% trans "Enter this code in your open browser window to sign in." %}
+  </div>
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#f4f5f7;" class="a-body">
+    <tr>
+      <td align="center" style="padding:32px 16px;">
+        <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="max-width:440px; width:100%;">
+          <!-- brand -->
+          <tr>
+            <td style="padding:4px 4px 20px 4px;">
+              <span class="a-text" style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif; font-size:20px; font-weight:700; letter-spacing:-0.01em; color:#111318;">Arkitekt</span>
+            </td>
+          </tr>
+          <!-- card -->
+          <tr>
+            <td class="a-card" style="background:#ffffff; border:1px solid #e6e8ec; border-radius:14px; padding:32px;">
+              <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+                <tr>
+                  <td class="a-text" style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif; font-size:17px; font-weight:600; color:#111318; padding-bottom:8px;">
+                    {% trans "Your sign-in code" %}
+                  </td>
+                </tr>
+                <tr>
+                  <td class="a-muted" style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif; font-size:14px; line-height:22px; color:#5b6472; padding-bottom:24px;">
+                    {% trans "Enter this code in the browser window where you started signing in." %}
+                  </td>
+                </tr>
+                <tr>
+                  <td align="center" style="padding-bottom:24px;">
+                    <div class="a-code" style="font-family:'SF Mono',SFMono-Regular,ui-monospace,Menlo,Consolas,'Courier New',monospace; font-size:32px; font-weight:700; letter-spacing:0.28em; color:#111318; background:#f4f5f7; border:1px solid #e6e8ec; border-radius:10px; padding:18px 12px; text-align:center;">
+                      {{ code }}
+                    </div>
+                  </td>
+                </tr>
+                <tr>
+                  <td class="a-muted" style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif; font-size:13px; line-height:20px; color:#5b6472;">
+                    {% trans "If you didn't try to sign in, you can safely ignore this email — no changes will be made to your account." %}
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+          <!-- footer -->
+          <tr>
+            <td style="padding:20px 4px 4px 4px;">
+              <hr class="a-hr" style="border:none; border-top:1px solid #e6e8ec; margin:0 0 14px 0;">
+              <span class="a-muted" style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif; font-size:12px; line-height:18px; color:#8a929f;">
+                {% blocktrans %}This message was sent by Arkitekt{% endblocktrans %}{% if request %} · {{ request.get_host }}{% endif %}
+              </span>
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>

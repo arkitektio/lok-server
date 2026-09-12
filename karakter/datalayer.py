@@ -31,7 +31,6 @@ class Datalayer:
             aws_secret_access_key=settings.AWS_SECRET_ACCESS_KEY,
             aws_session_token=None,
             config=boto3.session.Config(signature_version="s3v4"),
-            verify=False,
         )
 
     @cached_property
@@ -45,7 +44,6 @@ class Datalayer:
             aws_secret_access_key=settings.AWS_SECRET_ACCESS_KEY,
             aws_session_token=None,
             config=boto3.session.Config(signature_version="s3v4"),
-            verify=False,
         )
 
 

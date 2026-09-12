@@ -1,7 +1,190 @@
+<!-- Frozen. Releases are tag-only since the move to tag-only semantic-release,
+so this file is no longer generated; entries below stop at the last release that
+predates the switch. Current release notes live on the GitHub Releases page. -->
+
 # CHANGELOG
 
 
-## v1.0.0 (2026-06-29)
+## v1.0.0-rc.28 (2026-08-20)
+
+### Bug Fixes
+
+- Device_code changes
+  ([`7548a38`](https://github.com/arkitektio/lok-server-next/commit/7548a384cac21775389a2d509f36d12ea99999c0))
+
+
+## v1.0.0-rc.27 (2026-08-20)
+
+
+## v1.0.0-rc.26 (2026-08-20)
+
+### Bug Fixes
+
+- Client unique per hub
+  ([`4fa27af`](https://github.com/arkitektio/lok-server-next/commit/4fa27af73db374b630f047cdc97d0d725b741fd6))
+
+- Removed boken
+  ([`308f1b4`](https://github.com/arkitektio/lok-server-next/commit/308f1b473efa053ab397f615f0dfab4718447553))
+
+
+## v1.0.0-rc.25 (2026-08-20)
+
+### Bug Fixes
+
+- Oauth insecure
+  ([`1198bbd`](https://github.com/arkitektio/lok-server-next/commit/1198bbd083fb4907305a076d78d6050b843f4e86))
+
+
+## v1.0.0-rc.24 (2026-08-20)
+
+### Features
+
+- Promote fakts as a oauth2grant
+  ([`d31a353`](https://github.com/arkitektio/lok-server-next/commit/d31a353998093d2aa91b26a436658ef0b8183753))
+
+
+## v1.0.0-rc.23 (2026-08-14)
+
+
+## v1.0.0-rc.22 (2026-08-14)
+
+### Bug Fixes
+
+- More auth fixes
+  ([`9506541`](https://github.com/arkitektio/lok-server-next/commit/9506541f146ece90a808943f6510a49070c9b8bb))
+
+
+## v1.0.0-rc.21 (2026-08-10)
+
+### Bug Fixes
+
+- Hardened lok
+  ([`affa4cb`](https://github.com/arkitektio/lok-server-next/commit/affa4cb715c45a51606a1fc37cc82e3713d88965))
+
+- Saml support and fixed stuff
+  ([`f423dba`](https://github.com/arkitektio/lok-server-next/commit/f423dba59dcd15d8b2ab87a4271a2b1158c812fd))
+
+
+## v1.0.0-rc.20 (2026-07-08)
+
+### Bug Fixes
+
+- Added configuration for kontrol rontend
+  ([`84e64c1`](https://github.com/arkitektio/lok-server-next/commit/84e64c1475fdf2a6cbcbbe90cdebb62578674ea4))
+
+
+## v1.0.0-rc.19 (2026-07-08)
+
+### Features
+
+- Composition is now hub
+  ([`356e76a`](https://github.com/arkitektio/lok-server-next/commit/356e76a9c3377e0531e428d872be0f9cdf77266b))
+
+
+## v1.0.0-rc.18 (2026-07-07)
+
+### Bug Fixes
+
+- Add coordinator url
+  ([`5d4d1ce`](https://github.com/arkitektio/lok-server-next/commit/5d4d1ced0d6f41c950afb14dbd3a73ab9980cf58))
+
+
+## v1.0.0-rc.17 (2026-07-07)
+
+### Bug Fixes
+
+- Add report
+  ([`a4668cc`](https://github.com/arkitektio/lok-server-next/commit/a4668cc0c8403ead9aa188a762e9bbe40f3dbc94))
+
+
+## v1.0.0-rc.16 (2026-07-06)
+
+
+## v1.0.0-rc.15 (2026-07-06)
+
+### Bug Fixes
+
+- Better .well-known plus privace guards
+  ([`b87d6e0`](https://github.com/arkitektio/lok-server-next/commit/b87d6e0c203e60a2e23c97b2cd135bc3c07aab7a))
+
+- Removed depency on node_id
+  ([`01b346c`](https://github.com/arkitektio/lok-server-next/commit/01b346c83afcc0a5d6ad184924841fc2ae294c9f))
+
+
+## v1.0.0-rc.14 (2026-07-04)
+
+### Bug Fixes
+
+- Add rolesets
+  ([`6c3e847`](https://github.com/arkitektio/lok-server-next/commit/6c3e847c890f5a20e3e780ce2ec39a1cdfc82172))
+
+
+## v1.0.0-rc.13 (2026-07-04)
+
+
+## v1.0.0-rc.12 (2026-07-04)
+
+### Bug Fixes
+
+- Device group
+  ([`a720b12`](https://github.com/arkitektio/lok-server-next/commit/a720b12eb3b804e45c5db5abe96068cb09f2051f))
+
+- Public invites
+  ([`6115a29`](https://github.com/arkitektio/lok-server-next/commit/6115a298147f7c0e2d8cd493d62bd3b43ff0662d))
+
+
+## v1.0.0-rc.11 (2026-07-04)
+
+### Bug Fixes
+
+- More updates to the request role
+  ([`007d05e`](https://github.com/arkitektio/lok-server-next/commit/007d05ec6282b269405e30a3b6ca200fc459e704))
+
+
+## v1.0.0-rc.10 (2026-07-04)
+
+### Bug Fixes
+
+- Better filters
+  ([`c0cb040`](https://github.com/arkitektio/lok-server-next/commit/c0cb040d32075b2bb7bc5e17d093fec0e898cab7))
+
+
+## v1.0.0-rc.9 (2026-07-03)
+
+### Features
+
+- Fix ionscale supprto
+  ([`25675f6`](https://github.com/arkitektio/lok-server-next/commit/25675f61b08404700e1a7c11f2b571c17b23fe34))
+
+
+## v1.0.0-rc.8 (2026-07-02)
+
+
+## v1.0.0-rc.7 (2026-07-02)
+
+### Bug Fixes
+
+- Async errors
+  ([`eb74404`](https://github.com/arkitektio/lok-server-next/commit/eb744043183b18f8c33afdba4bc3d1933338a89b))
+
+- Update
+  ([`476ebca`](https://github.com/arkitektio/lok-server-next/commit/476ebca7749c0aac851e4c1a734d9d6e5137f53a))
+
+
+## v1.0.0-rc.6 (2026-07-02)
+
+### Bug Fixes
+
+- Device by device_id not salted
+  ([`26b4368`](https://github.com/arkitektio/lok-server-next/commit/26b43686ee9565fe54106eafcb2e6e162af8636c))
+
+
+## v1.0.0-rc.5 (2026-07-02)
+
+### Bug Fixes
+
+- Alias
+  ([`83036ab`](https://github.com/arkitektio/lok-server-next/commit/83036ab1571502154c8a2e0b18213c250793f6d6))
 
 
 ## v1.0.0-rc.4 (2026-06-29)

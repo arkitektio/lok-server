@@ -1,6 +1,8 @@
 [project]
 name = "lok-server"
-version = "1.0.0"
+# Placeholder only — the git tag is authoritative. Releases are tag-only,
+# so semantic-release does not update this field. See [tool.semantic_release].
+version = "1.0.0-rc.28"
 description = ""
 authors = [{ name = "jhnnsrs", email = "jhnnsrs@gmail.com" }]
 requires-python = ">=3.12,<4"
@@ -12,7 +14,7 @@ dependencies = [
     "daphne>=4.0.0,<5",
     "channels-redis>=4.1.0,<5",
     "django-choices-field>=2.2.2,<3",
-    "authentikate>=2.2.1",
+    "authentikate>=4.1.0",
     "ujson>=5.8.0,<6",
     "aioredis>=2.0.1,<3",
     "jsonpatch~=1.33",
@@ -27,10 +29,12 @@ dependencies = [
     "authlib>=1.6.6",
     "joserfc>=1.0.4",
     "django-health-check>=3.20.0",
-    "django-allauth[headless,mfa,socialaccount]>=65.13",
+    "django-allauth[headless,mfa,saml,socialaccount]>=65.13",
     "pyjwt>=2.10.1",
     "kante>=0.16.1",
     "whitenoise>=6.6",
+    "django-cors-headers>=4.9.0",
+    "httpx>=0.28",
 ]
 
 [dependency-groups]
@@ -102,12 +106,17 @@ target-version = "py312"
 
 [tool.semantic_release]
 # This server is deployed as Docker images, not a PyPI package — so a release
-# just bumps the version, writes the changelog, tags, and cuts a GitHub Release.
-# No wheel is built and nothing is uploaded to PyPI.
-version_toml = ["pyproject.toml:project.version"]
-upload_to_pypi = false
+# just tags the commit and cuts a GitHub Release. No wheel is built and nothing
+# is uploaded to PyPI.
+#
+# Releases are tag-only: the workflow passes `commit: false` / `changelog: false`,
+# so semantic-release never writes back to the branch. That is what keeps `main`
+# and `next` from diverging on the version line. Consequences, deliberate:
+#   - no `version_toml`: the git tag is the sole version source, and the
+#     `version` field under [project] above is an inert placeholder.
+#   - no `commit_message`: dead config when nothing is committed.
+#   - the docker job reads `steps.release.outputs.tag`, so images are unaffected.
 build_command = ""
-commit_message = "chore(release): v{version} [skip ci]"
 
 # main -> stable X.Y.Z releases. next -> prereleases X.Y.Z-rc.N.
 [tool.semantic_release.branches.main]

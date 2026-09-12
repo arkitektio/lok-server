@@ -1,7 +1,7 @@
 from pydantic import BaseModel, Field, model_validator
 from typing import List, Optional, Literal
 from fakts import enums
-from fakts.base_models import CompositionManifest, StagingAlias, Role, Scope
+from fakts.base_models import HubManifest, StagingAlias, Role, Scope
 
 
 class LayerModel(BaseModel):
@@ -46,7 +46,7 @@ class ClientInstanceModel(BaseModel):
     identifier: str
 
 
-class CompositionsConfigModel(BaseModel):
+class HubsConfigModel(BaseModel):
     instances: List[ServiceInstanceModel] = []
     clients: List[ClientInstanceModel] = []
     name: str
@@ -58,7 +58,7 @@ class CompositionsConfigModel(BaseModel):
 class YamlConfigModel(BaseModel):
     """Model representing the YAML configuration."""
 
-    compositions: List[CompositionsConfigModel] = []
+    hubs: List[HubsConfigModel] = []
 
     @model_validator(mode="after")
     def validate_args(self):
@@ -105,17 +105,35 @@ class KommunityPartnerModel(BaseModel):
     partner_kind: enums.PartnerKind = enums.PartnerKind.PREAUTHORIZED
     kommunity_kind: enums.KommunityKind = enums.KommunityKind.OPEN
     auto_configure: bool = False
-    preconfigured_composition: Optional[CompositionManifest] = None
+    preconfigured_hub: Optional[HubManifest] = None
     filter_config: Optional[FilterConfigModel] = None
 
 
 class RedeemTokenModel(BaseModel):
     """Model representing a redeem token configuration."""
 
-    token: str
+    # Optional: an omitted token is *generated* with real entropy rather than
+    # being whatever string an operator typed into a YAML file. A redeem token
+    # is an unauthenticated bearer credential at the token endpoint — it is the
+    # one secret in this flow whose entropy was a human's choice.
+    token: Optional[str] = None
     user: str
     organization: str
-    composition: str
+    hub: str
+    expires_in_days: Optional[int] = Field(
+        default=90,
+        description=(
+            "Lifetime from provisioning. `null` means never expires, which is "
+            "only appropriate for a token you rotate by other means."
+        ),
+    )
+    max_redemptions: Optional[int] = Field(
+        default=None,
+        description=(
+            "How many times this token may be redeemed. `null` means unlimited "
+            "(the historical behaviour). Set to 1 for a genuine single-use token."
+        ),
+    )
 
 
 class RedeemTokenConfigs(BaseModel):

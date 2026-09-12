@@ -1,73 +1,91 @@
 from kante import Info
 import strawberry
-from api.management import types, enums
+from django.db import transaction
+from api.management import types
 import kante
 from fakts import models as fakts_models
 from ionscale.repo import get_ionscale_repo
-from ionscale import base_models as ionscale_models
-from ionscale.manager import sync
-from karakter import models as karakter_models
+from ionscale.manager import ensure_org_mesh, apply_dns_config
+from ionscale.sync import schedule_teardown
+from api.management.authz import DENIED, assert_owner_or_admin, get_or_denied
+from graphql import GraphQLError
 
 
 @kante.input
 class CreateIonscaleLayerInput:
-    """Input for creating a single-use magic invite link for an organization"""
+    """Input for enabling the ionscale mesh for an organization"""
 
-    organization_id: strawberry.ID = strawberry.field(description="The ID of the organization to create the tailnet layer for.")
-    name: str | None = strawberry.field(description="The name of the tailnet layer.")
+    organization_id: strawberry.ID = strawberry.field(description="The ID of the organization to enable the mesh for.")
+    name: str | None = strawberry.field(description="Deprecated — the mesh is a per-organization singleton; ignored.")
 
 
 def create_ionscale_layer(info: Info, input: CreateIonscaleLayerInput) -> types.ManagementLayer:
-    """ """
-    organization = fakts_models.Organization.objects.get(id=input.organization_id)
+    """Enable (opt in to) the organization's ionscale mesh.
 
-    name = input.name or "default"
-    validated_name = name.strip().lower().replace(" ", "-")
+    The mesh is a per-organization singleton: if one already exists it is
+    returned unchanged; otherwise it is provisioned. See `ensure_org_mesh`.
+    """
+    organization = get_or_denied(fakts_models.Organization.objects, id=input.organization_id)
 
-    tailnet_name = f"{organization.slug or organization.pk}-{validated_name}"
+    assert_owner_or_admin(info, organization)
 
-    get_ionscale_repo().create_tailnet(
-        ionscale_models.TailnetCreate(
-            name=tailnet_name,
+    layer = ensure_org_mesh(organization)
+    if layer is None:
+        raise GraphQLError(
+            "Could not enable the mesh: ionscale is not configured on this deployment."
         )
-    )
-
-    layer = fakts_models.IonscaleLayer.objects.create(
-        organization=organization,
-        name=name or "Default",
-        kind=enums.LayerKind.IONSCALE.value,
-        identifier=tailnet_name,
-        tailnet_name=tailnet_name,
-    )
-
-    sync(layer)
-
     return layer
 
 
 @kante.input
 class UpdateIonscaleLayerInput:
-    """Input for creating a single-use magic invite link for an organization"""
+    """Input for updating an organization's mesh (ionscale layer)."""
     id: strawberry.ID = strawberry.field(description="The ID of the Ionscale layer to update.")
-    name: str | None = strawberry.field(description="The name of the tailnet layer.")
-    description: str | None = strawberry.field(description="The description of the tailnet layer.")
-    blocked_for: list[strawberry.ID] | None = strawberry.field(default=None, description="List of membership IDs to block from accessing this layer.")
+    name: str | None = strawberry.field(default=None, description="The name of the tailnet layer.")
+    description: str | None = strawberry.field(default=None, description="The description of the tailnet layer.")
+    magic_dns: bool | None = strawberry.field(default=None, description="Enable or disable MagicDNS for this mesh.")
+    https_certs: bool | None = strawberry.field(default=None, description="Enable or disable HTTPS certificates for this mesh. Requires MagicDNS.")
 
 
 def update_ionscale_layer(info: Info, input: UpdateIonscaleLayerInput) -> types.ManagementLayer:
-    """ """
+    """Update an organization's mesh: naming and/or DNS (MagicDNS/HTTPS).
 
-    layer = fakts_models.IonscaleLayer.objects.get(
-        id=input.id
-    )
-    if input.blocked_for is not None:
-        memberships = karakter_models.Membership.objects.filter(id__in=input.blocked_for)
-        layer.blocked_for.set(memberships)
+    Only the organization's owner or admins may reconfigure the mesh (it decides
+    how its machines resolve names). Access itself is not configured here: every
+    member of the organization is a member of its mesh.
+    """
+
+    layer = get_or_denied(fakts_models.IonscaleLayer.objects, id=input.id)
+
+    assert_owner_or_admin(info, layer.organization)
+
+    # Validate the DNS combination up front, before anything is mutated.
+    if input.magic_dns is not None or input.https_certs is not None:
+        magic_dns = input.magic_dns if input.magic_dns is not None else layer.magic_dns_enabled
+        https_certs = input.https_certs if input.https_certs is not None else layer.https_enabled
+        # HTTPS certs require MagicDNS (the cert domain *is* the MagicDNS name).
+        if https_certs and not magic_dns:
+            raise GraphQLError("HTTPS certificates require MagicDNS to be enabled.")
+
+    if input.name is not None or input.description is not None:
+        if input.name is not None:
+            layer.name = input.name
+        if input.description is not None:
+            layer.description = input.description
         layer.save()
-    
-    sync(layer)
-    
-    
+
+    if input.magic_dns is not None or input.https_certs is not None:
+        if input.magic_dns is not None:
+            layer.magic_dns_enabled = input.magic_dns
+        if input.https_certs is not None:
+            layer.https_enabled = input.https_certs
+        # Save + push atomically: if ionscale rejects the change the model save is
+        # rolled back, so the stored "desired state" never drifts ahead of what
+        # ionscale actually has. Explicit user action, so the failure propagates
+        # (and the UI shows an error) instead of silently reporting success.
+        with transaction.atomic():
+            layer.save()
+            apply_dns_config(layer, raise_on_error=True)
 
     return layer
 
@@ -75,23 +93,30 @@ def update_ionscale_layer(info: Info, input: UpdateIonscaleLayerInput) -> types.
 
 @kante.input
 class DeleteIonscaleLayerInput:
-    """Input for accepting an organization invite"""
+    """Input for disabling (deleting) an organization's mesh layer."""
 
-    id: strawberry.ID
+    id: strawberry.ID = strawberry.field(
+        description="The mesh to disable. Irreversible: the tailnet and every machine "
+        "enrolled in it are deleted on ionscale as well."
+    )
 
 
 def delete_ionscale_layer(info: Info, input: DeleteIonscaleLayerInput) -> strawberry.ID:
-    """
-    Accept an invite to join an organization.
+    """Disable (delete) an organization's mesh layer and tear its tailnet down.
 
-    Validates the invite token and adds the user to the organization.
+    The tailnet is deleted on ionscale (forced, so enrolled machines go with
+    it) once the layer's deletion has committed; a control-plane failure is
+    logged and left to `manage.py reconcile_meshes`, which reports orphaned
+    tailnets.
     """
-    try:
-        alias = fakts_models.InstanceAlias.objects.get(id=input.id)
-    except fakts_models.InstanceAlias.DoesNotExist:
-        raise Exception("Invalid alias ID")
+    layer = get_or_denied(fakts_models.IonscaleLayer.objects, id=input.id)
 
-    alias.delete()
+    assert_owner_or_admin(info, layer.organization)
+
+    tailnet_name = layer.tailnet_name
+    with transaction.atomic():
+        layer.delete()
+        schedule_teardown(tailnet_name)
 
     return input.id
 
@@ -105,10 +130,11 @@ class CreateIonscaleAuthKeyInput:
 
 
 def create_ionscale_auth_key(info: Info, input: CreateIonscaleAuthKeyInput) -> types.ManagementIonscaleAuthKey:
-    """ """
-    layer = fakts_models.IonscaleLayer.objects.get(id=input.layer_id)
-    if not layer.organization.memberships.filter(user=info.context.request.user).exists():
-        raise PermissionError("You are not a member of the organization that owns this layer.")
+    """Mint a pre-authorized auth key for an organization's mesh. The key lets any
+    machine join the mesh, so only the organization's owner or admins may mint one."""
+    layer = get_or_denied(fakts_models.IonscaleLayer.objects, id=input.layer_id)
+
+    assert_owner_or_admin(info, layer.organization)
 
     key = get_ionscale_repo().create_auth_key(
         tailnet=layer.tailnet_name,
@@ -126,3 +152,51 @@ def create_ionscale_auth_key(info: Info, input: CreateIonscaleAuthKeyInput) -> t
     )
     
     return key
+
+
+@kante.input
+class TailnetLockInput:
+    """Input for changing a mesh's tailnet-lock capability."""
+
+    layer_id: strawberry.ID = strawberry.field(description="The ID of the Ionscale layer (mesh) to change.")
+
+
+def enable_tailnet_lock(info: Info, input: TailnetLockInput) -> types.ManagementLayer:
+    """Grant the mesh's machines the tailnet-lock capability.
+
+    This does NOT lock the network. It only permits `tailscale lock init`, which
+    an admin then runs on a machine to create the key authority -- the private
+    key never reaches the control plane, which is the entire point of tailnet
+    lock. Only the organization's owner or admins may grant it: it changes how
+    every machine on the mesh authenticates its peers.
+    """
+    layer = get_or_denied(fakts_models.IonscaleLayer.objects, id=input.layer_id)
+
+    assert_owner_or_admin(info, layer.organization)
+
+    try:
+        get_ionscale_repo().enable_tailnet_lock(layer.tailnet_name)
+    except Exception as exc:
+        raise GraphQLError(f"Could not enable tailnet lock: {exc}")
+
+    return layer
+
+
+def disable_tailnet_lock(info: Info, input: TailnetLockInput) -> types.ManagementLayer:
+    """Revoke the mesh's tailnet-lock capability.
+
+    ionscale refuses this while a key authority is still active -- the authority
+    has to be shut down from a client first (`tailscale lock disable` with a
+    disablement secret), otherwise revoking the capability would partition the
+    mesh. That refusal surfaces here as an error.
+    """
+    layer = get_or_denied(fakts_models.IonscaleLayer.objects, id=input.layer_id)
+
+    assert_owner_or_admin(info, layer.organization)
+
+    try:
+        get_ionscale_repo().disable_tailnet_lock(layer.tailnet_name)
+    except Exception as exc:
+        raise GraphQLError(f"Could not disable tailnet lock: {exc}")
+
+    return layer

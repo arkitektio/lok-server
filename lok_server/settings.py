@@ -11,6 +11,7 @@ https://docs.djangoproject.com/en/4.2/ref/settings/
 """
 
 from pathlib import Path
+from urllib.parse import urlparse
 from .configuration import Settings
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
@@ -29,8 +30,17 @@ DEBUG = conf.django.debug
 ALLOWED_HOSTS = conf.django.hosts
 
 FAKTS_PROTOCOL_VERSION = "0.1.0"
+# How many of a client's most recent self-reports to retain (see fakts.services.clients.report_client).
+CLIENT_REPORT_RETENTION = 5
 DEPLOYMENT_NAME = conf.deployment.name
 DEPLOYMENT_DESCRIPTION = conf.deployment.description
+# URL template advertised as the fakts well-known `configure` endpoint (see the
+# WellKnownFakts view, which resolves it to an absolute URL for the client).
+DEPLOYMENT_CONFIGURE_URL = conf.deployment.configure_url
+# URL template advertised as the fakts well-known `mesh_configure` endpoint.
+DEPLOYMENT_MESH_CONFIGURE_URL = conf.deployment.mesh_configure_url
+# URL template advertised as the fakts well-known `hub_configure` endpoint.
+DEPLOYMENT_HUB_CONFIGURE_URL = conf.deployment.hub_configure_url
 # Application definition
 
 ENSURED_OPENID_APPS = [a.model_dump() for a in conf.openid_apps]
@@ -47,21 +57,36 @@ OIDC_ISSUER = conf.oidc_issuer
 
 if conf.ionscale is not None:
     IONSCALE_SERVER_URL = conf.ionscale.server_url
+    # Static `svc_` token: lok drives ionscale over connect+JSON with it.
+    IONSCALE_SERVICE_TOKEN = conf.ionscale.service_token
+    IONSCALE_VERIFY_TLS = conf.ionscale.verify_tls
+    IONSCALE_TIMEOUT = conf.ionscale.timeout
+    # Legacy CLI credential, only used when no service token is set.
     IONSCALE_ADMIN_KEY = conf.ionscale.admin_key
     IONSCALE_COORD_URL = conf.ionscale.coord_url  # thats the public coord url
     IONSCALE_REPOSITORY = conf.ionscale.repository
     # Configured -> validate the ionscale repository at startup (fail fast).
     IONSCALE_EAGER_INIT = conf.ionscale.eager_init
+    # Auto-provision each new organization's mesh on creation.
+    IONSCALE_AUTO_CREATE_MESH = conf.ionscale.auto_create_mesh
+    # MagicDNS suffix, used to derive a machine's MagicDNS name (<name>.<suffix>).
+    IONSCALE_MAGIC_DNS_SUFFIX = conf.ionscale.magic_dns_suffix
 else:
     IONSCALE_SERVER_URL = None
+    IONSCALE_SERVICE_TOKEN = None
+    IONSCALE_VERIFY_TLS = True
+    IONSCALE_TIMEOUT = 10.0
     IONSCALE_ADMIN_KEY = None
     IONSCALE_COORD_URL = None
     IONSCALE_REPOSITORY = None
     IONSCALE_EAGER_INIT = False
+    IONSCALE_AUTO_CREATE_MESH = False
+    IONSCALE_MAGIC_DNS_SUFFIX = None
 
 # IONSCALE_REPOSITORY: dotted path to a zero-arg factory returning an
-# ionscale.repo.IonscaleRepo. When None, the real CLI-backed IonscaleRepository is
-# used. Tests point it at ionscale.testing.FakeIonscaleRepository (see settings_test).
+# ionscale.repo.IonscaleRepo. When None, the HTTP repository is used with
+# IONSCALE_SERVICE_TOKEN (or, legacy, the CLI-backed one with IONSCALE_ADMIN_KEY).
+# Tests point it at ionscale.testing.FakeIonscaleRepository (see settings_test).
 # IONSCALE_EAGER_INIT: when True, ionscale.apps.IonscaleConfig.ready() builds the
 # repository at boot so misconfiguration fails fast.
 
@@ -99,10 +124,37 @@ INSTALLED_APPS += [
 INSTALLED_APPS += conf.account.social_provider_apps
 
 
-# These are the URLs to be implemented by your single-page application.
-HEADLESS_FRONTEND_URLS = conf.account.headless_frontend_urls.model_dump()
+# Base URL of the kontrol SPA. Every account email link and redirect derives from
+# it, so a deployment configures its frontend host in exactly one place.
+KONTROL_FRONTEND_URL = conf.kontrol_frontend_url.rstrip("/")
+
+# These are the URLs to be implemented by your single-page application. The model
+# holds relative path templates (e.g. "/account/verify-email/{key}") which we join
+# to KONTROL_FRONTEND_URL here; a value that is already absolute (has a scheme) is
+# passed through unchanged so a deployment can still point a single flow elsewhere.
+HEADLESS_FRONTEND_URLS = {
+    key: path if urlparse(path).scheme else f"{KONTROL_FRONTEND_URL}{path}"
+    for key, path in conf.account.headless_frontend_urls.model_dump().items()
+}
 
 ACCOUNT_EMAIL_VERIFICATION = conf.account.email_verification  # default "none": no SMTP server by default
+
+# Email-verification policy for social/OIDC logins, independent of the local one
+# above. allauth passes SOCIALACCOUNT_EMAIL_VERIFICATION for both social signups and
+# existing-account social logins (socialaccount/internal/flows/login.py), so setting
+# it to "none" exempts IdP-authenticated users from mandatory verification — the
+# supported way to keep local signups verifying while trusting the IdP. Left unset,
+# allauth falls back to ACCOUNT_EMAIL_VERIFICATION. Validated in configuration.py so
+# a relaxed value can't silently exempt an untrusted provider.
+if conf.account.social_email_verification is not None:
+    SOCIALACCOUNT_EMAIL_VERIFICATION = conf.account.social_email_verification
+if conf.account.social_email_required is not None:
+    SOCIALACCOUNT_EMAIL_REQUIRED = conf.account.social_email_required
+
+# Which identifier(s) users log in with, and which fields signup collects.
+# Set account.login_methods to ["email"] in config.yaml to enable login via email.
+ACCOUNT_LOGIN_METHODS = set(conf.account.login_methods)
+ACCOUNT_SIGNUP_FIELDS = conf.account.signup_fields  # always populated (derived if omitted)
 
 # Authentikate section
 
@@ -123,6 +175,9 @@ SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https") if conf.django.sec
 
 
 MIDDLEWARE = [
+    # NOTE: "corsheaders.middleware.CorsMiddleware" is inserted at position 0
+    # further down (CORS section) — it must run first so preflights are answered
+    # (and ACAO headers added) before anything else can short-circuit the response.
     "django.middleware.security.SecurityMiddleware",
     "whitenoise.middleware.WhiteNoiseMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
@@ -136,8 +191,66 @@ MIDDLEWARE = [
 ]
 
 
-ACCOUNT_LOGIN_BY_CODE_ENABLED = conf.account.login_by_code_enabled  # Enable login by code
+# Login-by-code emails the user a one-time code, so it needs a working outbound
+# mail path. With no `email:` SMTP block, Django falls back to the default
+# localhost SMTP backend (which can't send), so advertising the option would only
+# surface a flow that always fails. Soft-disable it in that case — password login
+# still works, matching the "soft dependency" note in configuration.py / CONFIG.md.
+# allauth's /config endpoint reports this effective value, so the SPA hides the
+# "Send me a sign-in code" option automatically.
+ACCOUNT_LOGIN_BY_CODE_ENABLED = conf.account.login_by_code_enabled and conf.email is not None
 MFA_TRUST_ENABLED = conf.account.mfa_trust_enabled  # Allow trusted devices
+
+# WebAuthn security keys / passkeys as an MFA type.
+#
+# MFA_SUPPORTED_TYPES REPLACES allauth's default (["recovery_codes", "totp"],
+# allauth/mfa/app_settings.py:91-93), so the existing types are re-listed here
+# explicitly — omitting them would silently disable TOTP for everyone already
+# enrolled. allauth only mounts the /webauthn/* headless routes when "webauthn"
+# is in this list, and reports the effective list on its /config endpoint, so the
+# SPA hides the security-key UI automatically when it isn't.
+#
+# Deliberately NOT gated on django.allow_insecure_transport, unlike
+# ACCOUNT_LOGIN_BY_CODE_ENABLED above. WebAuthn's secure-context requirement is
+# evaluated by the BROWSER against the page's own origin, and fido2 validates the
+# origin the browser reports (fido2/rpid.py:90-100) — never Django's view of the
+# request scheme. Behind a TLS-terminating gateway, allow_insecure_transport is
+# on while the browser still talks HTTPS, so gating on it would switch passkeys
+# off for exactly the standard topology. A deployment genuinely served over
+# plain http:// simply gets no WebAuthn API in the browser, and the SPA surfaces
+# that as a failed attempt rather than a missing feature. (http://localhost is a
+# secure context, so local development is unaffected either way.)
+MFA_SUPPORTED_TYPES = ["recovery_codes", "totp"] + (["webauthn"] if conf.account.mfa_webauthn_enabled else [])
+
+# Passkey as a password *replacement* at login, and at signup. allauth ANDs both
+# with "webauthn" in MFA_SUPPORTED_TYPES, and configuration.py rejects the
+# incoherent combinations up front, so these pass straight through.
+MFA_PASSKEY_LOGIN_ENABLED = conf.account.mfa_passkey_login_enabled
+MFA_PASSKEY_SIGNUP_ENABLED = conf.account.mfa_passkey_signup_enabled
+
+# Verify email addresses with a typed code rather than a clicked link. Off by
+# default; required by (and only strictly needed for) passkey signup, which has
+# no password to fall back on.
+ACCOUNT_EMAIL_VERIFICATION_BY_CODE_ENABLED = conf.account.email_verification_by_code_enabled
+
+# A passkey is bound to a Relying Party ID. allauth derives it per request from
+# the Host header (allauth/mfa/adapter.py:149-154) and offers no setting to
+# override it, so lok subclasses the MFA adapter. Leave rp_id null on a
+# single-host deployment; pin it to the registrable parent domain when one
+# deployment answers on several subdomains, or a passkey enrolled on one host is
+# simply not offered on the others.
+MFA_WEBAUTHN_RP_ID = conf.account.mfa_webauthn_rp_id
+
+# allauth defaults MFA_TOTP_ISSUER to "", which leaves the entry unlabelled in
+# the user's authenticator app. Name the deployment instead.
+MFA_TOTP_ISSUER = conf.account.mfa_totp_issuer or DEPLOYMENT_NAME
+
+MFA_ADAPTER = "lok_server.mfa_adapter.LokMFAAdapter"
+
+# Privacy policy for integrated login widgets (Google One Tap et al.). The custom
+# headless config view reports this to the SPA, which gates the One Tap widget on
+# it (strict = never load Google's script; opt-in = consent prompt; disabled = free).
+PRIVACY_GUARDS = conf.privacy_guards
 
 # S3_PUBLIC_DOMAIN = f"{conf.s3.public.host}:{conf.s3.public.port}"  # TODO: FIx
 AWS_ACCESS_KEY_ID = conf.datalayer.access_key
@@ -226,7 +339,7 @@ AUTHENTIKATE = conf.authentikate.model_dump()
 STRAWBERRY_DJANGO = {
     "TYPE_DESCRIPTION_FROM_MODEL_DOCSTRING": True,
     "FIELD_DESCRIPTION_FROM_HELP_TEXT": True,
-    "USE_DEPRECATED_FILTERS": True,
+    "USE_DEPRECATED_FILTERS": False,
 }
 
 
@@ -274,6 +387,46 @@ CSRF_TRUSTED_ORIGINS = conf.django.csrf_trusted_origins
 MY_SCRIPT_NAME = conf.django.force_script_name
 STATIC_URL = MY_SCRIPT_NAME.lstrip("/") + "/" + "static/"
 
+# --- CORS (django-cors-headers), config-driven -------------------------------
+#
+# Only the browser-facing *API* surfaces get CORS headers: the OAuth/OIDC
+# endpoints (/o/), the fakts protocol endpoints (/f/) and discovery
+# (/.well-known/). The session-authenticated SPA surfaces (management GraphQL,
+# allauth headless, admin) deliberately stay same-origin — they ride on cookies
+# and CSRF, and CORS would only widen that surface.
+#
+# ``dynamicpath`` bakes ``force_script_name`` into the URL patterns, so
+# ``request.path_info`` (what CorsMiddleware matches) carries the prefix when
+# lok is served under one. The regex accepts both shapes (with and without the
+# prefix) so it keeps working however the prefix ends up being applied.
+import logging as _cors_logging
+import re as _re
+
+_cors_prefix = _re.escape("/" + MY_SCRIPT_NAME.strip("/")) if MY_SCRIPT_NAME.strip("/") else ""
+CORS_URLS_REGEX = rf"^({_cors_prefix})?/(o/|f/|\.well-known/)" if _cors_prefix else r"^/(o/|f/|\.well-known/)"
+CORS_ALLOW_ALL_ORIGINS = conf.django.cors_allow_all_origins
+CORS_ALLOWED_ORIGINS = conf.django.cors_allowed_origins
+# Bearer tokens travel in the Authorization header (not cookies), so it must be
+# allowed in preflights; credentials (cookies) are not shared cross-origin.
+CORS_ALLOW_CREDENTIALS = False
+
+try:
+    from corsheaders.defaults import default_headers as _cors_default_headers  # noqa: E402
+except ImportError:  # pragma: no cover — only an image built before the dependency was added
+    # Degrade loudly rather than refusing to boot: a lok that serves no CORS
+    # headers is strictly what it did before this setting existed, while a
+    # crash-looping identity server takes every client down with it.
+    _cors_logging.getLogger(__name__).error(
+        "django-cors-headers is not installed — CORS headers are DISABLED on /o/, /f/ "
+        "and /.well-known/ until the image is rebuilt with the current dependencies "
+        "(uv sync / docker compose build lok). django.cors_* settings are ignored."
+    )
+    CORS_ALLOW_HEADERS = ["authorization"]
+else:
+    CORS_ALLOW_HEADERS = [*_cors_default_headers, "authorization"]
+    INSTALLED_APPS.insert(1, "corsheaders")
+    MIDDLEWARE.insert(0, "corsheaders.middleware.CorsMiddleware")
+
 # WhiteNoise serves static directly from the staticfiles finders at request time
 # (works under both runserver and daphne), so no collectstatic / STATIC_ROOT is needed.
 WHITENOISE_USE_FINDERS = True
@@ -320,15 +473,86 @@ LOGIN_REDIRECT_URL = "mainhome"  # Redirect to main after login
 LOGOUT_REDIRECT_URL = "mainhome"  # Redirect to main after logout
 ACCOUNT_LOGOUT_REDIRECT_URL = "mainhome"
 
-# Frontend URL for redirects (used by karakter views)
-KONTROL_FRONTEND_URL = conf.kontrol_frontend_url
+# KONTROL_FRONTEND_URL is defined above (near HEADLESS_FRONTEND_URLS) — the same
+# base drives both the allauth email links and the karakter view redirects.
 
 
 SYSTEM_MESSAGES = conf.system_messages or [
     {
         "title": "Welcome to Lok",
-        "message": "Now that you are here, you can start creating your own compositions",
+        "message": "Now that you are here, you can start creating your own hubs",
     }
 ]
 
-SOCIALACCOUNT_PROVIDERS = conf.socialaccount_providers
+# Rebuild the plain dict allauth expects from the typed config. exclude_none drops
+# unset optional keys so allauth falls back to its own defaults for them.
+SOCIALACCOUNT_PROVIDERS = {
+    provider: cfg.model_dump(exclude_none=True)
+    for provider, cfg in conf.socialaccount_providers.items()
+}
+
+
+# --- OAuth transport guard -----------------------------------------------------
+# authlib refuses OAuth2/OIDC traffic (token, authorize, discovery) over plain
+# HTTP unless the process env var AUTHLIB_INSECURE_TRANSPORT is set; only
+# https:// and localhost/127.0.0.1 URLs pass otherwise. Behind a TLS-terminating
+# gateway that forwards X-Forwarded-Proto this is a non-issue — SECURE_PROXY_SSL_HEADER
+# above makes Django build https URLs. Deployments that deliberately run lok
+# without TLS at all (lab LANs, plain-http gateways) opt out via the typed
+# config key `django.allow_insecure_transport`, which we translate into the env
+# var authlib reads at call time. A pre-existing AUTHLIB_INSECURE_TRANSPORT in
+# the environment keeps working as a backward-compatible alias.
+import logging as _logging
+import os as _os
+
+ALLOW_INSECURE_TRANSPORT = conf.django.allow_insecure_transport
+
+if ALLOW_INSECURE_TRANSPORT:
+    _os.environ.setdefault("AUTHLIB_INSECURE_TRANSPORT", "1")
+
+if not DEBUG and _os.environ.get("AUTHLIB_INSECURE_TRANSPORT"):
+    _logging.getLogger(__name__).warning(
+        "OAuth endpoints accept plain-HTTP requests (django.allow_insecure_transport "
+        "/ AUTHLIB_INSECURE_TRANSPORT) with DEBUG off. This is only safe when lok is "
+        "not reachable over an untrusted network, e.g. on a trusted LAN or behind a "
+        "gateway in front of lok. Prefer TLS at the gateway with X-Forwarded-Proto "
+        "forwarded, which needs no opt-out."
+    )
+
+
+# --------------------------------------------------------------------------- #
+# Transport / cookie hardening
+#
+# None of these were set, so every one ran at its off-by-default value: the
+# allauth and admin session cookies (and the CSRF token) were transmitted over
+# plain HTTP, and there was no HSTS, so a first request was downgradeable.
+#
+# They key off `allow_insecure_transport` rather than being unconditionally on:
+# a deployment that has *deliberately* opted into plain HTTP (lab LAN, plain-http
+# gateway) would be locked out of its own session cookie otherwise. Everyone else
+# — the overwhelming majority, terminating TLS at a gateway — gets the secure
+# defaults without touching their config.
+# --------------------------------------------------------------------------- #
+_secure_cookies = conf.django.secure_cookies
+if _secure_cookies is None:
+    _secure_cookies = not ALLOW_INSECURE_TRANSPORT
+
+# How many proxies we control sit in front of lok; see authapp.throttle.
+TRUSTED_PROXY_DEPTH = conf.django.trusted_proxy_depth
+
+SESSION_COOKIE_SECURE = _secure_cookies
+CSRF_COOKIE_SECURE = _secure_cookies
+SESSION_COOKIE_HTTPONLY = True
+SESSION_COOKIE_SAMESITE = "Lax"
+CSRF_COOKIE_SAMESITE = "Lax"
+
+SECURE_HSTS_SECONDS = 0 if ALLOW_INSECURE_TRANSPORT else conf.django.hsts_seconds
+SECURE_HSTS_INCLUDE_SUBDOMAINS = bool(SECURE_HSTS_SECONDS)
+SECURE_HSTS_PRELOAD = False
+SECURE_CONTENT_TYPE_NOSNIFF = True
+SECURE_REFERRER_POLICY = "same-origin"
+
+# TLS terminates at the gateway, which is also what sets X-Forwarded-Proto, so
+# Django must not additionally redirect (that would loop behind a proxy that
+# forwards the header). Left off deliberately; the gateway owns the redirect.
+SECURE_SSL_REDIRECT = False

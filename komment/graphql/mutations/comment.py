@@ -1,6 +1,8 @@
 from kante.types import Info
 import strawberry
 from komment import types, models, inputs, scalars
+from django.db.models import Q
+from karakter.authz import get_or_denied, get_organization, get_user
 import logging
 from typing import Dict, Tuple, List, Any
 
@@ -69,7 +71,8 @@ class CreateCommentInput:
 
 
 def create_comment(info: Info, input: CreateCommentInput) -> types.Comment:
-    creator = info.context.request.user
+    creator = get_user(info)
+    organization = get_organization(info)
 
     serialized_descendants = strawberry.asdict(input)["descendants"]
 
@@ -77,16 +80,40 @@ def create_comment(info: Info, input: CreateCommentInput) -> types.Comment:
 
     # TODO: Check if user is allowed to comment on these types of objects
 
+    # A caller-supplied `parent` must be a comment the caller may actually see.
+    # It was written straight to the FK column, which let anyone thread a reply
+    # onto *any* comment in the deployment by guessing a (sequential) pk — and
+    # then read that comment back through the `parent` hop, which is a forward
+    # FK and therefore does not re-apply `Comment.get_queryset`. That was a
+    # cross-tenant read of the comment body and its author's username/email.
+    parent = None
+    if input.parent is not None:
+        parent = get_or_denied(
+            models.Comment.objects.distinct(),
+            Q(user=creator) | Q(mentions=creator),
+            id=input.parent,
+        )
+
     exp = models.Comment.objects.create(
         identifier=input.identifier,
         object=input.object,
         user=creator,
         text="",
         descendants=serialized_descendants,
-        parent_id=input.parent,
+        parent=parent,
     )
 
-    users = [get_user_model().objects.get(id=m["user"]) for m in mentions]
+    # Mentioned users must be members of the caller's organization: a mention
+    # notifies the user and grants them read access to the comment, so it must
+    # not reach across tenants. A malformed or foreign id is denied uniformly.
+    users = [
+        get_or_denied(
+            get_user_model().objects.distinct(),
+            id=m.get("user"),
+            memberships__organization=organization,
+        )
+        for m in mentions
+    ]
     if input.notify:
         for user in users:
             user.notify(

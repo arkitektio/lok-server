@@ -3,6 +3,7 @@ import boto3
 from moto import mock_aws
 import os
 
+from django.conf import settings as django_settings
 from django.contrib.auth import get_user_model
 from karakter.models import Organization, User, Membership
 from karakter.managers import create_role
@@ -12,6 +13,17 @@ from authentikate.settings import get_settings
 
 # Make the factories importable as `pytest` fixtures-adjacent helpers.
 from tests import factories  # noqa: F401
+
+
+@pytest.fixture(autouse=True)
+def _clear_cache():
+    """The OAuth throttle (authapp/throttle.py) counts per-IP requests in the
+    default LocMem cache, which persists for the whole test process — without
+    clearing it, the suite itself trips the rate limit."""
+    from django.core.cache import cache
+
+    cache.clear()
+    yield
 
 
 @pytest.fixture(autouse=True)
@@ -32,22 +44,40 @@ def _restore_static_tokens():
 def build_auth_context(user, organization, oauth2_client, roles=("admin",)) -> HttpContext:
     """Build an authenticated ``HttpContext`` via a static token.
 
-    authentikate (v2) authenticates by decoding the ``Authorization`` header, so
-    tests register a static token whose claims (``sub``/``active_org``/
-    ``client_id``) match freshly-created fixtures and send it as a bearer token.
+    authentikate authenticates by decoding the ``Authorization`` header, so
+    tests register a static token whose claims (``sub``/``org``/``client_id``)
+    match freshly-created fixtures and send it as a bearer token. Note ``org``
+    here carries the organization *pk*, exactly as a real lok-issued token does
+    (see ``authapp.extension.read_org_claim``).
     The ``AuthAppExtension`` then resolves the karakter/fakts models from those
     claims exactly as it does in production.
     """
     token_str = f"static-{user.id}-{oauth2_client.client_id}"
     get_settings().static_tokens[token_str] = StaticToken(
         sub=str(user.id),
-        iss="lok",
-        active_org=organization.slug,
+        # `iss` and `aud` must match what a real lok-issued token carries:
+        # `AuthAppExtension` now rejects a token that was not issued by this
+        # server or not addressed to it (see `assert_addressed_to_lok`). Minting
+        # test tokens with production-shaped claims keeps that gate exercised
+        # rather than quietly bypassed.
+        iss=django_settings.OIDC_ISSUER,
+        aud=["lok"],
+        # The org pk, in the same claim a real token uses — authentikate v4
+        # declares `org` on both JWTToken and StaticToken.
+        org=str(organization.pk),
         client_id=oauth2_client.client_id,
         roles=list(roles),
     )
+    request = UniversalRequest(_extensions={})
+    # Populate the request principal directly. On the main schema the
+    # ``AuthAppExtension`` resolves these from the bearer token, but the
+    # management schema has no token extension (the SPA authenticates by session),
+    # so an "authenticated" context must set them itself to exercise resolvers
+    # that read ``request.user`` / ``.organization`` / ``.membership``.
+    request.set_user(user)
+    request.set_organization(organization)
     return HttpContext(
-        request=UniversalRequest(_extensions={}),
+        request=request,
         response=TemporalResponse(),
         headers={"Authorization": f"Bearer {token_str}"},
         type="http",
@@ -74,6 +104,25 @@ def ionscale_repo():
     from ionscale.repo import get_ionscale_repo
 
     return get_ionscale_repo()
+
+
+@pytest.fixture
+def commit_callbacks(django_capture_on_commit_callbacks):
+    """Run ``transaction.on_commit`` hooks for a block of test code.
+
+    ``ionscale.sync`` only talks to the control plane after the surrounding
+    transaction commits, and ``django_db`` wraps each test in a transaction that
+    never does. Wrap the statements whose side effects you want to observe::
+
+        with commit_callbacks():
+            Membership.objects.create(...)
+        assert ionscale_repo.updated_policies == [...]
+    """
+
+    def _capture():
+        return django_capture_on_commit_callbacks(execute=True)
+
+    return _capture
 
 
 @pytest.fixture(scope="function")
@@ -126,4 +175,4 @@ def authenticated_context(db, testing_org) -> HttpContext:
     # A fakts Client (with its backing OAuth2Client) so the auth extension can
     # resolve ``request.client`` from the token's ``client_id``.
     fakts_client = factories.make_client(membership=membership)
-    return build_auth_context(user, testing_org, fakts_client.oauth2_client)
+    return build_auth_context(user, testing_org, fakts_client)

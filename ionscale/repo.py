@@ -5,7 +5,8 @@ import re
 import json
 from typing import List, Dict, Any, Union, Optional, Protocol, runtime_checkable
 from pathlib import Path
-from .base_models import Tailnet, TailnetCreate, Machine, MachineDetail
+from .base_models import Tailnet, TailnetCreate, Machine, MachineDetail, DNSConfig, TailnetLockStatus, NodeLockState, TailnetUser
+from .errors import IonscaleError
 from django.conf import settings
 from django.utils.module_loading import import_string
 
@@ -14,22 +15,38 @@ from django.utils.module_loading import import_string
 class IonscaleRepo(Protocol):
     """The behaviour the rest of the app depends on.
 
-    Both :class:`IonscaleRepository` (the real CLI-backed implementation) and the
-    in-memory ``FakeIonscaleRepository`` used in tests satisfy this protocol, so
-    consumers can depend on the interface instead of a concrete class.
+    :class:`ionscale.http_repo.IonscaleHttpRepository` (connect+JSON, the
+    default), :class:`IonscaleRepository` (legacy CLI-backed) and the in-memory
+    ``FakeIonscaleRepository`` used in tests satisfy this protocol, so consumers
+    can depend on the interface instead of a concrete class. Tailnets are
+    addressed by *name* (what ``IonscaleLayer.tailnet_name`` stores); failures
+    surface as :class:`ionscale.errors.IonscaleError`.
     """
 
     def list_tailnets(self) -> List[Tailnet]: ...
     def list_machines(self, tailnet: str) -> List[Machine]: ...
     def get_machine(self, machine_id: str) -> MachineDetail: ...
     def create_tailnet(self, tailnet_input: TailnetCreate) -> Tailnet: ...
+    def get_tailnet_by_organization(self, organization: str) -> Optional[Tailnet]: ...
+    def update_tailnet(self, tailnet: str, *, name: Optional[str] = ..., **flags: bool) -> Tailnet: ...
+    def delete_tailnet(self, tailnet: str, force: bool = ...) -> None: ...
+    def get_policy(self, tailnet: str) -> Dict[str, Any]: ...
     def update_policy(self, tailnet: str, policy: Union[Dict[str, Any], str, Path]) -> str: ...
+    def set_dns_config(self, tailnet: str, config: DNSConfig) -> str: ...
     def create_auth_key(self, tailnet: str, ephemeral: bool = ..., pre_authorized: bool = ..., tags: List[str] = ...) -> str: ...
-    def run(self, *preargs) -> str: ...
-    def help(self, *preargs) -> str: ...
+    def get_tailnet_lock_status(self, tailnet: str) -> TailnetLockStatus: ...
+    def enable_tailnet_lock(self, tailnet: str) -> None: ...
+    def disable_tailnet_lock(self, tailnet: str) -> None: ...
+    def list_users(self, tailnet: str) -> List[TailnetUser]: ...
+    def revoke_account(self, external_id: str, organization: Optional[str] = ...) -> List[str]: ...
 
 
 class IonscaleRepository:
+    """Legacy CLI-backed repository: shells out to the ``ionscale`` binary and
+    parses its table output. Prefer :class:`ionscale.http_repo.IonscaleHttpRepository`
+    (configured via ``ionscale.service_token``); this stays for deployments that
+    still hand lok a system admin key and a binary."""
+
     def __init__(self, server_url: str, admin_key: str, binary_path: str = "ionscale"):
         """
         Initializes the repository.
@@ -44,6 +61,20 @@ class IonscaleRepository:
         self.binary = shutil.which(binary_path)
         if not self.binary:
             raise FileNotFoundError(f"Ionscale binary not found at: {binary_path}")
+
+    # Values that reach argv must not be able to masquerade as flags. The
+    # subprocess runs with IONSCALE_SYSTEM_ADMIN_KEY in its environment, so even
+    # a bounded argument-injection is worth closing. (This is not shell
+    # injection — args are a list and shell=False — but a value like "--foo"
+    # still lands in argv as a flag-shaped token.)
+    _SAFE_ARG = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:@/-]*$")
+
+    @classmethod
+    def _check_arg(cls, value: str, what: str) -> str:
+        text = str(value)
+        if not cls._SAFE_ARG.match(text):
+            raise ValueError(f"Invalid {what}: {value!r}")
+        return text
 
     def _run_command(self, args: List[str], command_type: str = "tailnet") -> str:
         """
@@ -76,7 +107,7 @@ class IonscaleRepository:
         except subprocess.CalledProcessError as e:
             # Clean the error message to avoid leaking keys if they appear in stderr
             clean_error = e.stderr.replace(self.admin_key, "***")
-            raise RuntimeError(f"Ionscale CLI Error: {clean_error}")
+            raise IonscaleError(_cli_error_code(clean_error), f"Ionscale CLI Error: {clean_error}")
 
     def list_tailnets(self) -> List[Tailnet]:
         """
@@ -97,7 +128,9 @@ class IonscaleRepository:
         """
         Runs `ionscale machines get --machine-id <machine_id>` and parses the output.
         """
-        output = self._run_command(["machines", "get", "--machine-id", machine_id])
+        output = self._run_command(
+            ["machines", "get", "--machine-id", self._check_arg(machine_id, "machine id")]
+        )
         return self._parse_machine_detail_output(output)
 
     def create_tailnet(self, tailnet_input: TailnetCreate) -> Tailnet:
@@ -105,7 +138,12 @@ class IonscaleRepository:
         Runs `ionscale tailnet create` and returns the created object.
         """
         # Ionscale create usually returns "Tailnet created: {id}" or similar
-        self._run_command(["tailnet", "create", "--name", tailnet_input.name])
+        args = ["tailnet", "create", "--name", tailnet_input.name]
+        if tailnet_input.organization:
+            # Create-time only: ionscale has no RPC that rebinds an existing
+            # tailnet, so getting this wrong means a manual DB fix.
+            args += ["--org", self._check_arg(tailnet_input.organization, "organization")]
+        self._run_command(args)
 
         # Since create command output might be sparse, we fetch the specific tailnet
         # to return a full object. This is a "read-your-writes" pattern.
@@ -117,6 +155,29 @@ class IonscaleRepository:
             name=tailnet_input.name,
             dns_name=f"{tailnet_input.name}.{self.server_url.split('://')[1]}",
         )
+
+    def set_dns_config(self, tailnet: str, config: DNSConfig) -> str:
+        """
+        Runs `ionscale tailnets set-dns` to (re)set the tailnet's DNS config.
+
+        set-dns replaces the entire config on each call (presence-based flags), so
+        the passed `config` must describe the full desired state — any options not
+        represented here are cleared on the server.
+        """
+        args = ["tailnets", "set-dns", "--tailnet", tailnet]
+
+        if config.magic_dns:
+            args.append("--magic-dns")
+        if config.https_certs:
+            args.append("--https-certs")
+        if config.override_local_dns:
+            args.append("--override-local-dns")
+        for ns in config.nameservers:
+            args.extend(["--nameserver", ns])
+        for domain in config.search_domains:
+            args.extend(["--search-domain", domain])
+
+        return self._run_command(args)
 
     def update_policy(self, tailnet: str, policy: Union[Dict[str, Any], str, Path]) -> str:
         """
@@ -210,36 +271,64 @@ class IonscaleRepository:
 
     def _parse_machine_list_output(self, cli_output: str) -> List[Machine]:
         """
-        Parses the ASCII table output from Ionscale into Pydantic models.
-        """
-        lines = cli_output.splitlines()
-        machines = []
+        Parses the aligned ASCII table from `ionscale machines list` into Machine models.
 
-        # Skip header line
+        The real column layout is (verified against ionscale 1.9x)::
+
+            ID  TAILNET  NAME  IPv4  IPv6  AUTHORIZED  EPHEMERAL  VERSION  LAST_SEEN  TAGS
+
+        i.e. NAME is the *third* column, not the second — a naive positional parse mis-assigns
+        the tailnet to `name` and the name to `ipv4`. We therefore map columns by their header
+        label and split on runs of 2+ spaces (LAST_SEEN is a human phrase like "a minute ago"
+        and TAGS may be empty, so single-space splitting is unreliable).
+        """
+        lines = [ln for ln in cli_output.splitlines() if ln.strip()]
         if not lines:
             return []
 
+        # Build header-label -> column-index from the first row.
+        header_cols = re.split(r"\s{2,}", lines[0].strip())
+        idx = {col.strip().lower(): i for i, col in enumerate(header_cols)}
+
+        def _col(parts: List[str], label: str) -> Optional[str]:
+            i = idx.get(label)
+            if i is None or i >= len(parts):
+                return None
+            value = parts[i].strip()
+            return value or None
+
+        machines: List[Machine] = []
         for line in lines[1:]:
-            parts = line.split()
-            if len(parts) >= 2:
-                m_id = parts[0]
-                name = parts[1]
-                
-                # Heuristic mapping
-                ipv4 = parts[2] if len(parts) > 2 else None
-                ipv6 = parts[3] if len(parts) > 3 else None
-                
-                connected = False
-                if "true" in line.lower():
-                    connected = True
-                    
-                machines.append(Machine(
-                    id=m_id, 
-                    name=name,
-                    ipv4=ipv4,
-                    ipv6=ipv6,
-                    connected=connected
-                ))
+            # NOTE: this assumes only *trailing* columns (TAGS) can be empty. If a middle
+            # column is ever blank (e.g. a machine with no IPv6 yet), the 2+-space split
+            # shifts later fields left. If that surfaces, switch to header char-offset slicing.
+            parts = re.split(r"\s{2,}", line.strip())
+            m_id = _col(parts, "id")
+            if not m_id:
+                continue
+
+            # `machines list` has no explicit online column; approximate "connected" from
+            # LAST_SEEN recency (ionscale prints "a minute ago" / "now" for live nodes).
+            last_seen = (_col(parts, "last_seen") or "").lower()
+            connected = any(token in last_seen for token in ("now", "second", "minute"))
+
+            tags_raw = _col(parts, "tags") or ""
+            tags = [t for t in re.split(r"[,\s]+", tags_raw) if t]
+
+            authorized_raw = _col(parts, "authorized")
+            authorized = authorized_raw.lower() == "true" if authorized_raw is not None else None
+
+            machines.append(Machine(
+                id=m_id,
+                name=_col(parts, "name") or "",
+                tailnet=_col(parts, "tailnet"),
+                ipv4=_col(parts, "ipv4"),
+                ipv6=_col(parts, "ipv6"),
+                ephemeral=(_col(parts, "ephemeral") or "false").lower() == "true",
+                connected=connected,
+                tags=tags,
+                authorized=authorized,
+            ))
 
         return machines
 
@@ -279,9 +368,12 @@ class IonscaleRepository:
             ephemeral=data.get("ephemeral", "false").lower() == "true",
             last_seen=None, # "a few seconds ago" is not easily parsable to datetime without logic
             os=data.get("os"),
-            key_expiry=None, # "in 6 months"
-            authorized=False, # Not explicitly in sample
-            is_external=False, # Not explicitly in sample
+            key_expiry=None, # "in 6 months" — not yet parsed to a datetime
+            authorized=None, # Not sourced from the CLI yet -> unknown, not a hard False
+            is_external=None, # Not sourced from the CLI yet -> unknown, not a hard False
+            # The MagicDNS name, if the CLI exposes it. Preferred over deriving it from
+            # name+suffix on the GraphQL layer. Key name varies, so probe a few likely labels.
+            fqdn=data.get("fqdn", data.get("dns_name", data.get("magic_dns_name"))),
         )
     
     def create_auth_key(self, tailnet: str, ephemeral: bool = False, pre_authorized: bool = True, tags: List[str] = None) -> str:
@@ -298,7 +390,7 @@ class IonscaleRepository:
             
         if tags:
             for tag in tags:
-                args.extend(["--tag", tag])
+                args.extend(["--tag", self._check_arg(tag, "tag")])
 
         output = self._run_command(args, command_type="auth-keys")
         
@@ -309,32 +401,132 @@ class IonscaleRepository:
             raise RuntimeError("Failed to parse auth key from output")
         
 
-    def run(self, *preargs) -> str:
+    def get_policy(self, tailnet: str) -> Dict[str, Any]:
+        """Runs `ionscale tailnets get-iam-policy` and returns the parsed policy.
+
+        The CLI already emits plain JSON here, no flag needed. Used to preserve
+        the parts of the policy lok does not own (see manager.sync).
         """
-        Runs arbitrary ionscale CLI commands.
+        output = self._run_command(
+            ["tailnets", "get-iam-policy", "--tailnet", self._check_arg(tailnet, "tailnet")]
+        )
+        if not output.strip():
+            return {}
+        try:
+            return json.loads(output)
+        except json.JSONDecodeError as exc:
+            raise RuntimeError(f"Could not parse IAM policy: {exc}")
+
+    def get_tailnet_lock_status(self, tailnet: str) -> TailnetLockStatus:
+        """Runs `ionscale tailnets tailnet-lock-status --json`.
+
+        Uses the CLI's JSON output rather than its table: this status drives a
+        UI, and the table parsers elsewhere in this file are brittle enough
+        without adding another.
         """
-        output = self._run_command(list(preargs), command_type="")
-        return output
-    
-    def help(self, *preargs) -> str:
-        """
-        Returns the help text of the ionscale CLI.
-        """
-        output = self._run_command(list(preargs) + ["--help"], command_type="")
-        return output
+        output = self._run_command(
+            ["tailnets", "tailnet-lock-status", "--tailnet", self._check_arg(tailnet, "tailnet"), "--json"]
+        )
+        try:
+            data = json.loads(output)
+        except json.JSONDecodeError as exc:
+            raise RuntimeError(f"Could not parse tailnet lock status: {exc}")
+
+        return TailnetLockStatus(
+            capability_enabled=bool(data.get("capability_enabled", False)),
+            authority_active=bool(data.get("authority_active", False)),
+            authority_disabled=bool(data.get("authority_disabled", False)),
+            head=data.get("head") or "",
+            nodes=[
+                NodeLockState(
+                    machine_id=str(n.get("machine_id", "")),
+                    name=n.get("name") or "",
+                    signed=bool(n.get("signed", False)),
+                )
+                for n in (data.get("nodes") or [])
+            ],
+        )
+
+    def enable_tailnet_lock(self, tailnet: str) -> None:
+        """Grants the tailnet-lock capability. Does NOT create a key authority --
+        only `tailscale lock init` on a client can do that."""
+        self._run_command(
+            ["tailnets", "enable-tailnet-lock", "--tailnet", self._check_arg(tailnet, "tailnet")]
+        )
+
+    def disable_tailnet_lock(self, tailnet: str) -> None:
+        """Revokes the capability. ionscale refuses this while a key authority is
+        active, surfacing as a RuntimeError from the CLI."""
+        self._run_command(
+            ["tailnets", "disable-tailnet-lock", "--tailnet", self._check_arg(tailnet, "tailnet")]
+        )
+
+    def get_tailnet_by_organization(self, organization: str) -> Optional[Tailnet]:
+        # `tailnets list` has no organization column; the HTTP repository is
+        # needed for a reliable lookup.
+        raise IonscaleError("unimplemented", "get_tailnet_by_organization requires ionscale.service_token")
+
+    def update_tailnet(self, tailnet: str, *, name: Optional[str] = None, **flags: bool) -> Tailnet:
+        raise IonscaleError("unimplemented", "update_tailnet requires ionscale.service_token")
+
+    def delete_tailnet(self, tailnet: str, force: bool = False) -> None:
+        args = ["tailnets", "delete", "--tailnet", self._check_arg(tailnet, "tailnet")]
+        if force:
+            args.append("--force")
+        self._run_command(args)
+
+    def list_users(self, tailnet: str) -> List[TailnetUser]:
+        raise IonscaleError("unimplemented", "list_users requires ionscale.service_token")
+
+    def revoke_account(self, external_id: str, organization: Optional[str] = None) -> List[str]:
+        args = ["users", "revoke-account", "--external-id", self._check_arg(external_id, "external id")]
+        if organization:
+            args += ["--org", self._check_arg(organization, "organization")]
+        try:
+            self._run_command(args)
+        except IonscaleError as exc:
+            if exc.code == "not_found":
+                return []
+            raise
+        return []
+
+
+def _cli_error_code(stderr: str) -> str:
+    """Best-effort mapping of connect error text as printed by the CLI."""
+    text = stderr.lower()
+    for code in ("not_found", "already_exists", "permission_denied", "unauthenticated",
+                 "invalid_argument", "failed_precondition", "unavailable", "unimplemented"):
+        if code in text:
+            return code
+    return "unknown"
 
 
 def _build_default_repo() -> IonscaleRepo:
     """Construct the repository configured for the current environment.
 
-    Pluggable via the ``IONSCALE_REPOSITORY`` setting: set it to the dotted path
-    of a zero-argument factory (or class) that returns an :class:`IonscaleRepo`
-    — e.g. ``"ionscale.testing.FakeIonscaleRepository"`` in tests. When unset, the
-    real CLI-backed :class:`IonscaleRepository` is built from the IONSCALE_* settings.
+    Resolution order:
+
+    1. ``IONSCALE_REPOSITORY`` -- dotted path of a zero-argument factory (or
+       class) returning an :class:`IonscaleRepo`, e.g.
+       ``"ionscale.testing.FakeIonscaleRepository"`` in tests.
+    2. ``IONSCALE_SERVICE_TOKEN`` -- the connect+JSON
+       :class:`~ionscale.http_repo.IonscaleHttpRepository` (no binary needed).
+    3. ``IONSCALE_ADMIN_KEY`` -- the legacy CLI-backed :class:`IonscaleRepository`.
     """
     dotted = getattr(settings, "IONSCALE_REPOSITORY", None)
     if dotted:
         return import_string(dotted)()
+    if getattr(settings, "IONSCALE_SERVICE_TOKEN", None):
+        from .http_repo import IonscaleHttpRepository
+
+        return IonscaleHttpRepository(
+            server_url=settings.IONSCALE_SERVER_URL,
+            service_token=settings.IONSCALE_SERVICE_TOKEN,
+            timeout=getattr(settings, "IONSCALE_TIMEOUT", 10.0),
+            verify=getattr(settings, "IONSCALE_VERIFY_TLS", True),
+        )
+    if not getattr(settings, "IONSCALE_ADMIN_KEY", None):
+        raise ValueError("ionscale is configured without a service_token or admin_key")
     return IonscaleRepository(
         server_url=settings.IONSCALE_SERVER_URL,
         admin_key=settings.IONSCALE_ADMIN_KEY,
@@ -347,9 +539,8 @@ _repo: Optional[IonscaleRepo] = None
 def get_ionscale_repo() -> IonscaleRepo:
     """Return the active ionscale repository, building it lazily on first use.
 
-    Lazy construction means importing this module never requires the ``ionscale``
-    binary (or any live config) — it is only needed when an ionscale operation
-    actually runs. Call this at use-time rather than importing a module-level
+    Lazy construction means importing this module never requires live config —
+    it is only needed when an ionscale operation actually runs. Call this at use-time rather than importing a module-level
     instance, so a repository swapped in via :func:`set_ionscale_repo` is seen by
     every consumer.
     """

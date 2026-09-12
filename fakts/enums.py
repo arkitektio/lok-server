@@ -20,17 +20,30 @@ class AliasKindChoices(TextChoices):
 
 
 class ClientKindChoices(TextChoices):
-    """Event Type for the Event Operator"""
+    """What kind of principal a (unified) Client row is."""
 
     WEBSITE = "website", "WEBSITE (Value represent WEBSITE)"
     DEVELOPMENT = "development", "DEVELOPMENT (Value represent DEVELOPMENT)"
-    DESKTOP = "desktop", "DESKTOP (Value represent DESKTOP Aüü)"
+    DESKTOP = "desktop", "DESKTOP (Value represent DESKTOP)"
+    MOBILE = "mobile", "MOBILE (Value represent MOBILE)"
+    HUB = "hub", "HUB (a hub server's identity)"
+    RELYING_PARTY = "relying_party", "RELYING_PARTY (a config-provisioned OIDC relying party)"
 
 
 class ClientKindVanilla(str, Enum):
     WEBSITE = "website"
     DEVELOPMENT = "development"
     DESKTOP = "desktop"
+    MOBILE = "mobile"
+    HUB = "hub"
+    RELYING_PARTY = "relying_party"
+
+
+class DeviceCodeKindChoices(TextChoices):
+    """What a staged device-code authorization produces on accept."""
+
+    APP = "app", "APP (an app/client registration)"
+    HUB = "hub", "HUB (a whole-hub provisioning)"
 
 
 class ClientRoleChoices(TextChoices):
@@ -82,26 +95,24 @@ class ClientKind(str, Enum):
         "desktop",
         description="""A desktop client. Desktop clients need to undergo an authentication flow, where the user is redirect back to the application. They use redirect but only on loopback adapters.""",
     )
+    MOBILE = strawberry.enum_value(
+        "mobile",
+        description="""A mobile client. Mobile clients (iOS/Android apps) are public clients that need to undergo an authentication flow, where the user is redirected back to the application through a custom URL scheme or an app link, secured with PKCE.""",
+    )
+    HUB = strawberry.enum_value(
+        "hub",
+        description="A hub server's own identity: the client a hub authenticates as to claim its configuration and report. Never bound to an app release.",
+    )
+    RELYING_PARTY = strawberry.enum_value(
+        "relying_party",
+        description="A confidential OIDC relying party provisioned from config (ensureopenid). Global — belongs to no organization.",
+    )
 
 
 @strawberry.enum
 class InstancePermissionKind(str, Enum):
     ALLOW = "allow"
     DENY = "deny"
-
-
-class FaktsGrantKindChoices(TextChoices):
-    """Event Type for the Event Operator"""
-
-    RETRIEVE = "retrieve", "RETRIEVE (Value represent RETRIEVE)"
-    DEVICE_CODE = "device_code", "DEVICE_CODE (Value represent DEVICE_CODE)"
-
-
-@strawberry.enum
-class FaktsGrantKind(str, Enum):
-    RETRIEVE = "retrieve"
-    DEVICE_CODE = "device_code"
-
 
 
 @strawberry.enum

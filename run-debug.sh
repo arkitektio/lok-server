@@ -23,7 +23,7 @@ python manage.py ensurememberships
 echo "=> Ensuring Token..."
 python manage.py ensuretokens
 
-export AUTHLIB_INSECURE_TRANSPORT=1
+export DJANGO__ALLOW_INSECURE_TRANSPORT=true
 # Start the first process
 echo "=> Starting Server"
 python manage.py runserver 0.0.0.0:80

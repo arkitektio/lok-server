@@ -1,8 +1,9 @@
-"""Rendering of fakts claims + requirement/instance resolution and composition.
+"""Rendering of fakts envelopes + requirement/instance resolution.
 
-These functions turn clients/compositions into the claim payloads handed back to
-apps, resolve which service instance satisfies a requirement, and (re)compose a
-client's service-instance mappings from its manifest.
+These functions turn clients/hubs into the payloads handed back to apps
+(alongside the OAuth2 token response — see ``authapp.fakts_grants``), resolve
+which service instance satisfies a requirement, and (re)compose a client's
+service-instance mappings from its manifest.
 """
 
 from typing import Dict
@@ -14,45 +15,44 @@ from django.http import HttpRequest
 from fakts import base_models, errors, models
 from fakts.base_models import (
     Alias,
-    AuthClaim,
-    ClaimAnswer,
-    CompositionAuthClaim,
-    CompositionClaimAnswer,
-    CompositionClientClaim,
-    CompositionInstanceClaim,
+    FaktsEnvelope,
+    HubAuthClaim,
+    HubClaimAnswer,
+    HubClientClaim,
+    HubInstanceClaim,
     InstanceClaim,
     SelfClaim,
 )
 from fakts.services.tokens import hash_requirements
 
 
-def render_server_fakts(composition: models.Composition, context: base_models.LinkingContext) -> CompositionClaimAnswer:
+def render_server_fakts(hub: models.Hub, context: base_models.ServerLinkingContext) -> HubClaimAnswer:
     self_claim = SelfClaim(
         deployment_name=context.deployment_name,
-        alias=Alias(id="self", host=context.request.host, port=context.request.port, is_secure=context.request.is_secure, path="lok", challenge="ht"),
+        alias=Alias(id="self", host=context.request.host, port=context.request.port, ssl=context.request.is_secure, path="lok", challenge="ht"),
     )
 
-    auth_claim = CompositionAuthClaim(
+    auth_claim = HubAuthClaim(
         jwks_url=f"{context.request.base_url}/.well-known/jwks.json",
-        ionscale_auth_key=composition.auth_key.key if composition.auth_key else None,
+        ionscale_auth_key=hub.auth_key.key if hub.auth_key else None,
         ionscale_coord_url=settings.IONSCALE_COORD_URL,
     )
 
-    instance_claims: Dict[str, CompositionInstanceClaim] = {}
-    client_claims: Dict[str, CompositionClientClaim] = {}
+    instance_claims: Dict[str, HubInstanceClaim] = {}
+    client_claims: Dict[str, HubClientClaim] = {}
 
-    for instance in composition.instances.all():
-        instance_claims[instance.token] = CompositionInstanceClaim(
+    for instance in hub.instances.all():
+        instance_claims[instance.token] = HubInstanceClaim(
             identifier=instance.token,
             private_key=instance.private_key,
         )
 
-    for client in composition.clients.all():
-        client_claims[client.token] = CompositionClientClaim(
-            token=client.token,
+    for client in hub.clients.all():
+        client_claims[client.client_id] = HubClientClaim(
+            client_id=client.client_id,
         )
 
-    claim = CompositionClaimAnswer(
+    claim = HubClaimAnswer(
         auth=auth_claim,
         self=self_claim,
         instances=instance_claims,
@@ -62,20 +62,15 @@ def render_server_fakts(composition: models.Composition, context: base_models.Li
     return claim
 
 
-# TODO: Rename to render_fakts
-def render_composition(client: models.Client, context: base_models.LinkingContext) -> dict:
+def render_envelope_from_context(client: models.Client, context: base_models.LinkingContext) -> dict:
+    """Render the fakts envelope (self + instances + statuses) for a client.
+
+    Auth material is *not* part of the envelope — it travels in the standard
+    OAuth2 token-response fields the envelope is appended to.
+    """
     self_claim = SelfClaim(
         deployment_name=context.deployment_name,
-        alias=Alias(id="self", host=context.request.host, port=context.request.port, is_secure=context.request.is_secure, path="lok", challenge="ht"),
-    )
-
-    auth_claim = AuthClaim(
-        client_id=client.oauth2_client.client_id,
-        client_secret=client.oauth2_client.client_secret,
-        scopes=client.scopes.values_list("identifier", flat=True),
-        client_token=client.token,
-        report_url=f"{context.request.base_url}/f/report/",
-        token_url=f"{context.request.base_url}/o/token/",
+        alias=Alias(id="self", host=context.request.host, port=context.request.port, ssl=context.request.is_secure, path="lok", challenge="ht"),
     )
 
     instances_map: Dict[str, InstanceClaim] = {}
@@ -86,21 +81,39 @@ def render_composition(client: models.Client, context: base_models.LinkingContex
         value = instance.render(context)
         instances_map[mapping.key] = value
 
-    claim = ClaimAnswer(
+    envelope = FaktsEnvelope(
         self=self_claim,
-        auth=auth_claim,
         instances=instances_map,
         statuses=client.statuses,
     )
 
-    return claim.model_dump()
+    return envelope.model_dump()
 
 
-def find_instance_for_requirement_and_composition(requirement: base_models.Requirement, user: models.AbstractUser, composition: models.Composition) -> models.ServiceInstance | None:
+def render_envelope(request: HttpRequest, client: models.Client) -> dict:
+    """Render the fakts envelope from an incoming HTTP request (the token
+    endpoint's). Aliases stay host-aware: relative aliases resolve against this
+    request's host, so every refresh re-renders them for where the client is
+    actually connecting from."""
+    context = create_linking_context(request, client)
+    return render_envelope_from_context(client, context)
+
+
+def render_hub_envelope(request: HttpRequest, hub: models.Hub) -> dict:
+    """Render a hub's config envelope for the token response (the hub-client
+    counterpart of :func:`render_envelope`): `self`, `auth` (jwks + ionscale),
+    `instances` (with private keys) and `clients` (by OAuth2 client_id). Hub
+    servers refresh hourly and pick up new instances/clients with each
+    re-render."""
+    context = create_serverlinking_context(request, hub)
+    return render_server_fakts(hub, context).model_dump()
+
+
+def find_instance_for_requirement_and_hub(requirement: base_models.Requirement, user: models.AbstractUser, hub: models.Hub) -> models.ServiceInstance | None:
     instance = (
         models.ServiceInstance.objects.filter(
             release__service__identifier=requirement.service,
-            composition=composition,
+            hub=hub,
         )
         .filter(
             models.Q(allowed_users__isnull=True)
@@ -131,10 +144,10 @@ def auto_compose(client: models.Client, manifest: base_models.Manifest, user: mo
             continue
 
         try:
-            instance = find_instance_for_requirement_and_composition(req, user, composition=client.composition)
+            instance = find_instance_for_requirement_and_hub(req, user, hub=client.hub)
 
             if instance is None:
-                raise errors.InstanceNotFound(f"No instance for {req.service} in this composition.")
+                raise errors.InstanceNotFound(f"No instance for {req.service} in this hub.")
 
             models.ServiceInstanceMapping.objects.get_or_create(
                 client=client,
@@ -156,7 +169,7 @@ def auto_compose(client: models.Client, manifest: base_models.Manifest, user: mo
     return client
 
 
-def create_linking_context(request: HttpRequest, client: models.Client, claim: base_models.ClaimRequest) -> base_models.LinkingContext:
+def create_linking_context(request: HttpRequest, client: models.Client) -> base_models.LinkingContext:
     host_string = request.get_host().split(":")
     if len(host_string) == 2:
         host = host_string[0]
@@ -174,24 +187,20 @@ def create_linking_context(request: HttpRequest, client: models.Client, claim: b
             base_url=base_url,
             is_secure=request.is_secure(),
         ),
-        secure=claim.secure,
+        secure=request.is_secure(),
         manifest=base_models.Manifest(
             identifier=client.release.app.identifier,
             version=client.release.version,
             scopes=client.release.scopes,
         ),
         client=base_models.LinkingClient(
-            client_id=client.oauth2_client.client_id,
-            client_secret=client.oauth2_client.client_secret,
-            client_type="confidential",
-            authorization_grant_type="client-credentials",
+            client_id=client.client_id,
             name=client.name,
-            redirect_uris=client.oauth2_client.redirect_uris.split(" "),
         ),
     )
 
 
-def create_serverlinking_context(request: HttpRequest, composition: models.Composition, claim: base_models.ServerClaimRequest) -> base_models.LinkingContext:
+def create_serverlinking_context(request: HttpRequest, hub: models.Hub, claim: base_models.ServerClaimRequest | None = None) -> base_models.ServerLinkingContext:
     host_string = request.get_host().split(":")
     if len(host_string) == 2:
         host = host_string[0]
@@ -227,10 +236,6 @@ def create_fake_linking_context(client: models.Client, host, port, secure=False)
         ),
         client=base_models.LinkingClient(
             client_id=client.client_id,
-            client_secret=client.client_secret,
-            client_type=client.oauth2_client.client_type,
-            authorization_grant_type=client.oauth2_client.authorization_grant_type,
-            name=client.oauth2_client.name,
-            redirect_uris=client.oauth2_client.redirect_uris.split(" "),
+            name=client.name,
         ),
     )

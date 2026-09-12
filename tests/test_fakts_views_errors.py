@@ -1,33 +1,55 @@
 """Unhappy-path HTTP tests for the Fakts protocol endpoints (fakts/views.py).
 
-Complements ``test_fakts_flows.py`` (which covers the happy paths) by exercising
-the error branches: malformed bodies, expired/denied device codes, logo-download
-failures, expired redeem tokens, rendering failures, and the claim/report error
-envelopes — with emphasis on the claim endpoints.
+Complements ``test_fakts_flows.py`` (which covers the happy paths of the
+canonical grant) by exercising the error branches: malformed bodies,
+expired/denied device codes at the token endpoint, logo-download failures, and
+the report endpoint's Bearer authentication.
 
-Note: malformed requests return **HTTP 200** with a ``{"status": "error"}`` body
-(``_parse`` builds a default-status ``JsonResponse``), so assertions are on the
-JSON body, not the status code — except the explicit 405 (wrong-method) case.
+Error contract: every fakts REST error is an HTTP 4xx/5xx carrying the
+structured envelope ``{"status": "error", "error": "<oauth code>",
+"error_description": "<text>", "details": [...]}`` — malformed/invalid bodies are
+``400 invalid_request``, unknown tokens/codes ``400 invalid_grant``, plus the
+explicit 405 (wrong-method) and the report endpoint's 401 cases. ``status`` and
+the legacy ``message`` key are kept for back-compat.
 """
 
 import json
+import time
 from datetime import timedelta
 
 import pytest
+from django.conf import settings
 from django.urls import reverse
 from django.utils import timezone
+from joserfc import jwt
+from joserfc.jwk import RSAKey
 
 from fakts import models
-from fakts.services import clients, device_codes, rendering
+from fakts.services import device_codes
 from tests import factories
 
+DEVICE_CODE_GRANT = "urn:ietf:params:oauth:grant-type:device_code"
 
-def _post(client, name, payload):
-    return client.post(reverse(name), data=json.dumps(payload), content_type="application/json")
+
+def _post(client, name, payload, **kw):
+    return client.post(reverse(name), data=json.dumps(payload), content_type="application/json", **kw)
 
 
 def _manifest(version="1.0.0", **extra):
     return {"identifier": "com.example.errors", "version": version, "scopes": [], "requirements": [], **extra}
+
+
+def _bearer_headers(fakts_client, exp_offset=60, **claim_overrides):
+    key = RSAKey.import_key(settings.PRIVATE_KEY)
+    claims = {
+        "client_id": fakts_client.client_id,
+        "exp": int(time.time()) + exp_offset,
+        "iss": settings.OIDC_ISSUER,
+        "aud": ["lok"],
+    }
+    claims.update(claim_overrides)
+    token = jwt.encode({"alg": "RS256"}, claims, key)
+    return {"Authorization": f"Bearer {token}"}
 
 
 # --------------------------------------------------------------------------- #
@@ -38,104 +60,85 @@ def _manifest(version="1.0.0", **extra):
 @pytest.mark.django_db
 def test_start_malformed_json_returns_error(client):
     # Body is not valid JSON -> json.loads raises -> malformed envelope (key "error").
-    resp = client.post(reverse("fakts:start"), data="{not json", content_type="application/json")
-    assert resp.status_code == 200
+    resp = client.post(reverse("app_authorization"), data="{not json", content_type="application/json")
+    assert resp.status_code == 400
     body = resp.json()
     assert body["status"] == "error"
-    assert body["error"].startswith("Malformed request")
+    assert body["error"] == "invalid_request"
+    assert body["error_description"].startswith("Malformed request")
 
 
 @pytest.mark.django_db
-def test_redeem_missing_manifest_returns_error(client):
-    # Valid JSON but missing the required ``manifest`` field -> pydantic validation
-    # fails inside _parse -> malformed envelope (key "error").
-    body = _post(client, "fakts:redeem", {"token": "whatever"}).json()
-    assert body["status"] == "error"
-    assert body["error"].startswith("Malformed request")
-
-
-@pytest.mark.django_db
-def test_claim_missing_token_uses_message_error_key(client):
-    # ClaimView passes error_key="message", so the malformed envelope uses "message".
-    body = _post(client, "fakts:claim", {"secure": False}).json()
-    assert body["status"] == "error"
-    assert body["message"].startswith("Malformed request")
+def test_start_invalid_body_returns_validation_details(client):
+    # Valid JSON but not a valid DeviceCodeStartRequest (manifest missing) ->
+    # 400 invalid_request with pydantic's error details.
+    resp = client.post(reverse("app_authorization"), data=json.dumps({"nope": 1}), content_type="application/json")
+    assert resp.status_code == 400
+    body = resp.json()
+    assert body["error"] == "invalid_request"
+    assert isinstance(body["details"], list) and body["details"]
+    assert all({"type", "loc", "msg"} >= set(d) for d in body["details"])
 
 
 @pytest.mark.django_db
 def test_get_on_post_only_view_returns_405(client):
-    resp = client.get(reverse("fakts:claim"))
+    resp = client.get(reverse("app_authorization"))
     assert resp.status_code == 405
 
 
 # --------------------------------------------------------------------------- #
-# Device-code challenge endpoints (_poll_device_code)
+# Device codes: expired codes at the token endpoint + purge
 # --------------------------------------------------------------------------- #
 
 
 @pytest.mark.django_db
-def test_challenge_expired_code_returns_expired_and_deletes(client):
+def test_expired_code_yields_expired_token_at_token_endpoint(client):
     device_code = factories.make_device_code(expires_at=timezone.now() - timedelta(seconds=1))
 
-    body = _post(client, "fakts:challenge", {"code": device_code.code}).json()
-
-    assert body["status"] == "expired"
-    assert not models.DeviceCode.objects.filter(code=device_code.code).exists()
-
-
-@pytest.mark.django_db
-def test_challenge_denied_code_returns_denied_and_deletes(client):
-    device_code = factories.make_device_code(denied=True)
-
-    body = _post(client, "fakts:challenge", {"code": device_code.code}).json()
-
-    assert body["status"] == "denied"
-    assert not models.DeviceCode.objects.filter(code=device_code.code).exists()
+    resp = client.post(
+        reverse("token"),
+        data={
+            "grant_type": DEVICE_CODE_GRANT,
+            "device_code": device_code.secret,
+            "client_id": device_code.client.client_id,
+        },
+        secure=True,
+    )
+    assert resp.status_code == 400
+    assert resp.json()["error"] == "expired_token"
 
 
 @pytest.mark.django_db
-def test_service_challenge_unknown_code_errors(client):
-    body = _post(client, "fakts:servicechallenge", {"code": "does-not-exist"}).json()
-    assert body["status"] == "error"
-    assert body["error"] == "Challenge does not exist"
+def test_purge_reaps_expired_unapproved_codes_and_their_clients(client):
 
+    device_code = factories.make_device_code(expires_at=timezone.now() - timedelta(seconds=1))
+    orphan_client_id = device_code.client.client_id
 
-@pytest.mark.django_db
-def test_composition_challenge_unknown_code_errors(client):
-    body = _post(client, "fakts:compositionchallenge", {"code": "does-not-exist"}).json()
-    assert body["status"] == "error"
-    assert body["error"] == "Challenge does not exist"
+    purged = device_codes.purge_expired_device_codes()
+
+    assert purged == 1
+    assert not models.DeviceCode.objects.filter(pk=device_code.pk).exists()
+    assert not models.Client.objects.filter(client_id=orphan_client_id).exists()
 
 
 # --------------------------------------------------------------------------- #
-# Service / Composition start (currently untested) + their challenge routes
+# Hub authorization (RFC 8628 shaped, /o/hub-authorization/)
 # --------------------------------------------------------------------------- #
 
 
 @pytest.mark.django_db
-def test_service_start_returns_code_and_challenge(client):
+def test_hub_authorization_registers_a_public_client(client):
     body = _post(
         client,
-        "fakts:servicestart",
-        {"manifest": {"identifier": "com.example.svc", "version": "1.0.0"}},
+        "hub_authorization",
+        {"hub": {"identifier": "com.example.comp"}},
     ).json()
     assert body["status"] == "granted"
-    assert body["code"]
-    assert body["challenge"]
-    assert models.ServiceDeviceCode.objects.filter(challenge_code=body["challenge"]).exists()
-
-
-@pytest.mark.django_db
-def test_composition_start_returns_code_and_challenge(client):
-    body = _post(
-        client,
-        "fakts:compositionstart",
-        {"composition": {"identifier": "com.example.comp"}},
-    ).json()
-    assert body["status"] == "granted"
-    assert body["code"]
-    assert body["challenge"]
-    assert models.CompositionDeviceCode.objects.filter(challenge_code=body["challenge"]).exists()
+    assert body["device_code"] != body["user_code"]
+    assert body["token_endpoint"].endswith("/o/token/")
+    hub_code = models.DeviceCode.objects.get(secret=body["device_code"])
+    assert hub_code.client.client_id == body["client_id"]
+    assert hub_code.client.token_endpoint_auth_method == "none"
 
 
 # --------------------------------------------------------------------------- #
@@ -152,104 +155,69 @@ def test_start_logo_download_failure_returns_error(client, monkeypatch):
     # LogoDownloadError into the "Error downloading logo" envelope.
     monkeypatch.setattr(device_codes, "download_logo", _boom)
 
-    body = _post(
+    resp = _post(
         client,
-        "fakts:start",
+        "app_authorization",
         {"manifest": _manifest(logo="https://example.com/logo.png")},
-    ).json()
+    )
+    body = resp.json()
 
+    assert resp.status_code == 400
     assert body["status"] == "error"
-    assert body["error"] == "Error downloading logo"
+    assert body["error"] == "invalid_request"
+    assert body["error_description"] == "Error downloading logo"
 
 
 # --------------------------------------------------------------------------- #
-# Retrieve
+# Hub claim
 # --------------------------------------------------------------------------- #
 
 
 @pytest.mark.django_db
-def test_retrieve_unknown_app_errors(client):
-    body = _post(
-        client,
-        "fakts:retrieve",
-        {"manifest": {"identifier": "com.example.nope", "version": "1.0.0", "scopes": []}},
-    ).json()
+def test_claim_hub_unknown_token_errors(client):
+    # An unknown hub token is an ``invalid_grant`` (400), distinct from the
+    # generic ``server_error`` (500) "Error creating configuration" fallthrough.
+    resp = _post(client, "fakts:hubclaim", {"token": "missing"})
+    body = resp.json()
+    assert resp.status_code == 400
     assert body["status"] == "error"
-    assert body["message"].startswith("App does not exist") or body["message"].startswith("Release does not exist")
+    assert body["error"] == "invalid_grant"
+    assert body["error_description"] == "No Hub found for this token"
+    # legacy key kept for older hub clients
+    assert body["message"] == "No Hub found for this token"
 
 
 # --------------------------------------------------------------------------- #
-# Redeem
+# Report (Bearer authenticated)
 # --------------------------------------------------------------------------- #
 
 
 @pytest.mark.django_db
-def test_redeem_expired_token_returns_error_and_deletes(client):
-    redeem = factories.make_redeem_token(expires_at=timezone.now() - timedelta(seconds=1))
-
-    body = _post(client, "fakts:redeem", {"token": redeem.token, "manifest": _manifest()}).json()
-
-    assert body["status"] == "error"
-    assert body["message"] == "Redeem token expired"
-    # The expired token is deleted; redeem_token() removes it outside the atomic
-    # block so the deletion commits rather than being rolled back by the raise.
-    assert not models.RedeemToken.objects.filter(pk=redeem.pk).exists()
+def test_report_without_bearer_token_is_401(client):
+    resp = _post(client, "fakts:report", {"functional": False, "alias_reports": {}})
+    assert resp.status_code == 401
 
 
 @pytest.mark.django_db
-def test_redeem_generic_exception_returns_error(client, monkeypatch):
-    def _boom(*args, **kwargs):
-        raise ValueError("kaboom")
-
-    # The view's catch-all ``except Exception`` surfaces the message verbatim.
-    monkeypatch.setattr(clients, "redeem_token", _boom)
-
-    body = _post(client, "fakts:redeem", {"token": "anything", "manifest": _manifest()}).json()
-
-    assert body["status"] == "error"
-    assert body["message"] == "kaboom"
-
-
-# --------------------------------------------------------------------------- #
-# Claim (emphasis)
-# --------------------------------------------------------------------------- #
-
-
-@pytest.mark.django_db
-def test_claim_rendering_failure_returns_error(client, monkeypatch):
+def test_report_with_expired_bearer_token_is_401(client):
     fakts_client = factories.make_client()
-
-    def _boom(*args, **kwargs):
-        raise RuntimeError("render exploded")
-
-    monkeypatch.setattr(rendering, "render_composition", _boom)
-
-    body = _post(client, "fakts:claim", {"token": fakts_client.token, "secure": False}).json()
-
-    assert body["status"] == "error"
-    assert body["message"] == "Error creating configuration"
+    resp = _post(
+        client,
+        "fakts:report",
+        {"functional": False, "alias_reports": {}},
+        headers=_bearer_headers(fakts_client, exp_offset=-60),
+    )
+    assert resp.status_code == 401
 
 
 @pytest.mark.django_db
-def test_claim_composition_unknown_token_errors(client):
-    # The view looks up a ``Composition`` and catches ``Composition.DoesNotExist``,
-    # returning the dedicated not-found envelope rather than the generic
-    # "Error creating configuration" fallthrough.
-    body = _post(client, "fakts:compositionclaim", {"token": "missing"}).json()
-    assert body["status"] == "error"
-    assert body["message"] == "No Composition found for this token"
+def test_report_with_unknown_client_id_is_401(client):
+    fakts_client = factories.make_client()
+    headers = _bearer_headers(fakts_client)
+    fakts_client.delete()  # cascades onto the fakts client
 
-
-# --------------------------------------------------------------------------- #
-# Report
-# --------------------------------------------------------------------------- #
-
-
-@pytest.mark.django_db
-def test_report_unknown_token_errors(client):
-    body = _post(client, "fakts:report", {"token": "missing"}).json()
-    assert body["status"] == "error"
-    assert body["message"] == "No Client found for this token"
+    resp = _post(client, "fakts:report", {"functional": False, "alias_reports": {}}, headers=headers)
+    assert resp.status_code == 401
 
 
 @pytest.mark.django_db
@@ -260,7 +228,8 @@ def test_report_updates_functional_flag(client):
     body = _post(
         client,
         "fakts:report",
-        {"token": fakts_client.token, "functional": False, "alias_reports": {}},
+        {"functional": False, "alias_reports": {}},
+        headers=_bearer_headers(fakts_client),
     ).json()
 
     assert body["status"] == "reported"

@@ -1,5 +1,5 @@
 import strawberry_django
-from komment import models, scalars, enums
+from komment import models, scalars, enums, filters
 import strawberry
 from typing import Optional
 from typing import Annotated, Literal, Union
@@ -7,6 +7,8 @@ import datetime
 from strawberry.experimental import pydantic
 from pydantic import BaseModel, Field
 from karakter import types
+from karakter.authz import get_user
+from django.db.models import Q
 from kante.types import Info
 import json
 
@@ -103,7 +105,7 @@ class Serializer(BaseModel):
     )
 
 
-@strawberry_django.type(models.Comment)
+@strawberry_django.type(models.Comment, ordering=filters.CommentOrdering)
 class Comment:
     id: strawberry.ID
     object: str
@@ -119,9 +121,18 @@ class Comment:
 
     @strawberry_django.field
     def descendants(self, info: Info) -> list[Descendant]:
-        print("Descendants:", self.descendants)
-        return Serializer(inside=self.descendants).inside if self.descendants else None
+        return Serializer(inside=self.descendants).inside if self.descendants else []
 
     @strawberry.field
     def resolved(self, info: Info) -> bool:
         return self.resolved_by is not None
+
+    @classmethod
+    def get_queryset(cls, queryset, info: Info, **kwargs):
+        """Comments are visible to their author and to the users they mention.
+
+        Without this the root `comments` list (and `comment(id:)`) returned every
+        user's comments across every tenant.
+        """
+        user = get_user(info)
+        return queryset.filter(Q(user=user) | Q(mentions=user)).distinct()

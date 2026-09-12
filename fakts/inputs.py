@@ -38,16 +38,48 @@ class PublicSourceInput:
 class ManifestInput:
     identifier: str
     version: str
+    title: Optional[str] = None
+    description: Optional[str] = None
     logo: Optional[str] = None
     scopes: list[str]
     node_id: Optional[str] = None
     requirements: list[RequirementInput] = Field(default_factory=list)
+    authors: list[str] = Field(default_factory=list)
+    keywords: list[str] = Field(default_factory=list)
+    license: Optional[str] = None
+    homepage: Optional[str] = None
+    repo_url: Optional[str] = None
     public_sources: list[PublicSourceInput] | None = None
+
+
+class RedeemTokenInputModel(BaseModel):
+    manifest: Manifest
+    token: Optional[str] = None
+    expires_in_days: Optional[int] = None
+    max_redemptions: Optional[int] = None
+
+
+@pydantic.input(RedeemTokenInputModel)
+class RedeemTokenInput:
+    """Input for minting a redeem token on the caller's hub.
+
+    A token minted here is always *pre-authorized*: ``manifest`` is required and the
+    token may then only be redeemed by an app presenting that identifier/version/
+    node_id, requesting no more than those scopes and requirements. ``expires_in_days``
+    defaults to 7 and is capped at 30; ``max_redemptions`` is unlimited when omitted (a
+    redeem with the same manifest returns the same client, so a restarting container
+    may redeem more than once).
+    """
+
+    manifest: ManifestInput
+    token: Optional[str] = None
+    expires_in_days: Optional[int] = None
+    max_redemptions: Optional[int] = None
 
 
 class DevelopmentClientInputModel(BaseModel):
     manifest: Manifest
-    composition: str | None = None
+    hub: str | None = None
     requirements: list[RequirementModel] = Field(default_factory=list)
     layers: list[str] = Field(default_factory=lambda: ["web"])
     role: enums.ClientRoleVanilla | None = None
@@ -56,7 +88,7 @@ class DevelopmentClientInputModel(BaseModel):
 @pydantic.input(DevelopmentClientInputModel)
 class DevelopmentClientInput:
     manifest: ManifestInput
-    composition: strawberry.ID | None = None
+    hub: strawberry.ID | None = None
     layers: list[str] | None = None
     role: enums.ClientRole | None = None
 
@@ -85,7 +117,7 @@ class LinkingContextInput:
 
 class RenderInputModel(BaseModel):
     client: str
-    composition: str | None = None
+    hub: str | None = None
     request: LinkingRequest | None = None
     manifest: Manifest | None = None
 
@@ -93,7 +125,7 @@ class RenderInputModel(BaseModel):
 @pydantic.input(RenderInputModel)
 class RenderInput:
     client: strawberry.ID
-    composition: strawberry.ID | None = None
+    hub: strawberry.ID | None = None
     request: LinkingRequestInput | None = None
     manifest: ManifestInput | None = None
 

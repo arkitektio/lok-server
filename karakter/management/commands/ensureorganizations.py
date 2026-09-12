@@ -42,6 +42,12 @@ class Command(BaseCommand):
                 org_created = True
                 self.stdout.write(self.style.SUCCESS(f"Created org {org.slug}"))
 
+            # Ensure the ionscale mesh (enabled by default per organization).
+            # Idempotent + guarded: a no-op when ionscale isn't configured.
+            from ionscale.manager import ensure_org_mesh
+
+            ensure_org_mesh(org)
+
             # Apply auto-configure kommunity partners for new organizations
             if org_config.auto_configure:
                 auto_configure_kommunity_partners(organization=org)

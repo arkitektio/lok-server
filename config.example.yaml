@@ -1,0 +1,169 @@
+# Example lok configuration.
+#
+# Copy to `config.yaml` and replace every REPLACE-ME. `config.yaml` is
+# deliberately untracked and excluded from the Docker image: it previously
+# shipped a real OIDC signing key and SECRET_KEY, which meant anyone with the
+# repo could forge a token for any user of any deployment that booted without
+# mounting its own config.
+#
+# Generate the signing keypair with:
+#   openssl genrsa -out lok.pem 2048
+#   ssh-keygen -y -f lok.pem          # the matching ssh-rsa public key
+#
+deployment:
+  name: default
+  # URL the fakts well-known advertises as its `configure` endpoint. `{code}` is
+  # substituted by the client. Absolute (with scheme or a bare host) is used as-is;
+  # a `/`-relative path resolves against the deployment's base domain. The
+  # well-known always advertises the resolved absolute URL.
+  configure_url: go.arkitekt.live/configure/{code}
+django:
+  admin:
+    email: admin@admin.com
+    password: REPLACE-ME
+    username: admin
+  debug: false
+  hosts:
+  - "*"
+  secret_key: REPLACE-ME-WITH-A-RANDOM-64-HEX-STRING
+  csrf_trusted_origins:
+  - http://localhost
+  - https://localhost
+  force_script_name: lok
+  language_code: en-us
+  time_zone: UTC
+  log_level: INFO
+  secure_proxy_ssl_header: true
+lok:
+  public_key: ssh-rsa REPLACE-ME-MATCHING-PUBLIC-KEY
+private_key: "-----BEGIN RSA PRIVATE KEY-----
+MIIEowIBAAKCAQEAsQIJvonrQaRCzNj+uQ+uiavPia/B7Nfi1guMwkTkAXUM1LyW
+jQ6LfkWO8hyDHJWzH3oho8zQ5G1rjW8nHbnrKvNn4FT09rOuRYzxN65LCf5yvnRg
+MfLc7pKGgEBOjLfyMQRTWmKqrVCo4ZA+WXehdlXnoRq6u+uo0agSrJypwxL9dzmA
+KDDpbLLJ07JsZ+tf2kH7pOYSMaJUXuALKbBszPPDn8FZTO66DQWQ5+eHrzClj/in
+Q8o0A0VWWzAq8NeTQRFXI1yE83NsXN5jYkYrrOiQ0a93ZsBqJbZxWawum/Ur0JPO
+FlQqc3mPeg+Y7LXpuPfNbCHkGUzJPRLm2AegjQIDAQABAoIBADdKMq8At6qGW5NP
+CKnXuyYns6kHbGTFvoYrj2kzSaEm5b4htkkTTQFBSvhXbaDlJdFkPdPDa1Ce2SSR
+nr9LTqjY5Q6OmwHgeEQjVUmWOLxDbaYOBeo0OUyQGlE/RQnxf0ZOWpb2EOgYNNhY
+TRF3K8kh5jtNdRyz7MSoYkTmnqRe6igymA0XZ2jfeaT5bSXFlGz8zTssATW4pxty
+egM6sU0htG+zb/e+iJij92yaKOZWKrCEyKo3hnTtuRzU/WDJZQhtIUooHHaAVsZw
+xccX4HtXUmctyMX7u603FEvZGP2i6TKUplvU0OjiOd2kLNS1StwsARx4qXU9DkQN
+j0mbuSUCgYEA2S9DuW4NxDcTN8NTK5JL2HPKn1npUAgZW07cXxvDNKlF6a1idRio
+2BtZvMS59MTuDw1WqlYmX46qhu0BE/LPpEB1g3WbWsCxNG3mgP7T6jmHAMMLcpTb
+MZ6BtfvK3UKHXD3aHjkwOOojOufx4IWGlSqF3AeayD5M9oYlS8QpU9sCgYEA0KSX
+ZOm9ccO/7aYJdssPNohacfC1DBK6C+6eC/NBj+4eNMTjx2oNh1CEsrpmUUrjpViC
+IltyxmGRsXkJlUz0vWuaitfX0Sn7dxbHaQlsbvSaVA/jj1I4b8cv6TARTandkxPy
+UAc4HjwgaOgHQSok3lx2WpU9UJRzCtzlorD8vbcCgYEAxrxrWokMa9qB6WsA9kP+
+x2jdpwedabCfk2AMY7OB4vRqlzQjfkc8adRNP2E9UG/L71YjUedXYeWowaKqc9ii
+jQi2/75klJzzCqjuXmfQ/un5UYcpOIZiNXt38lEgB2vTdWLb7wAh0lLePg701KEa
+z/CDYR5MUqQ/xO5nvncX4jUCgYAKKxtdxa5/7uRZtq/bZEYXiEmwJ+UK85axoi19
+s5tMYnSCad4YB+kk4R22gDMgXx/9HPUqq35KgNLS7W00I44B9U6Q2bgg74Tb5vZM
+/jKUrcMfua6De6RYfkKtgLQ3LsInut8iW1e20YNa2YQQ/vbRB3yVKZTVaoa4zs86
+QJnwvQKBgHdmIMdExd6pWT9z0OQG/7UX4+80sW3A7Po26L+tRrZJpynFcbCwS3bo
+3etAGSHZo01lxHIArtcaPwT4Z5zzNZujEvJ75zuIjNBvKF3V2YtQRjNygCwUUkYB
+boAf1Rqpjy5XjTTVtmohUsr/X3UHYw2aYJPG9jsPoEwDyYOmAEc1
+-----END RSA PRIVATE KEY-----
+"
+redeem_tokens:
+- token: example-redeem-token
+  user: demo
+  organization: demo
+redis:
+  dependency: redis
+  host: redis
+  port: 6379
+  channel_prefix: lok
+
+organizations:
+- name: Default
+  identifier: default
+
+users:
+- name: Demo User
+  username: demo
+  password: REPLACE-ME
+  # An email lets the demo user also log in under the email world
+  # (login_methods: [email]); it is provisioned as verified + primary.
+  email: demo@example.com
+  active_organization: default
+  memberships:
+  - organization: default
+    roles: ["admin"]
+
+authentikate:
+  # "*" is authentikate's ANY_AUDIENCE: the `aud` claim stays required, but it is
+  # not matched against a single service name — so lok accepts the tokens it mints
+  # for individual service instances as well as those addressed to "lok" itself.
+  audience: "*"
+  issuers:
+  - kind: rsa
+    iss: lok
+    kid: lok-key-1
+    public_key: ssh-rsa REPLACE-ME-MATCHING-PUBLIC-KEY
+  static_tokens: {}
+postgres:
+  db_name: lok
+  dependency: db
+  engine: django.db.backends.postgresql
+  host: db
+  password: REPLACE-ME
+  port: 5432
+  username: flakyvioletcaterpillar
+datalayer:
+  access_key: REPLACE-ME
+  secret_key: REPLACE-ME
+  host: minio
+  port: 9000
+  protocol: http
+  default_acl: private
+  querystring_expire: 3600
+  file_overwrite: false
+  # secure: leave unset to derive TLS from `protocol`, or set true/false explicitly.
+  media:
+    bucket: sleazy-tan-seahorse
+
+# Base URL of the kontrol SPA. All account email links (verify-email, password
+# reset, signup) and invite/organization redirects derive from it. Set to your
+# frontend origin per deployment, e.g. https://go.arkitekt.live. The default '/'
+# keeps links same-origin for local/dev.
+# kontrol_frontend_url: "https://go.arkitekt.live"
+
+account:
+  email_verification: none
+  # Identifier(s) users log in with. Default is username login.
+  # To enable login via email with verification, set:
+  #   login_methods: [email]
+  #   email_verification: mandatory   # requires the `email:` SMTP block below
+  # signup_fields is derived from login_methods when omitted.
+  login_methods: [username]
+  login_by_code_enabled: true
+  mfa_trust_enabled: true
+  # SPA URLs allauth points users at ({key} is filled in by allauth) default to
+  # relative paths joined to `kontrol_frontend_url` (see below), so you normally
+  # only set that one base URL. Override an individual flow here only if it must
+  # live on a different host — an absolute value (with scheme) is used verbatim:
+  #   headless_frontend_urls:
+  #     account_confirm_email: https://other-host/account/verify-email/{key}
+  # NOTE: the `saml` app imports `onelogin.saml2` at module scope, so it only
+  # works with the `saml` extra installed (see pyproject.toml). It is listed
+  # here — not just in the deployment config — because settings_test.py reads
+  # this file, and without it `reverse("saml_metadata")` raises NoReverseMatch
+  # in every SAML test.
+  social_provider_apps:
+  - allauth.socialaccount.providers.orcid
+  - allauth.socialaccount.providers.google
+  - allauth.socialaccount.providers.saml
+
+# Policy for integrated login widgets that load third-party scripts and can track
+# before a click (e.g. Google One Tap). strict = never load; opt-in = consent
+# prompt first (default); disabled = load freely. Redirect buttons are unaffected.
+privacy_guards: opt-in
+
+# OIDC/OAuth2 clients provisioned on boot. Provide the client(s), secret(s) and
+# redirect_uris per deployment (see the `ensureopenid` command).
+openid_apps:
+- client_name: Lok Frontend
+  client_id: lok-frontend
+  client_secret: change-me-per-deployment
+  redirect_uris:
+  - http://localhost:3000/auth/callback

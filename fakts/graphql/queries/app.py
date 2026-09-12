@@ -1,6 +1,8 @@
 import strawberry
+from graphql import GraphQLError
 from kante.types import Info
 from fakts import models, scalars, types
+from karakter.authz import DENIED, get_scoped_or_denied
 
 
 def app(
@@ -9,13 +11,21 @@ def app(
     identifier: scalars.AppIdentifier | None = None,
     client_id: strawberry.ID | None = None,
 ) -> types.App:
+    """An app registration of the caller's organization, by id, identifier or
+    via one of its clients' OAuth client_id."""
     if id:
-        return models.App.objects.get(id=id)
+        return get_scoped_or_denied(models.App.objects, info, id=id)
 
     if identifier:
-        return models.App.objects.get(identifier=identifier)
+        # App identifiers are unique *per organization*, so the scope is what
+        # makes this a single-object lookup.
+        return get_scoped_or_denied(models.App.objects, info, identifier=identifier)
 
     if client_id:
-        return models.Client.objects.get(client_id=client_id).release.app
+        client = get_scoped_or_denied(models.Client.objects, info, client_id=client_id)
+        if client.release_id is None:
+            # Hub identities / relying parties are not bound to an app release.
+            raise GraphQLError(DENIED)
+        return client.release.app
 
-    raise ValueError("Either id or identifier or clientId must be provided")
+    raise GraphQLError("Either id, identifier or clientId must be provided")
