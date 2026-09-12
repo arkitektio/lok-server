@@ -44,7 +44,11 @@ jobs:
       # test step that trips the limit fails the release job -- which then cuts
       # no version and skips the image build, a release that silently does
       # nothing. Authenticate with the credentials the docker job already uses.
+      # Best effort: raising the pull limit is an optimisation, so a repo with no
+      # DOCKERHUB_* secrets configured must not have its release blocked by it.
+      # Anonymous pulls still work, they are just rate limited.
       - name: Login to Docker Hub (avoids anonymous pull limits in the test stacks)
+        continue-on-error: true
         uses: docker/login-action@v3
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
