@@ -42,8 +42,12 @@ dev = [
     "basedpyright>=1.39.8",
     "python-semantic-release>=9.21.0",
     "django-stubs>=5.2.0",
-    "moto>=5.1.10",
     "pytest>=8.4.1",
+    # Integration stack: dokker brings up the compose file, psycopg waits on the
+    # database. No moto -- the suite talks to a real RustFS container instead.
+    "dokker>=2.8",
+    "psycopg[binary]>=3",
+    "requests>=2.32",
     "pytest-asyncio>=1.1.0",
     "pytest-cov>=6.2.1",
     "pytest-django>=4.9.0",
