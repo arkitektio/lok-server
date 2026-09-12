@@ -1,0 +1,158 @@
+# Test-only configuration for the suite. Committed on purpose.
+#
+# lok's `config.yaml` is the default config source and is deliberately
+# untracked -- it was removed from git in e45feb1 because it shipped a real
+# OIDC signing key. Nothing replaced it for the tests, so `Settings()` has
+# raised 6 missing-field errors at import ever since and the whole suite has
+# been red. `settings_test` points ARKITEKT_CONFIG_FILE here instead.
+#
+# The key material below is a throwaway keypair generated for this file alone.
+# It signs nothing outside the test run, and its digests deliberately do not
+# match the ones `_refuse_committed_key_material_in_production` refuses -- the
+# suite must exercise that guard's happy path, not bypass it with
+# LOK_ALLOW_COMMITTED_KEYS.
+account:
+  email_verification: none
+  login_by_code_enabled: true
+  login_methods:
+  - username
+  mfa_trust_enabled: true
+  social_provider_apps:
+  - allauth.socialaccount.providers.orcid
+  - allauth.socialaccount.providers.google
+  - allauth.socialaccount.providers.saml
+authentikate:
+  audience: '*'
+  issuers:
+  - iss: lok
+    kid: lok-key-1
+    kind: rsa
+    public_key: ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQCmYyn06aZk9C+VggrfySAvydoelfx4sJvrzKnH7uaBh+aOvWus37H1ZLNsAzKObZNHesx/INxFUeRUOfO5OT7Qyek+Ar8XnD0mW7dJQB7yNtspP2o8sHvOI2cUrz/5cKipAJeh8gJzHFeuUAlsQBRE0YL4158j15WZmAg/aF+0hxCmNPlhjsJMYEX/cWbSNFUCQI9Mhh+cxxjqnqyl9W+pU043q3men40K8JcJ9fz79QM691Lr0JVijSK9HGWIJzIZK8h7vuRzddzm8CCF6V6QZtSWdJ3WWvff3IwMnMujBFE9ArscGBpXh5iHzaDmVCJNZANj19ATJ10aLw6BkaiL
+  static_tokens: {}
+datalayer:
+  access_key: lok_access_key
+  default_acl: private
+  file_overwrite: false
+  host: localhost
+  media:
+    bucket: media
+  port: 9000
+  protocol: http
+  querystring_expire: 3600
+  secret_key: lok_secret_key
+deployment:
+  configure_url: go.arkitekt.live/configure/{code}
+  name: default
+django:
+  admin:
+    email: admin@admin.com
+    password: test-admin-password
+    username: admin
+  csrf_trusted_origins:
+  - http://localhost
+  - https://localhost
+  debug: true
+  force_script_name: lok
+  hosts:
+  - '*'
+  language_code: en-us
+  log_level: INFO
+  secret_key: test-only-secret-key-0000000000000000000000000000000000000000000
+  secure_proxy_ssl_header: true
+  time_zone: UTC
+lok:
+  public_key: ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQCmYyn06aZk9C+VggrfySAvydoelfx4sJvrzKnH7uaBh+aOvWus37H1ZLNsAzKObZNHesx/INxFUeRUOfO5OT7Qyek+Ar8XnD0mW7dJQB7yNtspP2o8sHvOI2cUrz/5cKipAJeh8gJzHFeuUAlsQBRE0YL4158j15WZmAg/aF+0hxCmNPlhjsJMYEX/cWbSNFUCQI9Mhh+cxxjqnqyl9W+pU043q3men40K8JcJ9fz79QM691Lr0JVijSK9HGWIJzIZK8h7vuRzddzm8CCF6V6QZtSWdJ3WWvff3IwMnMujBFE9ArscGBpXh5iHzaDmVCJNZANj19ATJ10aLw6BkaiL
+openid_apps:
+- client_id: lok-frontend
+  client_name: Lok Frontend
+  client_secret: change-me-per-deployment
+  redirect_uris:
+  - http://localhost:3000/auth/callback
+organizations:
+- identifier: default
+  name: Default
+postgres:
+  db_name: testdb
+  dependency: db
+  engine: django.db.backends.postgresql
+  host: localhost
+  password: test
+  port: 5432
+  username: test
+privacy_guards: opt-in
+private_key: '-----BEGIN PRIVATE KEY-----
+
+  MIIEvwIBADANBgkqhkiG9w0BAQEFAASCBKkwggSlAgEAAoIBAQCmYyn06aZk9C+V
+
+  ggrfySAvydoelfx4sJvrzKnH7uaBh+aOvWus37H1ZLNsAzKObZNHesx/INxFUeRU
+
+  OfO5OT7Qyek+Ar8XnD0mW7dJQB7yNtspP2o8sHvOI2cUrz/5cKipAJeh8gJzHFeu
+
+  UAlsQBRE0YL4158j15WZmAg/aF+0hxCmNPlhjsJMYEX/cWbSNFUCQI9Mhh+cxxjq
+
+  nqyl9W+pU043q3men40K8JcJ9fz79QM691Lr0JVijSK9HGWIJzIZK8h7vuRzddzm
+
+  8CCF6V6QZtSWdJ3WWvff3IwMnMujBFE9ArscGBpXh5iHzaDmVCJNZANj19ATJ10a
+
+  Lw6BkaiLAgMBAAECggEADoLYK5TzvxrmH4A/md7SS3irk5P5zejRNb0cEuTMqQAE
+
+  5UQIj64pY2vMk3SqmcNdXz7gIOI+c7PoWZ7S7mowsUg6wFQVqGXRliEqQ12FQBNK
+
+  r+E+TwaxStF0RwM1ws0cLd5wWwkJRP10JC60yQJvAhrSSl47xzDLykvObwFCVN3N
+
+  ILXVuW5FW7+SBPX7KvkDKKlaI3S/CudPllYPTFzxwUUWn56nVYimr1yHGdAWExQM
+
+  dzmUPPAz8CYR3xFXPjiQoa/30dRySNUk5iKvNaG3j6TxTvi0p3/zzlMwa/GYEOgV
+
+  uEjf1OJyXdyklAz+jLMauSE6n9n+k1CcUKnkoGVa2QKBgQDn+BEO0QGtT9MSMq1X
+
+  QbiRsXNHaK8HD/7jM479jmHZShDB5QDpIrJkdo8CJx4StL4IhdRAstwTaUwtwCMc
+
+  bZWmcolMaNVOpgCgRuDtjGfPs1vwYtpNMV2RdnTKed3+dZVotUSd8k06s8ghbJDz
+
+  AfLgOFYFEEzV2g7crmzhRsW4/wKBgQC3n9bcAt5Dq8FNdIf6UksGxI8bgzSMb2oV
+
+  9d8apE7j88myYH5jr7+GAl+1qBJXF/Tn5hbtcTxAJc2+TzJ7eztv/WEhJV5cQDvB
+
+  JNVJQ/bDQCdCj7BO7uyuE7Gnmr84FO1CqMzfzEZviI958RwLvThFo9RrpzI+8hTj
+
+  6k73Ro/kdQKBgQCxYt2IewPRSK2byO0NQNCneQ8ymDbgK7c6fv7lnq/svdq6qyhb
+
+  H5FTieYqO0ef/l8jnVOGdkAdB/SdN8ShxJsfwY6Ew9X6Yq8v4YO3pBrulbXEyZMu
+
+  XIW06uS8wRylrb0naRajwdqU/U4ZYTAm5GKaW/pLvP9EuY+L6kaQrtIceQKBgQCL
+
+  EFlnXCC6PTxzDXrhwCsj3/7FhlNovAQqx3+ErMU2a+3n0p5Fntc8hVW4vKXPIcyP
+
+  R7k7b9OCfV7Y7x+7VrPH96v0r1lMIjVe7Cc/imI6sr5I8YtD7DyBBVc5KMACmA6r
+
+  ui0WnJ0HYPPQFSL5XP9d9losgX5TH4FkrpHJQb499QKBgQCa433rzHQPO3ampznu
+
+  cLTPRSJgVc14535PgB+Vn54pCOOBKxQKvRpWphsG4Acw+Mvd2HTqTzbVsq/ZpTjV
+
+  bv3lKYADLwkHUQyKFmWP05pZ35spJ4WiTEcqcRir9BEObW8a381Q1UPNF/+OY70F
+
+  WRPt3Y+0Mj4ooc1CfGyPzhN8OQ==
+
+  -----END PRIVATE KEY-----
+
+  '
+redeem_tokens:
+- organization: demo
+  token: example-redeem-token
+  user: demo
+redis:
+  channel_prefix: lok
+  dependency: redis
+  host: localhost
+  port: 6379
+users:
+- active_organization: default
+  email: demo@example.com
+  memberships:
+  - organization: default
+    roles:
+    - admin
+  name: Demo User
+  password: REPLACE-ME
+  username: demo

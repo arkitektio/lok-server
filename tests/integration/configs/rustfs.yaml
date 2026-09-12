@@ -1,0 +1,10 @@
+# Buckets and the scoped user `initc` provisions in RustFS for the suite. The
+# bucket name matches datalayer.media.bucket in tests/config.test.yaml.
+buckets:
+  - name: media
+users:
+  - access_key: lok_access_key
+    name: lok
+    policies:
+      - readwrite
+    secret_key: lok_secret_key

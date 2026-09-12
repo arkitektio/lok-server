@@ -112,7 +112,7 @@ postgres:
 datalayer:
   access_key: REPLACE-ME
   secret_key: REPLACE-ME
-  host: minio
+  host: rustfs
   port: 9000
   protocol: http
   default_acl: private

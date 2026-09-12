@@ -1,0 +1,51 @@
+
+services:
+   db:
+      image: jhnnsrs/daten:next
+      # Throwaway test DB: trade durability for speed (flush/TRUNCATE per test)
+      command: postgres -c fsync=off -c synchronous_commit=off -c full_page_writes=off
+      environment:
+         POSTGRES_MULTIPLE_DATABASES: testdb
+         POSTGRES_PASSWORD: test
+         POSTGRES_USER: test
+      labels:
+         - fakts.service=live.arkitekt.postgres
+      # No host port: docker picks a free one and `backend_stack` asks the running
+      # stack which, via `deployment.get_port`. Pinning opts out of the isolation
+      # dokker gives by minting a unique compose project per run -- two projects
+      # with different names still cannot both bind one host port.
+      ports:
+        - 5432
+   rustfs:
+      # Real object storage. lok mints presigned POST forms for avatar/banner
+      # uploads and presigned GET URLs to read them back; whether those are correct
+      # is a property of the *store's* agreement with the signature, which a mock
+      # cannot assert.
+      image: rustfs/rustfs:latest
+      environment:
+         RUSTFS_ACCESS_KEY: lok_root
+         RUSTFS_SECRET_KEY: lok_root_secret
+         RUSTFS_VOLUMES: /data
+         RUSTFS_ADDRESS: ":9000"
+      ports:
+         - 9000
+   initc:
+      image: jhnnsrs/init:next
+      depends_on:
+         rustfs:
+            condition: service_started
+      environment:
+         RUSTFS_HOST: http://rustfs:9000
+         RUSTFS_ACCESS_KEY: lok_root
+         RUSTFS_SECRET_KEY: lok_root_secret
+      volumes:
+         - ./configs/rustfs.yaml:/workspace/config.yaml
+   redis:
+      # Unused by the suite (settings_test swaps in an InMemoryChannelLayer) but
+      # kept so the stack matches the deployment. Ephemeral port, as above.
+      image: redis
+      environment:
+         REDIS_HOST: redis
+         REDIS_PORT: 6379
+      ports:
+         - 6379
