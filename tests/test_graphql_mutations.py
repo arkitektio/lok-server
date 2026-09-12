@@ -67,3 +67,181 @@ def _fetch_created():
     from fakts import models
 
     return models.Client.objects.filter(release__app__identifier="com.example.gql", role="agent").first()
+
+
+# --- createRedeemToken -----------------------------------------------------------
+
+CREATE_REDEEM_TOKEN = """
+    mutation ($input: RedeemTokenInput!) {
+        createRedeemToken(input: $input) {
+            id
+            token
+            expiresAt
+            maxRedemptions
+            redemptionCount
+            pinnedManifest
+        }
+    }
+"""
+
+PINNED_MANIFEST = {
+    "identifier": "com.example.pinned",
+    "version": "1.0.0",
+    "scopes": ["read"],
+    "nodeId": "node-a",
+    "requirements": [{"key": "rekuest", "service": "live.arkitekt.rekuest"}],
+}
+
+
+def _setup_with_hub():
+    """Like ``_setup`` but the calling client composes against a hub: redeem tokens
+    are issued *for* the caller's hub, so a hub-less client is denied."""
+    membership = factories.make_membership()
+    hub = factories.make_hub(organization=membership.organization)
+    request_client = factories.make_client(membership=membership, hub=hub)
+    return membership.user, membership.organization, request_client
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_create_redeem_token_pins_the_manifest():
+    user, organization, request_client = await sync_to_async(_setup_with_hub)()
+
+    result = await schema.execute(
+        CREATE_REDEEM_TOKEN,
+        context_value=_context(user, organization, request_client),
+        variable_values={"input": {"manifest": PINNED_MANIFEST, "expiresInDays": 1, "maxRedemptions": 1}},
+    )
+
+    assert not result.errors, result.errors
+    data = result.data["createRedeemToken"]
+    assert data["token"]
+    assert data["maxRedemptions"] == 1
+    assert data["redemptionCount"] == 0
+    pinned = data["pinnedManifest"]
+    assert pinned["identifier"] == "com.example.pinned"
+    assert pinned["version"] == "1.0.0"
+    assert pinned["node_id"] == "node-a"
+    assert pinned["scopes"] == ["read"]
+    assert [(r["key"], r["service"]) for r in pinned["requirements"]] == [("rekuest", "live.arkitekt.rekuest")]
+
+    from datetime import datetime, timedelta, timezone
+
+    expires_at = datetime.fromisoformat(data["expiresAt"])
+    assert timedelta(hours=23) < expires_at - datetime.now(timezone.utc) <= timedelta(days=1)
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_create_redeem_token_requires_a_manifest():
+    """An app-minted token is always pinned: the schema itself refuses a mint without one."""
+    user, organization, request_client = await sync_to_async(_setup_with_hub)()
+
+    result = await schema.execute(
+        CREATE_REDEEM_TOKEN,
+        context_value=_context(user, organization, request_client),
+        variable_values={"input": {}},
+    )
+
+    assert result.errors
+    assert "manifest" in result.errors[0].message
+
+    def _count():
+        from fakts import models
+
+        return models.RedeemToken.objects.count()
+
+    assert await sync_to_async(_count)() == 0
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_create_redeem_token_defaults():
+    user, organization, request_client = await sync_to_async(_setup_with_hub)()
+
+    result = await schema.execute(
+        CREATE_REDEEM_TOKEN,
+        context_value=_context(user, organization, request_client),
+        variable_values={"input": {"manifest": PINNED_MANIFEST}},
+    )
+
+    assert not result.errors, result.errors
+    data = result.data["createRedeemToken"]
+    assert data["pinnedManifest"]["identifier"] == "com.example.pinned"
+    assert data["maxRedemptions"] is None
+
+    from datetime import datetime, timedelta, timezone
+
+    expires_at = datetime.fromisoformat(data["expiresAt"])
+    assert timedelta(days=6, hours=23) < expires_at - datetime.now(timezone.utc) <= timedelta(days=7)
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "bad, message",
+    [
+        ({"expiresInDays": 90}, "expiresInDays"),
+        ({"expiresInDays": 0}, "expiresInDays"),
+        ({"maxRedemptions": 0}, "maxRedemptions"),
+    ],
+)
+async def test_create_redeem_token_rejects_bad_budgets(bad, message):
+    user, organization, request_client = await sync_to_async(_setup_with_hub)()
+
+    result = await schema.execute(
+        CREATE_REDEEM_TOKEN,
+        context_value=_context(user, organization, request_client),
+        variable_values={"input": {"manifest": PINNED_MANIFEST, **bad}},
+    )
+
+    assert result.errors
+    assert message in result.errors[0].message
+
+
+DELETE_REDEEM_TOKEN = """
+    mutation ($id: ID!) { deleteRedeemToken(input: {id: $id}) }
+"""
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_delete_redeem_token_spends_it_but_keeps_the_client():
+    user, organization, request_client = await sync_to_async(_setup_with_hub)()
+    context = _context(user, organization, request_client)
+
+    minted = await schema.execute(
+        CREATE_REDEEM_TOKEN,
+        context_value=context,
+        variable_values={"input": {"manifest": PINNED_MANIFEST}},
+    )
+    assert not minted.errors, minted.errors
+    token_id = minted.data["createRedeemToken"]["id"]
+
+    def _redeem_it():
+        from fakts import models
+        from fakts.base_models import Manifest
+        from fakts.services.clients import redeem_token
+
+        token = models.RedeemToken.objects.get(id=token_id)
+        # A subset of the pin: the test hub offers no rekuest instance and the org
+        # defines no `read` scope, and the pin is a ceiling, not a demand.
+        return redeem_token(token.token, Manifest(identifier="com.example.pinned", version="1.0.0", scopes=[], node_id="node-a", requirements=[]))
+
+    client = await sync_to_async(_redeem_it)()
+
+    deleted = await schema.execute(DELETE_REDEEM_TOKEN, context_value=context, variable_values={"id": token_id})
+    assert not deleted.errors, deleted.errors
+    assert deleted.data["deleteRedeemToken"] == token_id
+
+    def _after():
+        from fakts import models
+
+        return models.RedeemToken.objects.filter(id=token_id).exists(), models.Client.objects.filter(pk=client.pk).exists()
+
+    token_exists, client_exists = await sync_to_async(_after)()
+    assert not token_exists
+    assert client_exists, "revoking the token must not tear down the client it produced"
+
+    again = await schema.execute(DELETE_REDEEM_TOKEN, context_value=context, variable_values={"id": token_id})
+    assert again.errors and "not authorized" in again.errors[0].message

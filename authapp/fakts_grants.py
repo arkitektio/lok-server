@@ -241,6 +241,8 @@ class FaktsRedeemGrant(FaktsEnvelopeMixin, BaseGrant, TokenEndpointMixin):
             raise InvalidGrantError(description="Redeem token expired.")
         except client_services.RedeemTokenManifestChanged as e:
             raise InvalidGrantError(description=str(e))
+        except client_services.RedeemTokenManifestMismatch as e:
+            raise InvalidGrantError(description=str(e))
         except client_services.UnknownScope as e:
             raise InvalidScopeError(description=str(e))
         except client_services.DeviceAuthRequired as e:

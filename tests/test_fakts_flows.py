@@ -458,3 +458,119 @@ def test_relying_party_rows_are_invisible_to_tenant_scoping(client):
     scoped = models.Client.objects.filter(organization=membership.organization)
     assert bound in scoped
     assert rp not in scoped
+
+
+# --- pre-authorized (pinned) redeem tokens ---------------------------------------
+#
+# A deployer mints a token pinned to the manifest it approved; the container that
+# receives it can only ever enrol as that app. Identity fields must match exactly,
+# scopes and requirements are a ceiling.
+
+PINNED = {
+    "identifier": "com.example.pinned",
+    "version": "1.0.0",
+    "scopes": [],
+    "requirements": [],
+    "node_id": "node-a",
+}
+
+
+def _redeem_manifest(client, token, manifest):
+    return client.post(
+        reverse("token"),
+        data={"grant_type": REDEEM_GRANT, "redeem_token": token, "manifest": json.dumps(manifest)},
+        secure=True,
+    )
+
+
+def _pinned(**overrides):
+    pinned = {**PINNED, **overrides}
+    return factories.make_redeem_token(pinned_manifest=pinned)
+
+
+@pytest.mark.django_db
+def test_pinned_redeem_accepts_matching_manifest(client):
+    redeem = _pinned()
+
+    resp = _redeem_manifest(client, redeem.token, PINNED)
+
+    assert resp.status_code == 200, resp.json()
+    redeem.refresh_from_db()
+    assert redeem.client is not None
+    assert redeem.client.release.app.identifier == "com.example.pinned"
+    assert redeem.redemption_count == 1
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    "change, fragment",
+    [
+        ({"identifier": "com.example.other"}, "pinned to app 'com.example.pinned'"),
+        ({"version": "2.0.0"}, "pinned to version '1.0.0'"),
+        ({"node_id": "node-b"}, "different node"),
+        ({"scopes": ["admin"]}, "does not authorize the scope(s) admin"),
+        (
+            {"requirements": [{"key": "lok", "service": "live.arkitekt.lok"}]},
+            "does not authorize the requirement(s) lok=live.arkitekt.lok",
+        ),
+    ],
+)
+def test_pinned_redeem_rejects_deviating_manifest(client, change, fragment):
+    redeem = _pinned()
+
+    resp = _redeem_manifest(client, redeem.token, {**PINNED, **change})
+
+    assert resp.status_code == 400
+    body = resp.json()
+    assert body["error"] == "invalid_grant"
+    assert fragment in body["error_description"]
+    redeem.refresh_from_db()
+    assert redeem.client is None, "a refused redeem must not provision a client"
+    assert redeem.redemption_count == 0
+
+
+@pytest.mark.django_db
+def test_pinned_redeem_allows_subset_of_scopes_and_requirements(client):
+    redeem = _pinned(
+        scopes=["read"],
+        requirements=[{"key": "rekuest", "service": "live.arkitekt.rekuest", "optional": False}],
+    )
+
+    # Asking for less than the pin authorizes is fine.
+    resp = _redeem_manifest(client, redeem.token, PINNED)
+
+    assert resp.status_code == 200, resp.json()
+
+
+@pytest.mark.django_db
+def test_pinned_redeem_is_checked_on_every_redeem(client):
+    redeem = _pinned()
+
+    assert _redeem_manifest(client, redeem.token, PINNED).status_code == 200
+    resp = _redeem_manifest(client, redeem.token, {**PINNED, "version": "2.0.0"})
+
+    assert resp.status_code == 400
+    # The pin, not the first-redeem hash, is what refuses it.
+    assert "pinned to version" in resp.json()["error_description"]
+
+
+@pytest.mark.django_db
+def test_pinned_node_is_optional(client):
+    redeem = _pinned(node_id=None)
+
+    resp = _redeem_manifest(client, redeem.token, {**PINNED, "node_id": "any-node"})
+
+    assert resp.status_code == 200, resp.json()
+
+
+@pytest.mark.django_db
+def test_max_redemptions_is_enforced(client):
+    redeem = _pinned()
+    redeem.max_redemptions = 1
+    redeem.save()
+
+    assert _redeem_manifest(client, redeem.token, PINNED).status_code == 200
+    resp = _redeem_manifest(client, redeem.token, PINNED)
+
+    assert resp.status_code == 400
+    assert "maximum number of times" in resp.json()["error_description"]

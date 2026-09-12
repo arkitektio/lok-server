@@ -68,6 +68,47 @@ async def test_redeem_token_is_not_readable_by_another_user():
     assert result.data["redeemToken"]["token"] == my_token.token
 
 
+DELETE_REDEEM_TOKEN = """
+    mutation ($id: ID!) { deleteRedeemToken(input: {id: $id}) }
+"""
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_redeem_token_is_only_revocable_by_its_issuer():
+    """`deleteRedeemToken` has the same scoping as `redeemToken(id)`: another tenant's
+    token and a colleague's token are 'not found', only the issuer's own goes."""
+    my_context, mine, _my_client, _their_context, theirs, _their_client = await sync_to_async(_two_principals)()
+
+    def _tokens():
+        their_hub = factories.make_hub(organization=theirs.organization)
+        their_token = factories.make_redeem_token(hub=their_hub, user=theirs.user)
+        my_hub = factories.make_hub(organization=mine.organization)
+        my_token = factories.make_redeem_token(hub=my_hub, user=mine.user)
+        colleague = factories.make_membership(organization=mine.organization)
+        colleague_token = factories.make_redeem_token(hub=my_hub, user=colleague.user)
+        return their_token, my_token, colleague_token
+
+    their_token, my_token, colleague_token = await sync_to_async(_tokens)()
+
+    for foreign in (their_token, colleague_token):
+        result = await schema.execute(DELETE_REDEEM_TOKEN, context_value=my_context, variable_values={"id": str(foreign.id)})
+        _assert_denied(result)
+
+    result = await schema.execute(DELETE_REDEEM_TOKEN, context_value=my_context, variable_values={"id": str(my_token.id)})
+    assert not result.errors, result.errors
+    assert result.data["deleteRedeemToken"] == str(my_token.id)
+
+    def _remaining():
+        from fakts import models
+
+        return set(models.RedeemToken.objects.values_list("id", flat=True))
+
+    remaining = await sync_to_async(_remaining)()
+    assert my_token.id not in remaining
+    assert {their_token.id, colleague_token.id} <= remaining
+
+
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
 async def test_stashes_list_only_returns_own_rows():

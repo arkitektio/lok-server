@@ -1,3 +1,5 @@
+import datetime
+
 import strawberry_django
 import strawberry
 from typing import Optional
@@ -392,6 +394,16 @@ class RedeemToken:
     token: str = strawberry.field(description="The token of the redeem token")
     client: Client | None = strawberry.field(description="The client that this redeem token belongs to.")
     user: types.User = strawberry.field(description="The user that this redeem token belongs to.")
+    expires_at: datetime.datetime | None = strawberry.field(description="When this token stops being redeemable. Null means never.")
+    max_redemptions: int | None = strawberry.field(description="How many times this token may be redeemed. Null means unlimited.")
+    redemption_count: int = strawberry.field(description="How many times this token has been redeemed so far.")
+    pinned_manifest: JSON | None = strawberry.field(
+        description=(
+            "The manifest this token was pre-authorized for at mint time, or null for an "
+            "unpinned token. A redeem must match its identifier, version and node_id exactly "
+            "and may only request a subset of its scopes and requirements."
+        )
+    )
 
     @classmethod
     def get_queryset(cls, queryset, info: Info, **kwargs):

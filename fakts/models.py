@@ -399,6 +399,17 @@ class RedeemToken(models.Model):
         default=False,
         help_text="If set, this token may be re-redeemed even when the manifest hash differs from the originally redeemed one.",
     )
+    pinned_manifest = models.JSONField(
+        null=True,
+        blank=True,
+        help_text=(
+            "The manifest this token was pre-authorized for, fixed at mint time. When set, a "
+            "redeem must present the same identifier, version and node_id, and may request "
+            "only a subset of the pinned scopes and requirements; anything else is refused "
+            "before a client is provisioned. NULL means the token is unpinned and the "
+            "manifest is fixed on first redeem (manifest_hash) instead."
+        ),
+    )
     max_redemptions = models.PositiveIntegerField(
         null=True,
         blank=True,

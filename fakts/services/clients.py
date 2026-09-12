@@ -52,6 +52,11 @@ class RedeemTokenManifestChanged(Exception):
     manifest while ``allow_reredeem`` is not set."""
 
 
+class RedeemTokenManifestMismatch(Exception):
+    """Raised when a redeem presents a manifest that does not satisfy the manifest the
+    token was pinned to at mint time (see :func:`check_pinned_manifest`)."""
+
+
 class UnknownScope(Exception):
     """Raised when a manifest requests a scope the organization does not define.
 
@@ -65,6 +70,51 @@ def hash_manifest(manifest: Manifest) -> str:
     return hashlib.sha256(
         json.dumps(manifest.model_dump(mode="json"), sort_keys=True).encode()
     ).hexdigest()
+
+
+def check_pinned_manifest(pinned: dict, manifest: Manifest) -> None:
+    """Refuse a redeem whose manifest is not covered by the token's pinned manifest.
+
+    Identity (``identifier``, ``version``) and placement (``node_id``, when pinned) must
+    match exactly. ``scopes`` and ``requirements`` are a *ceiling*: the presented manifest
+    may request a subset, never more — extra scopes would widen what the issued token can
+    do, extra requirements would render extra service instances into the envelope.
+    Cosmetic fields (title, description, logo, authors, keywords, public sources) are not
+    compared: the running app assembles them from its image, and the deployer that pinned
+    the token cannot reproduce them byte-for-byte.
+    """
+    if manifest.identifier != pinned.get("identifier"):
+        raise RedeemTokenManifestMismatch(
+            f"This redeem token is pinned to app '{pinned.get('identifier')}', "
+            f"not '{manifest.identifier}'."
+        )
+    if manifest.version != pinned.get("version"):
+        raise RedeemTokenManifestMismatch(
+            f"This redeem token is pinned to version '{pinned.get('version')}' of "
+            f"'{manifest.identifier}', not '{manifest.version}'."
+        )
+    pinned_node = pinned.get("node_id")
+    if pinned_node and manifest.node_id != pinned_node:
+        raise RedeemTokenManifestMismatch(
+            "This redeem token is pinned to a different node than the one the manifest names."
+        )
+    extra_scopes = sorted(set(manifest.scopes or []) - set(pinned.get("scopes") or []))
+    if extra_scopes:
+        raise RedeemTokenManifestMismatch(
+            f"This redeem token does not authorize the scope(s) {', '.join(extra_scopes)}."
+        )
+    pinned_requirements = {
+        (r.get("key"), r.get("service")) for r in (pinned.get("requirements") or [])
+    }
+    extra_requirements = sorted(
+        f"{r.key}={r.service}"
+        for r in (manifest.requirements or [])
+        if (r.key, r.service) not in pinned_requirements
+    )
+    if extra_requirements:
+        raise RedeemTokenManifestMismatch(
+            f"This redeem token does not authorize the requirement(s) {', '.join(extra_requirements)}."
+        )
 
 
 def create_public_client(
@@ -270,6 +320,12 @@ def redeem_token(token: str, manifest: Manifest, role: enums.ClientRoleVanilla =
             )
 
         if not (valid_token.expires_at and valid_token.expires_at < timezone.now()):
+            # A pre-authorized token is checked against its pin *before* anything is
+            # looked up or provisioned, on every redeem: the pin is what makes the
+            # token safe to hand to an unattended container.
+            if valid_token.pinned_manifest:
+                check_pinned_manifest(valid_token.pinned_manifest, manifest)
+
             incoming_hash = hash_manifest(manifest)
 
             if valid_token.client:

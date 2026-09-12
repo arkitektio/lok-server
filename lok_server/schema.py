@@ -182,6 +182,9 @@ class Mutation:
     create_redeem_token = strawberry_django.mutation(
         resolver=fakts_mutations.create_redeem_token,
     )
+    delete_redeem_token = strawberry_django.mutation(
+        resolver=fakts_mutations.delete_redeem_token,
+    )
 
     reply_to = strawberry_django.mutation(
         resolver=komment_mutations.reply_to,
