@@ -1,0 +1,181 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex">
+  <title>Lok · API server</title>
+  <style>
+    /* Tokens mirror kontrol/src/index.css (brand hue 267, tinted neutrals). */
+    :root {
+      --brand-hue: 267.256;
+      --brand-chroma: 0.19;
+      --radius: 0.625rem;
+      --background: oklch(0.97 0.004 var(--brand-hue));
+      --foreground: oklch(0.21 0.01 var(--brand-hue));
+      --card: oklch(0.96 0.005 var(--brand-hue));
+      --muted-foreground: oklch(0.55 0.02 var(--brand-hue));
+      --border: oklch(0.87 0.008 var(--brand-hue) / 0.5);
+      --secondary: oklch(0.95 0.006 var(--brand-hue));
+      --primary: oklch(0.48 var(--brand-chroma) var(--brand-hue));
+      --primary-foreground: oklch(0.98 0.01 var(--brand-hue));
+      --brand-logo-mid: oklch(0.52 var(--brand-chroma) var(--brand-hue));
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --brand-chroma: 0.16;
+        --background: oklch(0.16 0.008 var(--brand-hue));
+        --foreground: oklch(0.94 0.005 var(--brand-hue));
+        --card: oklch(0.19 0.008 var(--brand-hue));
+        --muted-foreground: oklch(0.71 0.01 var(--brand-hue) / 0.85);
+        --border: oklch(0.55 0.01 var(--brand-hue) / 0.2);
+        --secondary: oklch(0.22 0.008 var(--brand-hue));
+        --primary: oklch(0.70 var(--brand-chroma) var(--brand-hue));
+        --primary-foreground: oklch(0.16 0.02 var(--brand-hue));
+        --brand-logo-mid: oklch(0.64 var(--brand-chroma) var(--brand-hue));
+      }
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; min-height: 100%; }
+    body {
+      background: var(--background);
+      color: var(--foreground);
+      font-family: ui-sans-serif, system-ui, sans-serif, "Apple Color Emoji", "Segoe UI Emoji";
+      -webkit-font-smoothing: antialiased;
+      display: flex;
+      flex-direction: column;
+      min-height: 100vh;
+    }
+    header {
+      display: flex;
+      align-items: center;
+      gap: 0.6rem;
+      padding: 1.25rem 1.5rem;
+      font-weight: 600;
+      letter-spacing: -0.01em;
+    }
+    header svg { width: 2rem; height: 2rem; }
+    main {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      padding: 5rem 1.5rem;
+    }
+    .wrap { max-width: 48rem; }
+    .badge {
+      display: inline-block;
+      font-size: 0.8rem;
+      font-weight: 500;
+      padding: 0.25rem 0.7rem;
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      background: var(--secondary);
+      color: var(--muted-foreground);
+      margin-bottom: 1.5rem;
+    }
+    h1 {
+      font-size: clamp(2.75rem, 7vw, 4.5rem);
+      font-weight: 700;
+      letter-spacing: -0.025em;
+      line-height: 1.05;
+      margin: 0 0 1.5rem;
+      text-wrap: balance;
+    }
+    p.lead {
+      font-size: clamp(1.15rem, 2.4vw, 1.5rem);
+      color: var(--muted-foreground);
+      line-height: 1.45;
+      margin: 0 0 2.5rem;
+      max-width: 42rem;
+      text-wrap: balance;
+    }
+    .actions { display: flex; flex-wrap: wrap; gap: 0.75rem; }
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      padding: 0.8rem 1.6rem;
+      border-radius: var(--radius);
+      font-size: 1rem;
+      font-weight: 500;
+      text-decoration: none;
+      border: 1px solid var(--border);
+      color: var(--foreground);
+      background: var(--card);
+      transition: opacity .15s;
+    }
+    .btn:hover { opacity: .85; }
+    .btn.primary {
+      background: var(--primary);
+      color: var(--primary-foreground);
+      border-color: transparent;
+    }
+    .endpoints {
+      margin-top: 3.5rem;
+      border: 1px solid var(--border);
+      border-radius: calc(var(--radius) + 4px);
+      background: var(--card);
+      padding: 1.25rem 1.5rem;
+    }
+    .endpoints h2 {
+      font-size: 0.8rem;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--muted-foreground);
+      margin: 0 0 0.75rem;
+      font-weight: 600;
+    }
+    .endpoints ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.5rem; }
+    .endpoints li { display: flex; justify-content: space-between; gap: 1rem; flex-wrap: wrap; font-size: 0.95rem; }
+    .endpoints code {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 0.875rem;
+      color: var(--primary);
+    }
+    .endpoints span { color: var(--muted-foreground); }
+    footer {
+      padding: 1.25rem 1.5rem;
+      font-size: 0.85rem;
+      color: var(--muted-foreground);
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <svg viewBox="0 0 2603 2602" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+      <path d="M1298.49 183.894C1300.35 182.813 1302.65 182.813 1304.52 183.894L2268.13 743.095C2269.98 744.168 2271.12 746.146 2271.12 748.284V1866.74C2271.12 1868.88 2269.98 1870.86 2268.13 1871.93L1304.3 2431.26C1302.55 2432.27 1300.42 2432.34 1298.61 2431.44L335.215 1952.23C333.176 1951.22 331.887 1949.14 331.887 1946.86V748.284C331.887 746.145 333.025 744.168 334.875 743.095L1298.49 183.894Z" stroke="currentColor" stroke-width="74"/>
+      <path d="M1288.49 1301.01L325.375 1951.51" stroke="currentColor" stroke-width="74"/>
+      <path d="M2264.6 1873.45L1288.47 1301.01" stroke="currentColor" stroke-width="74"/>
+      <path d="M1301.5 182.146V883.673" stroke="currentColor" stroke-width="74"/>
+      <path d="M1308.91 700.562C1311.88 698.963 1315.44 698.963 1318.41 700.562L1881.07 1004.15C1884.3 1005.9 1886.32 1009.28 1886.32 1012.95V1619C1886.32 1622.67 1884.3 1626.05 1881.07 1627.8L1318.06 1931.57C1315.29 1933.07 1311.98 1933.17 1309.12 1931.85L746.802 1671.79C743.265 1670.15 741 1666.61 741 1662.71V1012.95C741 1009.28 743.017 1005.9 746.251 1004.15L1308.91 700.562Z" fill="var(--brand-logo-mid)"/>
+      <path d="M1213.35 1639.12C1169.86 1639.12 1131.11 1631.58 1097.1 1616.5C1063.08 1601.12 1036.160 1578.5 1016.35 1548.64C996.824 1518.48 987.062 1480.93 987.062 1435.98C987.062 1398.14 994.014 1366.35 1007.92 1340.63C1021.82 1314.9 1040.75 1294.21 1064.71 1278.53C1088.67 1262.86 1115.88 1251.04 1146.35 1243.05C1177.11 1235.07 1209.35 1229.45 1243.07 1226.2C1282.71 1222.06 1314.66 1218.22 1338.91 1214.67C1363.17 1210.82 1380.77 1205.21 1391.71 1197.81C1402.66 1190.42 1408.13 1179.48 1408.13 1164.99V1162.33C1408.13 1134.24 1399.25 1112.51 1381.51 1097.13C1364.05 1081.76 1339.21 1074.07 1306.97 1074.07C1272.95 1074.07 1245.88 1081.61 1225.77 1096.69C1205.66 1111.47 1192.34 1130.1 1185.84 1152.57L1011.02 1138.38C1019.9 1096.99 1037.35 1061.21 1063.38 1031.05C1089.41 1000.59 1122.98 977.235 1164.1 960.972C1205.51 944.414 1253.43 936.135 1307.85 936.135C1345.71 936.135 1381.95 940.57 1416.56 949.44C1451.46 958.311 1482.37 972.06 1509.29 990.688C1536.5 1009.320 1557.950 1033.27 1573.62 1062.54C1589.3 1091.52 1597.14 1126.26 1597.14 1166.77V1626.26H1417.89V1531.79H1412.56C1401.62 1553.08 1386.98 1571.85 1368.64 1588.11C1350.3 1604.08 1328.26 1616.65 1302.53 1625.81C1276.79 1634.68 1247.07 1639.12 1213.35 1639.12ZM1267.48 1508.72C1295.28 1508.72 1319.83 1503.25 1341.13 1492.31C1362.43 1481.08 1379.14 1466 1391.27 1447.07C1403.39 1428.15 1409.46 1406.71 1409.46 1382.76V1310.47C1403.54 1314.31 1395.41 1317.86 1385.06 1321.11C1375 1324.07 1363.61 1326.880 1350.89 1329.54C1338.17 1331.9 1325.45 1334.12 1312.73 1336.19C1300.01 1337.97 1288.48 1339.59 1278.13 1341.07C1255.94 1344.32 1236.57 1349.5 1220 1356.59C1203.44 1363.69 1190.57 1373.3 1181.4 1385.42C1172.23 1397.25 1167.65 1412.03 1167.65 1429.78C1167.65 1455.5 1176.96 1475.16 1195.6 1488.76C1214.53 1502.07 1238.49 1508.72 1267.48 1508.72Z" fill="currentColor"/>
+    </svg>
+    Lok
+  </header>
+
+  <main>
+    <div class="wrap">
+      <span class="badge">API server</span>
+      <h1>There's nothing to see here.</h1>
+      <p class="lead">
+        This is <strong>lok</strong>, the identity and authorization backend of Arkitekt.
+        It only speaks APIs&nbsp;— there is no user interface on this address.
+      </p>
+      <div class="actions">
+        <a class="btn primary" href="/">Open the Arkitekt console</a>
+        <a class="btn" href="https://arkitekt.live" rel="noopener">Learn about Arkitekt</a>
+      </div>
+
+      <section class="endpoints">
+        <h2>For developers</h2>
+        <ul>
+          <li><code>{{ request.path }}graphql</code><span>GraphQL API</span></li>
+          <li><code>/.well-known/openid-configuration</code><span>OpenID Connect discovery</span></li>
+        </ul>
+      </section>
+    </div>
+  </main>
+
+  <footer>Arkitekt · lok API server</footer>
+</body>
+</html>
