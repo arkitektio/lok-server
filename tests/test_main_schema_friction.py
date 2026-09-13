@@ -113,8 +113,6 @@ async def test_release_requirements_serialise():
         'query { device(id: "not-a-number") { id } }',
         'query { serviceInstance(id: "abc") { id } }',
         'query { user(id: "abc") { id } }',
-        'query { stash(id: "abc") { id } }',
-        'query { comment(id: "abc") { id } }',
         'query { client(id: "abc") { id } }',
         'query { role(id: "abc") { id } }',
         'mutation { acceptInvite(input: {token: "not-a-uuid"}) { id } }',

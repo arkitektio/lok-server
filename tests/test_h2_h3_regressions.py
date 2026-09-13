@@ -1,32 +1,19 @@
-"""Regressions for two High findings of the 2026-08-21 security review.
+"""Regression for the H2 High finding of the 2026-08-21 security review.
 
 H2 — invite tokens are bearer credentials; an ordinary member must not read them.
-H3 — a comment's `parent` must be scoped, or it becomes a cross-tenant read.
+(H3, comment `parent` scoping, left lok with the komment app — comments live in kraph now.)
 """
 
 import pytest
 from asgiref.sync import sync_to_async
 
 from karakter.models import Invite, Role
-from komment.models import Comment
 from lok_server.schema import schema
 from tests import factories
 from tests.conftest import build_auth_context
 
 
 LIST_INVITE_TOKENS = "query { invites { id token } }"
-
-CREATE_COMMENT = """
-    mutation ($input: CreateCommentInput!) {
-        createComment(input: $input) { id }
-    }
-"""
-
-READ_PARENT = """
-    query ($id: ID!) {
-        comment(id: $id) { id parent { id object user { username email } } }
-    }
-"""
 
 
 # --------------------------------------------------------------------------- #
@@ -88,84 +75,3 @@ async def test_owner_can_still_read_invite_tokens():
     assert not result.errors, result.errors
     returned = {row["id"] for row in result.data["invites"]}
     assert str(invite.id) in returned, "the org owner lost access to their own invites"
-
-
-# --------------------------------------------------------------------------- #
-# H3
-# --------------------------------------------------------------------------- #
-
-
-def _two_tenants_with_a_victim_comment():
-    mine = factories.make_membership()
-    my_client = factories.make_client(membership=mine)
-    my_context = build_auth_context(mine.user, mine.organization, my_client)
-
-    theirs = factories.make_membership()
-    victim_comment = Comment.objects.create(
-        identifier="@service/thing",
-        object="1",
-        user=theirs.user,
-        text="",
-        descendants=[],
-    )
-    return my_context, victim_comment
-
-
-@pytest.mark.django_db(transaction=True)
-@pytest.mark.asyncio
-async def test_cannot_thread_a_comment_onto_another_tenants_comment():
-    """The finding: `parent_id=input.parent` was written straight to the FK, and
-    the `parent` hop is a forward FK that does not re-apply `get_queryset` — so
-    replying to a guessed pk read back that comment and its author's email.
-    """
-    context, victim_comment = await sync_to_async(_two_tenants_with_a_victim_comment)()
-
-    result = await schema.execute(
-        CREATE_COMMENT,
-        context_value=context,
-        variable_values={
-            "input": {
-                "identifier": "@service/thing",
-                "object": "1",
-                "descendants": [{"kind": "PARAGRAPH", "children": []}],
-                "parent": str(victim_comment.id),
-            }
-        },
-    )
-
-    assert result.errors, "attaching to another tenant's comment was allowed"
-
-    still_childless = await sync_to_async(
-        Comment.objects.filter(parent=victim_comment).exists
-    )()
-    assert not still_childless, "a foreign reply was persisted onto the victim's thread"
-
-
-@pytest.mark.django_db(transaction=True)
-@pytest.mark.asyncio
-async def test_can_still_reply_to_own_comment():
-    def _setup():
-        mine = factories.make_membership()
-        my_client = factories.make_client(membership=mine)
-        context = build_auth_context(mine.user, mine.organization, my_client)
-        own = Comment.objects.create(
-            identifier="@service/thing", object="1", user=mine.user, text="", descendants=[]
-        )
-        return context, own
-
-    context, own = await sync_to_async(_setup)()
-
-    result = await schema.execute(
-        CREATE_COMMENT,
-        context_value=context,
-        variable_values={
-            "input": {
-                "identifier": "@service/thing",
-                "object": "1",
-                "descendants": [{"kind": "PARAGRAPH", "children": []}],
-                "parent": str(own.id),
-            }
-        },
-    )
-
-    assert not result.errors, result.errors

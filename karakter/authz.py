@@ -113,7 +113,7 @@ def build_user_scoped_queryset(info, queryset, field="user"):
     """Narrow a list queryset to rows owned by the calling user.
 
     The per-user counterpart of `build_prescoped_queryset`, for objects that
-    belong to a person rather than a tenant (stashes, comments, messages).
+    belong to a person rather than a tenant (e.g. messages).
     """
     return queryset.filter(**{field: get_user(info)})
 

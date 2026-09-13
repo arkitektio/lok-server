@@ -80,7 +80,11 @@ def create_user_default_organization(user: User):
     # ``.models``, which imports ``.signals``, which imports this module.
     from karakter import slugs
 
-    base_slug = slugs.slugify_name(f"{user.username}-org") or f"user-{user.pk}-org"
+    # Slugify the *username* alone before appending the suffix: slugifying
+    # ``"***-org"`` yields ``"org"``, not ``""``, so the pk fallback below never
+    # fired and a symbols-only username squatted on the bare ``org`` slug.
+    handle = slugs.slugify_name(user.username) or f"user-{user.pk}"
+    base_slug = f"{handle}-org"
 
     for _ in range(5):
         slug = base_slug if not slugs.is_slug_taken(base_slug) else slugs.suggest_slug(base_slug)

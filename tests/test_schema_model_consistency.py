@@ -40,8 +40,6 @@ ACCEPTED = {
     ("mgmt", "ManagementRole", "description"): "resolver falls back to identifier",
     ("main", "Role", "description"): "resolver falls back to identifier",
     ("main", "Organization", "name"): "resolver falls back to slug/id",
-    # `Comment.resolved` is a bool resolver over `resolved_by` (substring false positive).
-    ("main", "Comment", "resolved"): "bool resolver, not the nullable column",
 }
 
 IGNORED_TYPE_SUFFIXES = ("Filter", "Order", "Ordering", "Input")

@@ -14,7 +14,6 @@ from asgiref.sync import sync_to_async
 
 from karakter.models import Profile, SystemMessage
 from lok_server.schema import schema
-from pak.models import Stash
 from tests import factories
 from tests.conftest import build_auth_context
 
@@ -48,16 +47,6 @@ ACK_MESSAGE = """
     mutation ($input: AcknowledgeMessageInput!) {
         acknowledgeMessage(input: $input) { id title }
     }
-"""
-
-UPDATE_STASH = """
-    mutation ($input: UpdateStashInput!) {
-        updateStash(input: $input) { id name }
-    }
-"""
-
-DELETE_STASH = """
-    mutation ($input: DeleteStashInput!) { deleteStash(input: $input) }
 """
 
 UPDATE_PROFILE = """
@@ -108,64 +97,6 @@ async def test_cannot_acknowledge_another_users_message():
     _assert_denied(result)
     fresh = await sync_to_async(SystemMessage.objects.get)(pk=message.pk)
     assert fresh.acknowledged is False
-
-
-@pytest.mark.django_db(transaction=True)
-@pytest.mark.asyncio
-async def test_cannot_rename_another_users_stash():
-    my_context, _mine, _their_context, theirs = await sync_to_async(_two_principals)()
-
-    stash = await sync_to_async(Stash.objects.create)(
-        owner=theirs.user, name="theirs", description=""
-    )
-
-    result = await schema.execute(
-        UPDATE_STASH,
-        context_value=my_context,
-        variable_values={"input": {"stash": str(stash.id), "name": "pwned", "description": "x"}},
-    )
-
-    _assert_denied(result)
-    fresh = await sync_to_async(Stash.objects.get)(pk=stash.pk)
-    assert fresh.name == "theirs"
-
-
-@pytest.mark.django_db(transaction=True)
-@pytest.mark.asyncio
-async def test_cannot_delete_another_users_stash():
-    my_context, _mine, _their_context, theirs = await sync_to_async(_two_principals)()
-
-    stash = await sync_to_async(Stash.objects.create)(
-        owner=theirs.user, name="theirs", description=""
-    )
-
-    result = await schema.execute(
-        DELETE_STASH,
-        context_value=my_context,
-        variable_values={"input": {"stash": str(stash.id)}},
-    )
-
-    _assert_denied(result)
-    assert await sync_to_async(Stash.objects.filter(pk=stash.pk).exists)()
-
-
-@pytest.mark.django_db(transaction=True)
-@pytest.mark.asyncio
-async def test_owner_can_still_rename_their_own_stash():
-    my_context, mine, _their_context, _theirs = await sync_to_async(_two_principals)()
-
-    stash = await sync_to_async(Stash.objects.create)(
-        owner=mine.user, name="original", description=""
-    )
-
-    result = await schema.execute(
-        UPDATE_STASH,
-        context_value=my_context,
-        variable_values={"input": {"stash": str(stash.id), "name": "renamed", "description": "d"}},
-    )
-
-    assert not result.errors, result.errors
-    assert result.data["updateStash"]["name"] == "renamed"
 
 
 @pytest.mark.django_db(transaction=True)

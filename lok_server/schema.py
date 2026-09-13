@@ -14,29 +14,17 @@ from graphql import GraphQLError
 from karakter.graphql import mutations as karakter_mutations
 from karakter.graphql import queries as karakter_queries
 from karakter.graphql import subscriptions as karakter_subscriptions
-from komment import types as komment_types
-from komment.graphql import mutations as komment_mutations
-from komment.graphql import queries as komment_queries
-from komment.graphql import subscriptions as komment_subscriptions
-from pak import types as pak_types
-from pak.graphql import mutations as pak_mutations
-from pak.graphql import queries as pak_queries
 from karakter.datalayer import DatalayerExtension
 from strawberry_django.optimizer import DjangoOptimizerExtension
 from authapp.extension import AuthAppExtension
 from strawberry.schema.config import StrawberryConfig
 from fakts.scalars import scalar_map as fakts_scalar_map
 from karakter.scalars import scalar_map as karakter_scalar_map
-from komment.scalars import scalar_map as komment_scalar_map
 import kante
 
 
 @strawberry.type
 class Query:
-    stashes: list[pak_types.Stash] = strawberry_django.field()
-    stash_items: list[pak_types.StashItem] = strawberry_django.field()
-    my_stashes = strawberry_django.field(resolver=pak_queries.my_stashes)
-
     organizations: list[karakter_types.Organization] = kante.django_field()
 
     mycontext = strawberry_django.field(resolver=karakter_queries.mycontext)
@@ -48,7 +36,6 @@ class Query:
     users: list[karakter_types.User] = strawberry_django.field()
     roles: list[karakter_types.Role] = strawberry_django.field()
     groups: list[karakter_types.Group] = strawberry_django.field()
-    comments: list[komment_types.Comment] = strawberry_django.field()
     services: list[fakts_types.Service] = strawberry_django.field()
     device_groups: list[fakts_types.DeviceGroup] = strawberry_django.field()
     service_instances: list[fakts_types.ServiceInstance] = strawberry_django.field()
@@ -68,13 +55,8 @@ class Query:
 
     scopes = strawberry_django.field(resolver=fakts_queries.scopes)
 
-    comment = strawberry_django.field(resolver=komment_queries.comment)
-    comments_for = strawberry_django.field(resolver=komment_queries.comments_for)
-    my_mentions = strawberry_django.field(resolver=komment_queries.my_mentions)
     redeem_tokens: list[fakts_types.RedeemToken] = strawberry_django.field()
 
-    stash: pak_types.Stash = strawberry_django.field(resolver=pak_queries.stash)
-    stash_item: pak_types.StashItem = strawberry_django.field(resolver=pak_queries.stash_item)
     my_active_messages = strawberry_django.field(resolver=karakter_queries.my_active_messages)
     message = strawberry_django.field(resolver=karakter_queries.message)
 
@@ -169,9 +151,6 @@ class Mutation:
         resolver=karakter_mutations.create_organization,
     )
 
-    create_comment = strawberry_django.mutation(
-        resolver=komment_mutations.create_comment,
-    )
     register_com_channel = strawberry_django.mutation(
         resolver=karakter_mutations.register_com_channel,
     )
@@ -186,12 +165,6 @@ class Mutation:
         resolver=fakts_mutations.delete_redeem_token,
     )
 
-    reply_to = strawberry_django.mutation(
-        resolver=komment_mutations.reply_to,
-    )
-    resolve_comment = strawberry_django.mutation(
-        resolver=komment_mutations.resolve_comment,
-    )
     create_developmental_client = strawberry_django.mutation(
         resolver=fakts_mutations.create_developmental_client,
     )
@@ -200,19 +173,6 @@ class Mutation:
     )
     acknowledge_message = strawberry_django.mutation(resolver=karakter_mutations.acknowledge_message)
 
-    create_stash = strawberry_django.mutation(
-        resolver=pak_mutations.create_stash,
-        description="Create a new stash",
-    )
-    update_stash = strawberry_django.mutation(resolver=pak_mutations.update_stash, description="Update a stash")
-    add_items_to_stash = strawberry_django.mutation(resolver=pak_mutations.add_items_to_stash, description="Add items to a stash")
-    delete_stash_items = strawberry_django.mutation(
-        resolver=pak_mutations.delete_stash_items,
-        description="Delete items from a stash",
-    )
-    delete_stash = strawberry_django.mutation(
-        resolver=pak_mutations.delete_stash,
-    )
     create_service_instance = strawberry_django.mutation(
         resolver=fakts_mutations.create_service_instance,
     )
@@ -269,7 +229,6 @@ class Mutation:
 @strawberry.type
 class Subscription:
     communications = strawberry.subscription(resolver=karakter_subscriptions.communications)
-    mentions = strawberry.subscription(resolver=komment_subscriptions.mentions)
 
 
 schema = kante.Schema(
@@ -277,13 +236,5 @@ schema = kante.Schema(
     subscription=Subscription,
     mutation=Mutation,
     extensions=[DjangoOptimizerExtension, AuthAppExtension, DatalayerExtension],
-    types=[
-        komment_types.Descendant,
-        komment_types.MentionDescendant,
-        komment_types.ParagraphDescendant,
-        komment_types.LeafDescendant,
-    ],  # We really need to register
-    # all the types here, otherwise the schema will not be able to resolve them
-    # and will throw a cryptic error
-    config=StrawberryConfig(scalar_map={**fakts_scalar_map, **karakter_scalar_map, **komment_scalar_map}),
+    config=StrawberryConfig(scalar_map={**fakts_scalar_map, **karakter_scalar_map}),
 )

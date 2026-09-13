@@ -2,7 +2,7 @@
 
 These live at the root rather than in ``tests/`` on purpose. lok's pytest config
 also collects the Django-style app-level ``tests.py`` files (authapp, fakts,
-karakter, komment, pak), and a ``tests/conftest.py`` would not apply to them --
+karakter), and a ``tests/conftest.py`` would not apply to them --
 pytest-django would then build the session database from the placeholder port in
 ``settings_test`` and every DB test would fail with "connection refused" on 5432,
 whichever directory happened to be collected first.
