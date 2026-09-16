@@ -188,7 +188,7 @@ wheels = [
 
 [[package]]
 name = "authentikate"
-version = "4.1.0"
+version = "4.1.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "django" },
@@ -198,9 +198,9 @@ dependencies = [
     { name = "kante" },
     { name = "pydantic" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/c0/89/8f7b0b929d047ff11fc23c6945cdecf53c236e957140289d75358fc46b1f/authentikate-4.1.0.tar.gz", hash = "sha256:cdd0c34c4956f29335a2529137b55d507e79adef6f0273b99d9065df80d58c02", size = 42870, upload-time = "2026-09-02T12:06:36.867Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/d8/3b/fc5d274fad0281c9e7d7ef7381eb505d18aa93695049878f8d1d2228fac8/authentikate-4.1.1.tar.gz", hash = "sha256:c46a977f415570dc008abff244278d4fbf9e2a11706dd00b281a0a18f87b8ccf", size = 42865, upload-time = "2026-09-16T19:50:13.757Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/80/95/b891650b5846d1b8eb14a13bb84e7a648d4ecc665a901729461b65fdfd12/authentikate-4.1.0-py3-none-any.whl", hash = "sha256:50806b9f85295bdb53537eea5efa22cef281b53aab43e00fffec40957a8fcda6", size = 54236, upload-time = "2026-09-02T12:06:35.794Z" },
+    { url = "https://files.pythonhosted.org/packages/de/bb/30fe5f53cd0e521ed878d3acff81cee5bdbd270f234c07ca5526222ba3d7/authentikate-4.1.1-py3-none-any.whl", hash = "sha256:66cc3136bf04036603a11585183ed2b24a985a9e5813c3cc94f92af0d0f522f8", size = 54235, upload-time = "2026-09-16T19:50:12.696Z" },
 ]
 
 [[package]]
@@ -1305,7 +1305,7 @@ dev = [
 requires-dist = [
     { name = "aiohttp", specifier = ">=3.11.18" },
     { name = "aioredis", specifier = ">=2.0.1,<3" },
-    { name = "authentikate", specifier = ">=4.1.0" },
+    { name = "authentikate", specifier = ">=4.1.1" },
     { name = "authlib", specifier = ">=1.6.6" },
     { name = "boto3", specifier = ">=1.38.9" },
     { name = "channels-redis", specifier = ">=4.1.0,<5" },
