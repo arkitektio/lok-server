@@ -2,8 +2,8 @@ import strawberry
 from enum import Enum
 from django.db.models import Model, QuerySet
 from typing import Any, Callable, Optional, Type, Dict, Tuple, List
-from django.db.models import Avg, Max, Min, Sum, Count
-from django.db.models.functions import TruncHour, TruncDay, TruncWeek, TruncMonth, TruncQuarter, TruncYear
+from django.db.models import Avg, Max, Min, Sum, Count, DateField, FloatField
+from django.db.models.functions import Extract, TruncHour, TruncDay, TruncWeek, TruncMonth, TruncQuarter, TruncYear
 import strawberry_django
 from kante import Info
 import datetime
@@ -88,20 +88,41 @@ def create_stats_type(
             "year": TruncYear(dt_field),
         }[by.value]
 
+    def _is_temporal(mf: str) -> bool:
+        """True if `mf` (may span relations) resolves to a date/datetime field."""
+        opts = model._meta
+        field = None
+        for part in mf.split("__"):
+            field = opts.pk if part == "pk" else opts.get_field(part)
+            if field.is_relation and field.related_model is not None:
+                opts = field.related_model._meta
+        return isinstance(field, DateField)  # DateTimeField subclasses DateField
+
+    def _stat_aggregates(mf: str) -> Dict[str, Any]:
+        """
+        The max/min/avg/sum aggregates for the model field.
+
+        Postgres has no avg()/sum() over timestamps, and the stats are exposed as floats,
+        so temporal fields are aggregated as epoch seconds (their sum is meaningless and left out).
+        """
+        if _is_temporal(mf):
+            epoch = Extract(mf, "epoch", output_field=FloatField())
+            return dict(max=Max(epoch), min=Min(epoch), avg=Avg(epoch))
+        return dict(max=Max(mf), min=Min(mf), avg=Avg(mf), sum=Sum(mf))
+
     # Default scalar resolver functions (unused directly now; we aggregate once)
     def _all_stats_for_field(qs: QuerySet, mf: str) -> Dict[str, Any]:
         """
         Return all scalar stats for the model field in ONE aggregate.
         """
-        return qs.aggregate(
+        summary = qs.aggregate(
             distinctCount=Count(mf, distinct=True),
-            max=Max(mf),
-            min=Min(mf),
-            avg=Avg(mf),
-            sum=Sum(mf),
+            **_stat_aggregates(mf),
             # Note: 'count' shown separately as total rows, not non-null count.
             # If you prefer non-null count for the field, use Count(mf) here.
         )
+        summary.setdefault("sum", None)
+        return summary
 
     # Build resolver spec but each field will read from the same cached aggregate:
     default_resolvers: ResolverSpec = {
@@ -174,10 +195,7 @@ def create_stats_type(
                 .annotate(
                     count=Count("pk"),
                     distinctCount=Count(mf, distinct=True),
-                    max=Max(mf),
-                    min=Min(mf),
-                    avg=Avg(mf),
-                    sum=Sum(mf),
+                    **_stat_aggregates(mf),
                 )
                 .order_by("bucket")
             )
@@ -192,7 +210,7 @@ def create_stats_type(
                         max=row["max"],
                         min=row["min"],
                         avg=row["avg"],
-                        sum=row["sum"],
+                        sum=row.get("sum"),
                     )
                 )
             return out

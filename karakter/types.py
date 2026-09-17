@@ -101,10 +101,11 @@ class User:
 UserStats, UserStatsResolver = create_stats_type(
     model=models.User,
     filters=filters.UserFilter,
+    # User (AbstractUser) has no created_at; its creation timestamp is date_joined
     allowed_fields={
-        "created_at": "created_at",
+        "created_at": "date_joined",
     },
-    allowed_datetime_fields={"created_at": "created_at"},
+    allowed_datetime_fields={"created_at": "date_joined"},
     prescope=build_prescoper(field="memberships__organization"),
 )
 
