@@ -320,6 +320,7 @@ async def test_hub_device_code_hub_is_null_for_non_members():
 def test_secret_and_raw_fields_are_gone_from_the_schema():
     """Fields that carried credentials or raw identifiers are removed outright."""
     assert "token" not in _sdl_block("ManagementHub")
+    assert "deviceId" not in _sdl_block("ManagementStagingManifest")
     assert "nodeId" not in _sdl_block("ManagementStagingManifest")
     assert "redirectUris" not in _sdl_block("ManagementOAuth2Client")
     partner = _sdl_block("ManagementKommunityPartner")

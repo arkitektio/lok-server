@@ -88,7 +88,7 @@ PINNED_MANIFEST = {
     "identifier": "com.example.pinned",
     "version": "1.0.0",
     "scopes": ["read"],
-    "nodeId": "node-a",
+    "deviceId": "node-a",
     "requirements": [{"key": "rekuest", "service": "live.arkitekt.rekuest"}],
 }
 
@@ -121,7 +121,7 @@ async def test_create_redeem_token_pins_the_manifest():
     pinned = data["pinnedManifest"]
     assert pinned["identifier"] == "com.example.pinned"
     assert pinned["version"] == "1.0.0"
-    assert pinned["node_id"] == "node-a"
+    assert pinned["device_id"] == "node-a"
     assert pinned["scopes"] == ["read"]
     assert [(r["key"], r["service"]) for r in pinned["requirements"]] == [("rekuest", "live.arkitekt.rekuest")]
 
@@ -226,7 +226,7 @@ async def test_delete_redeem_token_spends_it_but_keeps_the_client():
         token = models.RedeemToken.objects.get(id=token_id)
         # A subset of the pin: the test hub offers no rekuest instance and the org
         # defines no `read` scope, and the pin is a ceiling, not a demand.
-        return redeem_token(token.token, Manifest(identifier="com.example.pinned", version="1.0.0", scopes=[], node_id="node-a", requirements=[]))
+        return redeem_token(token.token, Manifest(identifier="com.example.pinned", version="1.0.0", scopes=[], device_id="node-a", requirements=[]))
 
     client = await sync_to_async(_redeem_it)()
 
@@ -245,3 +245,33 @@ async def test_delete_redeem_token_spends_it_but_keeps_the_client():
 
     again = await schema.execute(DELETE_REDEEM_TOKEN, context_value=context, variable_values={"id": token_id})
     assert again.errors and "not authorized" in again.errors[0].message
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_the_deprecated_node_id_input_still_pins_the_device():
+    """``nodeId`` on ``ManifestInput`` is deprecated but still accepted, and lands as
+    ``device_id`` in the pinned manifest."""
+    user, organization, request_client = await sync_to_async(_setup_with_hub)()
+    manifest = {**PINNED_MANIFEST}
+    manifest["nodeId"] = manifest.pop("deviceId")
+
+    result = await schema.execute(
+        CREATE_REDEEM_TOKEN,
+        context_value=_context(user, organization, request_client),
+        variable_values={"input": {"manifest": manifest, "expiresInDays": 1, "maxRedemptions": 1}},
+    )
+
+    assert not result.errors, result.errors
+    pinned = result.data["createRedeemToken"]["pinnedManifest"]
+    assert pinned["device_id"] == "node-a"
+    assert "node_id" not in pinned
+
+
+def test_the_deprecated_node_id_input_is_marked_deprecated_in_the_schema():
+    sdl = schema.as_str()
+    start = sdl.index("input ManifestInput ")
+    block = sdl[start : sdl.index("\n}", start)]
+    assert "deviceId" in block
+    node_line = next(line for line in block.splitlines() if line.strip().startswith("nodeId"))
+    assert "@deprecated" in node_line

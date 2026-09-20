@@ -167,7 +167,7 @@ Describes a client/app. Used by [client device code](./client_device_code.md),
 | `logo` | str? | `null` | URL to a logo; downloaded and validated at start. |
 | `scopes` | str[] | `[]` | Requested scopes (must exist as org scopes; granted scopes land in the token's `scope`). |
 | `requirements` | [`Requirement`](#requirement)[] | `[]` | Services the client needs to run. |
-| `node_id` | str? | `null` | Stable id of the node the client runs on (creates/links a `Device`). |
+| `device_id` | str? | `null` | Stable id of the device the client runs on (creates/links a `Device`). `node_id` is the deprecated spelling, still accepted. |
 | `authors` | str[] | `[]` | Maintainers. |
 | `keywords` | str[] | `[]` | Discovery tags. |
 | `license` | str? | `null` | SPDX id or free text. |
@@ -200,7 +200,7 @@ Describes a service instance. Used inside a hub's `instances`.
 | `logo` | str? | `null` | Logo URL. |
 | `roles` | `{key, description?}`[] | `[]` | Roles this service defines. |
 | `scopes` | `{key, description?}`[] | `[]` | Scopes this service defines. |
-| `node_id` | str? | `null` | Stable node id (creates/links a `Device`). |
+| `device_id` | str? | `null` | Stable device id (creates/links a `Device`). `node_id` is the deprecated spelling, still accepted. |
 | `instance_id` | str? | `"default"` | Distinguishes multiple instances of the same service. |
 | `public_sources` | [`PublicSource`](#publicsource)[]? | `null` | Where the service can be found. |
 | `challenge_key` | str? | `null` | Base64 raw Ed25519 public key (32 bytes) for verifying signed alias challenges. |

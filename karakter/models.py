@@ -101,7 +101,7 @@ class Organization(models.Model):
         blank=True,
         default=None,
         help_text="When set, clients created in this organization must present a device "
-        "node_id (device authentication). None/False means device auth is not required.",
+        "device_id (device authentication). None/False means device auth is not required.",
     )
     access_token_lifetime = models.IntegerField(
         null=True,

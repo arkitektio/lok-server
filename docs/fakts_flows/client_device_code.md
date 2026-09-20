@@ -55,7 +55,7 @@ reviews the manifest and calls `acceptDeviceCode` (management GraphQL):
 |---|---|
 | `deviceCode` | The device code's id (looked up from the code via `deviceCodeByCode`). |
 | `hub` | The hub to compose against — **this picks the organization** (`hub.organization`); the caller must be a member. |
-| `deviceName` | Optional name for a newly created device (when the manifest carries `node_id`). |
+| `deviceName` | Optional name for a newly created device (when the manifest carries `device_id`). |
 | `declinedRequirements` | Optional requirement keys the user declines (optional requirements only). |
 
 Approval mints the org-scoped fakts `Client` (bound to the approving user's

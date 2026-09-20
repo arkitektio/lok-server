@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field
+from pydantic import AliasChoices, BaseModel, Field
 from typing import Dict, List, Optional, Literal, Union
 from django.conf import settings
 from fakts import enums
@@ -117,8 +117,11 @@ class Manifest(BaseModel):
     """ The scopes are a list of scopes that the client can request. """
     requirements: list[Requirement] = Field(default_factory=list)
     """ The requirements are a list of requirements that the client needs to run on (e.g. needs GPU)"""
-    node_id: Optional[str] = None
-    """ The node_id is the id of the node that the runs on """
+    device_id: Optional[str] = Field(
+        default=None, validation_alias=AliasChoices("device_id", "node_id")
+    )
+    """ The device the client runs on. ``node_id`` is the deprecated spelling; it is
+    still accepted on input and stored manifests, and read back as ``device_id``. """
     authors: list[str] = Field(default_factory=list)
     """ The authors that created and maintain the app. """
     keywords: list[str] = Field(default_factory=list)
@@ -162,8 +165,10 @@ class ServiceManifest(BaseModel):
     """ The requirements are a list of requirements that the client needs to run on (e.g. needs GPU)"""
     scopes: Optional[List[Scope]] = Field(default_factory=list)
     """ The scopes are a list of scopes that the client can request. """
-    node_id: Optional[str] = None
-    """ The node_id is the id of the node that the runs on """
+    device_id: Optional[str] = Field(
+        default=None, validation_alias=AliasChoices("device_id", "node_id")
+    )
+    """ The device the service runs on. ``node_id`` is the deprecated spelling. """
     instance_id: Optional[str] = "default"
     """ The instance_id is the id of the instance that the runs on """
     public_sources: Optional[List[PublicSource]] = None

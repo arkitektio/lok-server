@@ -16,7 +16,7 @@ def create_developmental_client(info: Info, input: inputs.DevelopmentClientInput
         version=input.manifest.version,
         logo=input.manifest.logo,
         scopes=input.manifest.scopes or [],
-        node_id=input.manifest.node_id,
+        device_id=input.manifest.device_id or input.manifest.node_id,
         requirements=[strawberry.asdict(x) for x in input.manifest.requirements],
         public_sources=[strawberry.asdict(x) for x in input.manifest.public_sources] if input.manifest.public_sources else [],
     )

@@ -68,7 +68,7 @@ provisioned, the presented manifest must satisfy the pin:
 | field | rule |
 |---|---|
 | `identifier`, `version` | must match exactly |
-| `node_id` | must match exactly when the pin carries one; a pin without `node_id` accepts any node |
+| `device_id` | must match exactly when the pin carries one; a pin without `device_id` accepts any device. `node_id` is the deprecated spelling and is still accepted. |
 | `scopes` | ceiling — the presented manifest may request a subset, never a scope outside the pin |
 | `requirements` | ceiling on `(key, service)` pairs — extra requirements would render extra service instances into the envelope |
 | everything else (title, description, logo, authors, keywords, public sources) | not compared; the running app assembles these from its image |

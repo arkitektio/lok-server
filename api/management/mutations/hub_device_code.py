@@ -82,7 +82,7 @@ def _provision_hub(info: Info, input: AcceptHubDeviceCodeInput, device_code, org
 
     for servicer in manifest.instances:
         service_manifest = servicer.manifest
-        device_id = service_manifest.node_id
+        device_id = service_manifest.device_id
         if device_id:
             device, _ = fakts_models.Device.objects.get_or_create(organization=organization, node_id=hash_device_id(device_id, organization))
         else:

@@ -404,7 +404,7 @@ class RedeemToken(models.Model):
         blank=True,
         help_text=(
             "The manifest this token was pre-authorized for, fixed at mint time. When set, a "
-            "redeem must present the same identifier, version and node_id, and may request "
+            "redeem must present the same identifier, version and device_id, and may request "
             "only a subset of the pinned scopes and requirements; anything else is refused "
             "before a client is provisioned. NULL means the token is unpinned and the "
             "manifest is fixed on first redeem (manifest_hash) instead."

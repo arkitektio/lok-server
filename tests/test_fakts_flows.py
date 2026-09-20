@@ -419,7 +419,7 @@ def test_same_app_on_same_device_can_be_approved_into_two_hubs(client):
     factories.make_membership(user=user, organization=hub_a.organization)
     manifest = {
         "identifier": "com.example.multihub", "version": "1.0.0",
-        "scopes": [], "requirements": [], "node_id": "same-laptop",
+        "scopes": [], "requirements": [], "device_id": "same-laptop",
     }
 
     first = _start(client, manifest=manifest)
@@ -471,7 +471,7 @@ PINNED = {
     "version": "1.0.0",
     "scopes": [],
     "requirements": [],
-    "node_id": "node-a",
+    "device_id": "node-a",
 }
 
 
@@ -507,7 +507,7 @@ def test_pinned_redeem_accepts_matching_manifest(client):
     [
         ({"identifier": "com.example.other"}, "pinned to app 'com.example.pinned'"),
         ({"version": "2.0.0"}, "pinned to version '1.0.0'"),
-        ({"node_id": "node-b"}, "different node"),
+        ({"device_id": "node-b"}, "different device"),
         ({"scopes": ["admin"]}, "does not authorize the scope(s) admin"),
         (
             {"requirements": [{"key": "lok", "service": "live.arkitekt.lok"}]},
@@ -555,12 +555,30 @@ def test_pinned_redeem_is_checked_on_every_redeem(client):
 
 
 @pytest.mark.django_db
-def test_pinned_node_is_optional(client):
-    redeem = _pinned(node_id=None)
+def test_pinned_device_is_optional(client):
+    redeem = _pinned(device_id=None)
 
-    resp = _redeem_manifest(client, redeem.token, {**PINNED, "node_id": "any-node"})
+    resp = _redeem_manifest(client, redeem.token, {**PINNED, "device_id": "any-node"})
 
     assert resp.status_code == 200, resp.json()
+
+
+@pytest.mark.django_db
+def test_the_deprecated_node_id_spelling_redeems_onto_the_same_device(client):
+    """A manifest posted with ``node_id`` (old clients) and one with ``device_id``
+    name the same device, and a pin stored under the old key still matches."""
+    redeem = factories.make_redeem_token(pinned_manifest={**{k: v for k, v in PINNED.items() if k != "device_id"}, "node_id": "node-a"})
+    old_spelling = {**{k: v for k, v in PINNED.items() if k != "device_id"}, "node_id": "node-a"}
+
+    assert _redeem_manifest(client, redeem.token, old_spelling).status_code == 200
+    redeem.refresh_from_db()
+    first = redeem.client
+
+    assert _redeem_manifest(client, redeem.token, PINNED).status_code == 200
+    redeem.refresh_from_db()
+    assert redeem.client == first
+    assert first.node is not None
+    assert first.manifest["device_id"] == "node-a" and "node_id" not in first.manifest
 
 
 @pytest.mark.django_db

@@ -36,7 +36,7 @@ BASE_OIDC_SCOPES = ["openid", "profile", "email"]
 
 class DeviceAuthRequired(Exception):
     """Raised when an organization requires device authentication but the client
-    manifest carries no ``node_id``."""
+    manifest carries no ``device_id``."""
 
 
 class RedeemTokenExpired(Exception):
@@ -75,7 +75,7 @@ def hash_manifest(manifest: Manifest) -> str:
 def check_pinned_manifest(pinned: dict, manifest: Manifest) -> None:
     """Refuse a redeem whose manifest is not covered by the token's pinned manifest.
 
-    Identity (``identifier``, ``version``) and placement (``node_id``, when pinned) must
+    Identity (``identifier``, ``version``) and placement (``device_id``, when pinned) must
     match exactly. ``scopes`` and ``requirements`` are a *ceiling*: the presented manifest
     may request a subset, never more — extra scopes would widen what the issued token can
     do, extra requirements would render extra service instances into the envelope.
@@ -93,10 +93,11 @@ def check_pinned_manifest(pinned: dict, manifest: Manifest) -> None:
             f"This redeem token is pinned to version '{pinned.get('version')}' of "
             f"'{manifest.identifier}', not '{manifest.version}'."
         )
-    pinned_node = pinned.get("node_id")
-    if pinned_node and manifest.node_id != pinned_node:
+    # Tokens pinned before the rename stored the device under `node_id`.
+    pinned_device = pinned.get("device_id") or pinned.get("node_id")
+    if pinned_device and manifest.device_id != pinned_device:
         raise RedeemTokenManifestMismatch(
-            "This redeem token is pinned to a different node than the one the manifest names."
+            "This redeem token is pinned to a different device than the one the manifest names."
         )
     extra_scopes = sorted(set(manifest.scopes or []) - set(pinned.get("scopes") or []))
     if extra_scopes:
@@ -209,16 +210,16 @@ def bind_client(
         },
     )
 
-    if organization.require_device_auth and not manifest.node_id:
+    if organization.require_device_auth and not manifest.device_id:
         raise DeviceAuthRequired(
             "This organization requires device authentication; the client manifest "
-            "must include a node_id."
+            "must include a device_id."
         )
 
-    if manifest.node_id:
+    if manifest.device_id:
         node = models.Device.objects.get_or_create(
             organization=organization,
-            node_id=hash_device_id(manifest.node_id, organization),
+            node_id=hash_device_id(manifest.device_id, organization),
             defaults={"name": device_name},
         )[0]
     else:
@@ -261,14 +262,14 @@ def bind_client(
 
 @transaction.atomic
 def validate_redeem_token(redeem_token: models.RedeemToken, manifest: Manifest, role: enums.ClientRoleVanilla = enums.ClientRoleVanilla.INTERFACE) -> models.RedeemToken:
-    node_id = manifest.node_id
+    device_id = manifest.device_id
     hub = redeem_token.hub
     organization = redeem_token.hub.organization
     user = redeem_token.user
     membership = karakter_models.Membership.objects.get(user=user, organization=organization)
 
-    if node_id:
-        node, _ = models.Device.objects.get_or_create(organization=organization, node_id=hash_device_id(node_id, organization))
+    if device_id:
+        node, _ = models.Device.objects.get_or_create(organization=organization, node_id=hash_device_id(device_id, organization))
     else:
         node = None
 

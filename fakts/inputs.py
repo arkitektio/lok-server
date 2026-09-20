@@ -42,7 +42,12 @@ class ManifestInput:
     description: Optional[str] = None
     logo: Optional[str] = None
     scopes: list[str]
-    node_id: Optional[str] = None
+    device_id: Optional[str] = strawberry.field(
+        default=None, description="The device the client runs on."
+    )
+    node_id: Optional[str] = strawberry.field(
+        default=None, deprecation_reason="Use deviceId."
+    )
     requirements: list[RequirementInput] = Field(default_factory=list)
     authors: list[str] = Field(default_factory=list)
     keywords: list[str] = Field(default_factory=list)
@@ -65,7 +70,7 @@ class RedeemTokenInput:
 
     A token minted here is always *pre-authorized*: ``manifest`` is required and the
     token may then only be redeemed by an app presenting that identifier/version/
-    node_id, requesting no more than those scopes and requirements. ``expires_in_days``
+    device_id, requesting no more than those scopes and requirements. ``expires_in_days``
     defaults to 7 and is capped at 30; ``max_redemptions`` is unlimited when omitted (a
     redeem with the same manifest returns the same client, so a restarting container
     may redeem more than once).

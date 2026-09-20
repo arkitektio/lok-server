@@ -556,7 +556,7 @@ class ManagementOrganization:
     description: str | None = strawberry.field(description="A short description of the organization")
     brand_hue: Optional[float] = strawberry.field(description="The organization's default brand hue (0–360), if set. Members can override it per-membership.")
     brand_chroma: Optional[float] = strawberry.field(description="The organization's default brand chroma (0–1), if set. Members can override it per-membership.")
-    require_device_auth: Optional[bool] = strawberry.field(description="Whether clients created in this organization must present a device node_id. None/False means device auth is not required.")
+    require_device_auth: Optional[bool] = strawberry.field(description="Whether clients created in this organization must present a device_id. None/False means device auth is not required.")
     access_token_lifetime: Optional[int] = strawberry.field(description="Access-token lifetime in seconds for this organization's clients. Null means the server default (one hour). Clamped into the server's allowed range when tokens are issued.")
     active_users: List[ManagementUser] = strawberry.field(description="The users that are currently active in the organization")
     profile: Optional["ManagementOrganizationProfile"] = strawberry.field(description="The profile of the organization")
@@ -702,14 +702,18 @@ class ManagementStagingManifest:
     repo_url: str | None = None
     public_sources: list[ManagementStagingPublicSource] | None = strawberry.field(description="Public sources for this staging service")
     requirements: list[ManagementStagingRequirement]
-    # The raw device node id is a secret-ish identifier (it is hashed per organization
+    # The raw device id is a secret-ish identifier (it is hashed per organization
     # before it is ever persisted on a Device). It is deliberately NOT exposed; the UI only
     # needs to know whether the manifest is device-bound.
-    node_id: strawberry.Private[str | None] = None
+    device_id: strawberry.Private[str | None] = None
 
-    @strawberry.field(description="Whether this manifest is bound to a device (carries a node id). The id itself is never exposed.")
+    @strawberry.field(description="Whether this manifest is bound to a device (carries a device id). The id itself is never exposed.")
+    def has_device_id(self) -> bool:
+        return bool(self.device_id)
+
+    @strawberry.field(deprecation_reason="Use hasDeviceId.")
     def has_node_id(self) -> bool:
-        return bool(self.node_id)
+        return bool(self.device_id)
 
 
 @pydantic.type(base_models.Role)
@@ -1287,7 +1291,11 @@ class ManagementDeviceGroup:
 class ManagementDevice:
     id: strawberry.ID
     name: str | None
-    node_id: strawberry.ID
+    node_id: strawberry.ID = strawberry_django.field(deprecation_reason="Use deviceId.")
+
+    @strawberry_django.field(description="The (per-organization hashed) id of the device.")
+    def device_id(self) -> strawberry.ID:
+        return self.node_id
     clients: list["ManagementClient"]
     organization: "ManagementOrganization" = strawberry_django.field(description="The organization that owns this compute node.")
     service_instances: list[ManagementServiceInstance] = strawberry_django.field(description="The service instances that are associated with this compute node.")

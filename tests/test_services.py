@@ -32,7 +32,7 @@ def test_bind_client_creates_development_client_with_role():
 
 
 @pytest.mark.django_db
-def test_create_client_rejects_missing_node_id_when_org_requires_device_auth():
+def test_create_client_rejects_missing_device_id_when_org_requires_device_auth():
     membership = factories.make_membership()
     user = membership.user
     organization = membership.organization
@@ -44,7 +44,7 @@ def test_create_client_rejects_missing_node_id_when_org_requires_device_auth():
 
 
 @pytest.mark.django_db
-def test_create_client_allows_node_id_when_org_requires_device_auth():
+def test_create_client_allows_device_id_when_org_requires_device_auth():
     membership = factories.make_membership()
     user = membership.user
     organization = membership.organization
@@ -56,12 +56,35 @@ def test_create_client_allows_node_id_when_org_requires_device_auth():
         version="1.0.0",
         scopes=[],
         requirements=[],
-        node_id="node-123",
+        device_id="node-123",
     )
 
     client = clients.bind_client(clients.create_public_client(), manifest, membership)
 
     assert client.node is not None
+
+
+@pytest.mark.django_db
+def test_the_deprecated_node_id_spelling_still_names_the_device():
+    """``node_id`` is read as ``device_id`` and dumps as ``device_id``: an old client
+    and a new one on the same machine share one Device."""
+    membership = factories.make_membership()
+    old = base_models.Manifest(identifier="com.example.node", version="1.0.0", scopes=[], requirements=[], node_id="node-123")
+    new = base_models.Manifest(identifier="com.example.node", version="1.0.0", scopes=[], requirements=[], device_id="node-123")
+    assert old.device_id == "node-123"
+    assert old.model_dump()["device_id"] == "node-123" and "node_id" not in old.model_dump()
+
+    a = clients.bind_client(clients.create_public_client(), old, membership)
+    b = clients.bind_client(clients.create_public_client(), new, membership)
+    assert a.node is not None and a.node_id == b.node_id
+
+
+def test_check_pinned_manifest_accepts_a_pin_stored_under_the_old_key():
+    """Tokens pinned before the rename stored the device under ``node_id``."""
+    manifest = base_models.Manifest(identifier="com.example.pinned", version="1.0.0", scopes=[], requirements=[], device_id="node-a")
+    clients.check_pinned_manifest({"identifier": "com.example.pinned", "version": "1.0.0", "node_id": "node-a"}, manifest)
+    with pytest.raises(clients.RedeemTokenManifestMismatch, match="different device"):
+        clients.check_pinned_manifest({"identifier": "com.example.pinned", "version": "1.0.0", "node_id": "node-b"}, manifest)
 
 
 @pytest.mark.django_db
@@ -103,7 +126,7 @@ def test_validate_device_code_uses_provided_name_for_node_device():
             "version": "1.0.0",
             "scopes": [],
             "requirements": [],
-            "node_id": "node-123",
+            "device_id": "node-123",
         },
     )
 

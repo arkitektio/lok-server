@@ -137,13 +137,13 @@ class Query:
 
         mappings: list[types.PotentialMapping] = []
 
-        # Devices are keyed by (organization, hashed node_id). Surface the existing device
+        # Devices are keyed by (organization, hashed device_id). Surface the existing device
         # (if any) so the client knows whether accepting will create a new device.
         existing_device = None
-        if manifest.node_id:
+        if manifest.device_id:
             existing_device = fakts_models.Device.objects.filter(
                 organization=hub_obj.organization,
-                node_id=hash_device_id(manifest.node_id, hub_obj.organization),
+                node_id=hash_device_id(manifest.device_id, hub_obj.organization),
             ).first()
 
         if not manifest.requirements:

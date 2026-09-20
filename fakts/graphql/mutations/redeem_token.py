@@ -37,7 +37,7 @@ def _pinned_manifest(manifest: inputs.ManifestInput) -> Manifest:
         identifier=manifest.identifier,
         version=manifest.version,
         scopes=manifest.scopes or [],
-        node_id=manifest.node_id,
+        device_id=manifest.device_id or manifest.node_id,
         requirements=[strawberry.asdict(x) for x in manifest.requirements],
         public_sources=[strawberry.asdict(x) for x in manifest.public_sources] if manifest.public_sources else [],
     )

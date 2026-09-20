@@ -379,8 +379,12 @@ class DeviceGroup:
 class Device:
     id: strawberry.ID
     name: str | None
-    node_id: strawberry.ID
+    node_id: strawberry.ID = strawberry_django.field(deprecation_reason="Use deviceId.")
     clients: list[Client]
+
+    @strawberry_django.field(description="The (per-organization hashed) id of the device.")
+    def device_id(self) -> strawberry.ID:
+        return self.node_id
     device_groups: list[DeviceGroup] = strawberry_django.field(description="The device groups that belong to this device.")
 
     @classmethod
@@ -400,7 +404,7 @@ class RedeemToken:
     pinned_manifest: JSON | None = strawberry.field(
         description=(
             "The manifest this token was pre-authorized for at mint time, or null for an "
-            "unpinned token. A redeem must match its identifier, version and node_id exactly "
+            "unpinned token. A redeem must match its identifier, version and device_id exactly "
             "and may only request a subset of its scopes and requirements."
         )
     )
