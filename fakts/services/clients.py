@@ -12,6 +12,7 @@ import logging
 
 from django.conf import settings
 from django.db import transaction
+from django.db.models import Q
 from django.utils import timezone
 
 from fakts import base_models, enums, models
@@ -258,6 +259,73 @@ def bind_client(
     finalize_client_scope(client)
 
     return client
+
+
+PRIOR_ACCESS_ACTIVE = "active"
+PRIOR_ACCESS_EXPIRED = "expired"
+PRIOR_ACCESS_REVOKED = "revoked"
+
+
+def find_prior_clients(manifest: Manifest, user: karakter_models.User):
+    """Bound clients ``user`` previously approved for the app/device this manifest
+    describes, most recently seen first.
+
+    Used by the configure page to say "you already authorized this app on this
+    device into hub X" and to preselect that hub when the device re-registers
+    after its refresh chain died. The lookup is derived from the surviving
+    ``Client`` rows only (``bind_client`` deletes them at *re*-approval, never at
+    token expiry), so nothing is persisted for it.
+
+    Scoping is deliberate: ``device_id`` is self-asserted by an unauthenticated
+    device, so the answer must never reveal anything about other users. Only
+    clients bound to one of the caller's own memberships are considered, and the
+    device id is hashed with each of the caller's organizations' salts (the hash
+    is per-organization). A manifest without ``device_id`` matches nothing.
+    """
+    if not manifest.device_id:
+        return models.Client.objects.none()
+
+    memberships = karakter_models.Membership.objects.filter(user=user).select_related("organization")
+    node_q = Q(pk__in=[])
+    for membership in memberships:
+        organization = membership.organization
+        node_q |= Q(
+            node__organization=organization,
+            node__node_id=hash_device_id(manifest.device_id, organization),
+        )
+
+    return (
+        models.Client.objects.filter(node_q)
+        .filter(
+            membership__user=user,
+            hub__isnull=False,
+            release__app__identifier=manifest.identifier,
+        )
+        .select_related("hub", "hub__organization", "release", "release__app", "node")
+        .prefetch_related("scopes")
+        .order_by("-last_reported_at", "-created_at")
+    )
+
+
+def client_access_state(client: models.Client) -> str:
+    """Whether a previously approved client can still refresh.
+
+    ``revoked``: its newest token was revoked (operator action or reuse
+    detection) — the configure page must not present re-approval as a routine
+    renewal in that case. ``expired``: the chain simply ran out (or never issued
+    a token). ``active``: it can still refresh, i.e. the new registration is a
+    parallel install rather than a renewal.
+    """
+    from authapp.models import OAuth2Token
+
+    latest = OAuth2Token.objects.filter(client_id=client.client_id).order_by("-issued_at", "-id").first()
+    if latest is None:
+        return PRIOR_ACCESS_EXPIRED
+    if latest.revoked:
+        return PRIOR_ACCESS_REVOKED
+    if latest.is_refresh_token_active():
+        return PRIOR_ACCESS_ACTIVE
+    return PRIOR_ACCESS_EXPIRED
 
 
 @transaction.atomic

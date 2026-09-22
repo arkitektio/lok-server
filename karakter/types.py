@@ -1,5 +1,5 @@
 import datetime
-from typing import List, Optional, cast
+from typing import Annotated, List, Optional, cast
 from karakter.datalayer import get_current_datalayer
 import strawberry
 import strawberry_django
@@ -461,6 +461,14 @@ class Context:
     organization: Organization = strawberry.field(description="The organization that is associated with this app")
     roles: List[str] = strawberry.field(description="The roles that the user has in the organization")
     scope: List[str] = strawberry.field(description="The scope of the app within in the organization")
+    hub: Optional[Annotated["Hub", strawberry.lazy("fakts.types")]] = strawberry.field(
+        default=None,
+        description=(
+            "The hub this client was approved into (for an app client) or is the identity of "
+            "(for a hub client). Null for clients bound to no hub, e.g. plain OIDC relying parties. "
+            "Apps can pass its id back as `?hub=` on a later configure link to preselect it."
+        ),
+    )
 
     @strawberry_django.field(description="Are we acting in the active organization of the user?")
     def fits_active_organization(self) -> bool:

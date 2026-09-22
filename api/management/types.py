@@ -1,4 +1,5 @@
 import datetime
+from enum import Enum
 from typing import List, Optional, cast
 from django.conf import settings
 from django.db.models import Q
@@ -1491,6 +1492,30 @@ class ManagementOAuth2Client:
     kind: str
 
 
+@strawberry.enum(description="Whether a previously approved client can still refresh its tokens.")
+class PriorAccessState(str, Enum):
+    ACTIVE = "active"
+    EXPIRED = "expired"
+    REVOKED = "revoked"
+
+
+@strawberry.type(
+    description=(
+        "A client the caller previously approved for the same app on the same device "
+        "as a pending device code. Informational only: the device id in a manifest is "
+        "self-asserted, so this never shortcuts consent."
+    )
+)
+class ManagementPriorAuthorization:
+    hub: ManagementHub = strawberry.field(description="The hub the earlier approval bound the app to.")
+    client: ManagementClient = strawberry.field(description="The surviving client row of that approval. Re-approving into the same hub replaces it.")
+    version: str = strawberry.field(description="The app version that was approved back then.")
+    scopes: list[str] = strawberry.field(description="The scope identifiers that approval granted, for diffing against the new request.")
+    authorized_at: datetime.datetime = strawberry.field(description="When the earlier approval happened.")
+    last_seen_at: datetime.datetime | None = strawberry.field(description="When that client last reported in.")
+    access_state: PriorAccessState = strawberry.field(description="ACTIVE: it can still refresh (parallel install). EXPIRED: its refresh chain ran out. REVOKED: an operator or reuse detection revoked it — re-approval undoes that.")
+
+
 @strawberry_django.type(fakts_models.DeviceCode, filters=filters.ManagementDeviceCodeFilter, pagination=True, description="""A DeviceCode is used for the device code flow for client authentication.""")
 class ManagementDeviceCode:
     id: strawberry.ID
@@ -1530,6 +1555,37 @@ class ManagementDeviceCode:
             return ManagementStagingManifest.from_pydantic(base_models.Manifest(**self.staging_manifest))
         except (PydanticValidationError, TypeError):
             return None
+
+    @strawberry_django.field(
+        description=(
+            "Clients the caller already approved for this app on this device, most recently "
+            "seen first. Empty when the manifest carries no device id or nothing matches. "
+            "Scoped to the caller's own approvals in organizations they belong to."
+        )
+    )
+    def prior_authorizations(self, info: Info) -> list[ManagementPriorAuthorization]:
+        from fakts.services import clients as client_services
+
+        caller = _caller(info)
+        if caller is None or not self.staging_manifest:
+            return []
+        try:
+            manifest = base_models.Manifest(**self.staging_manifest)
+        except (PydanticValidationError, TypeError):
+            return []
+
+        return [
+            ManagementPriorAuthorization(
+                hub=client.hub,
+                client=client,
+                version=client.release.version if client.release_id else "",
+                scopes=sorted(s.identifier for s in client.scopes.all() if s.identifier),
+                authorized_at=client.created_at,
+                last_seen_at=client.last_reported_at,
+                access_state=PriorAccessState(client_services.client_access_state(client)),
+            )
+            for client in client_services.find_prior_clients(manifest, caller)
+        ]
 
 
 @strawberry_django.type(fakts_models.DeviceCode, filters=filters.ManagementHubDeviceCodeFilter, pagination=True, description="""A HubDeviceCode is a hub-kind staged authorization (unified DeviceCode model).""")
