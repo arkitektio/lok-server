@@ -1,4 +1,5 @@
 from typing import Optional
+from lok_server.logs import QuietErrorsSchema
 from fakts.logic import find_instance_for_requirement_and_hub
 import strawberry
 import strawberry_django
@@ -543,7 +544,11 @@ class Mutation:
     )
 
 
-schema = kante.Schema(
+class Schema(QuietErrorsSchema, kante.Schema):
+    """kante.Schema, logging expected resolver errors as one line and bugs with a traceback (see logs.py)."""
+
+
+schema = Schema(
     query=Query,
     mutation=Mutation,
     types=[types.ManagementGithubAccount, types.ManagementGenericAccount, types.ManagementGoogleAccount, types.ManagementOrcidAccount],

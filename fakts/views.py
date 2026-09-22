@@ -381,8 +381,8 @@ class ClaimHubView(View):
             context = rendering.create_serverlinking_context(request, hub, claim)
             config = rendering.render_server_fakts(hub, context)
             return JsonResponse({"status": "granted", "config": config.model_dump()})
-        except Exception as e:
-            logger.error(e, exc_info=True)
+        except Exception:
+            logger.exception("Rendering the server fakts for hub %s failed", hub.pk)
             return _error(
                 ERROR_SERVER_ERROR,
                 "Error creating configuration",
@@ -419,8 +419,8 @@ class ReportView(View):
                 http_status=401,
                 message="No client found for this token",
             )
-        except Exception as e:
-            logger.error(e, exc_info=True)
+        except Exception:
+            logger.exception("Processing the self-report of client %s failed", claims.get("client_id"))
             return _error(
                 ERROR_SERVER_ERROR,
                 "Error processing report",

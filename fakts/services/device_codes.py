@@ -50,7 +50,7 @@ def start_device_code(start_grant: base_models.DeviceCodeStartRequest) -> models
     except Exception as e:
         raise LogoDownloadError(str(e)) from e
 
-    logger.info(f"Received start challenge for {manifest.identifier}:{manifest.version} {start_grant.request_public}")
+    logger.debug("Received start challenge for %s:%s", manifest.identifier, manifest.version)
 
     # Registration writes the requested attributes straight onto the staged
     # (unbound) client — the staged row IS the client.
@@ -98,7 +98,7 @@ def start_hub_device_code(start_grant: base_models.HubStartRequest) -> models.De
     except Exception as e:
         raise LogoDownloadError(str(e)) from e
 
-    logger.info(f"Received start challenge for {manifest.identifier}")
+    logger.debug("Received start challenge for %s", manifest.identifier)
 
     client = create_public_client(kind=enums.ClientKindVanilla.HUB.value)
 
@@ -119,7 +119,7 @@ def start_mesh_device_code(start_grant: base_models.MeshDeviceCodeStartRequest) 
     (minting the pre-auth key) via the management GraphQL. ``code`` is the human-visible
     value for the configure URL, ``challenge_code`` is the secret the machine polls with.
     """
-    logger.info(f"Received mesh start challenge for machine {start_grant.requested_machine_name!r}")
+    logger.debug("Received mesh start challenge for machine %r", start_grant.requested_machine_name)
 
     return models.MeshDeviceCode.objects.create(
         code=create_device_code(),

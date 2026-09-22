@@ -3,12 +3,15 @@ import os
 import shutil
 import re
 import json
+import logging
 from typing import List, Dict, Any, Union, Optional, Protocol, runtime_checkable
 from pathlib import Path
 from .base_models import Tailnet, TailnetCreate, Machine, MachineDetail, DNSConfig, TailnetLockStatus, NodeLockState, TailnetUser
 from .errors import IonscaleError
 from django.conf import settings
 from django.utils.module_loading import import_string
+
+logger = logging.getLogger(__name__)
 
 
 @runtime_checkable
@@ -87,7 +90,7 @@ class IonscaleRepository:
         # Ionscale CLI requires the flag, so we pass it in the args but execute carefully.
 
         base_cmd = [self.binary,  *args]
-        print("Running Ionscale CLI command:", " ".join(base_cmd))  # Debug log, safe since key is not in args
+        logger.debug("Running ionscale CLI: %s", " ".join(base_cmd))  # safe: the key travels in env, not args
 
         try:
             result = subprocess.run(
@@ -101,7 +104,7 @@ class IonscaleRepository:
                     "IONSCALE_ADDR": self.server_url,
                 },
             )
-            print("Ionscale CLI output:", result.stdout)  # Debug log
+            logger.debug("ionscale CLI output: %s", result.stdout)
             return result.stdout.strip()
 
         except subprocess.CalledProcessError as e:
@@ -114,7 +117,6 @@ class IonscaleRepository:
         Runs `ionscale tailnet list` and parses the output.
         """
         output = self._run_command(["tailnet", "list"])
-        print(output)
         return self._parse_list_output(output)
 
     def list_machines(self, tailnet: str) -> List[Machine]:

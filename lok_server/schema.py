@@ -1,5 +1,6 @@
 
 import strawberry
+from lok_server.logs import QuietErrorsSchema
 import strawberry_django
 from kante.types import Info
 from fakts import types as fakts_types
@@ -231,7 +232,11 @@ class Subscription:
     communications = strawberry.subscription(resolver=karakter_subscriptions.communications)
 
 
-schema = kante.Schema(
+class Schema(QuietErrorsSchema, kante.Schema):
+    """kante.Schema, logging expected resolver errors as one line and bugs with a traceback (see logs.py)."""
+
+
+schema = Schema(
     query=Query,
     subscription=Subscription,
     mutation=Mutation,

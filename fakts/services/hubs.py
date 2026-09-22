@@ -135,7 +135,7 @@ def create_hub_from_manifest(
         hub.token = secrets.token_urlsafe(32)
         hub.save(update_fields=["token"])
 
-    logger.info(f"{'Created' if created else 'Updated'} hub '{hub.name}' for org '{organization.slug}'")
+    counts = {"instances": 0, "roles": 0, "scopes": 0, "aliases": 0}
 
     for instance_request in manifest.instances:
         service_manifest = instance_request.manifest
@@ -156,24 +156,35 @@ def create_hub_from_manifest(
             },
         )
 
-        logger.info(f"  {'Created' if inst_created else 'Updated'} instance: {instance.token}")
+        counts["instances"] += 1
+        logger.debug("%s instance %s", "Created" if inst_created else "Updated", instance.token)
 
         if service_manifest.roles:
             for role_config in service_manifest.roles:
                 role, role_created = karakter_models.Role.objects.get_or_create(organization=organization, identifier=role_config.key, defaults={"description": role_config.description, "creating_instance": instance})
                 role.used_by.add(instance)
-                logger.info(f"    {'Created' if role_created else 'Updated'} role: {role.identifier}")
+                counts["roles"] += 1
+                logger.debug("%s role %s", "Created" if role_created else "Updated", role.identifier)
 
         if service_manifest.scopes:
             for scope_config in service_manifest.scopes:
                 scope, scope_created = karakter_models.Scope.objects.get_or_create(organization=organization, identifier=scope_config.key, defaults={"description": scope_config.description, "creating_instance": instance})
                 scope.used_by.add(instance)
-                logger.info(f"    {'Created' if scope_created else 'Updated'} scope: {scope.identifier}")
+                counts["scopes"] += 1
+                logger.debug("%s scope %s", "Created" if scope_created else "Updated", scope.identifier)
 
         for alias in instance_request.aliases:
             alias_obj, alias_created = aliases.upsert_instance_alias(instance, alias)
-            logger.info(f"    {'Created' if alias_created else 'Updated'} alias: {alias_obj.name}")
+            counts["aliases"] += 1
+            logger.debug("%s alias %s", "Created" if alias_created else "Updated", alias_obj.name)
 
+    logger.info(
+        "%s hub '%s' for org '%s' (%s)",
+        "Created" if created else "Updated",
+        hub.name,
+        organization.slug,
+        ", ".join(f"{n} {kind}" for kind, n in counts.items()),
+    )
     return hub
 
 
@@ -187,7 +198,7 @@ def create_hub_from_partner(
     if not manifest:
         raise ValueError(f"Partner '{partner.identifier}' has no preconfigured hub")
 
-    logger.info(f"Creating hub from partner '{partner.identifier}' for org '{organization.slug}' ")
+    logger.debug("Creating hub from partner '%s' for org '%s'", partner.identifier, organization.slug)
 
     hub = create_hub_from_manifest(
         manifest=manifest,
@@ -225,14 +236,14 @@ def auto_configure_kommunity_partners(
 
     for partner in auto_configure_partners:
         if not partner.applies_to_user(organization.owner):
-            logger.info(f"Partner '{partner.identifier}' does not apply to user '{user}'")
+            logger.debug("Partner '%s' does not apply to user '%s'", partner.identifier, user)
             continue
 
         if not partner.preconfigured_hub:
             logger.warning(f"Partner '{partner.identifier}' has no preconfigured hub")
             continue
 
-        logger.info(f"Applying partner '{partner.identifier}' to organization '{organization.slug}'")
+        logger.debug("Applying partner '%s' to organization '%s'", partner.identifier, organization.slug)
 
         try:
             create_hub_from_partner(

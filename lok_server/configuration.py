@@ -102,7 +102,8 @@ class DjangoSettings(BaseModel):
     force_script_name: str = Field(default="", description="URL path prefix (FORCE_SCRIPT_NAME) this service is served under.")
     language_code: str = Field(default="en-us", description="Django LANGUAGE_CODE.")
     time_zone: str = Field(default="UTC", description="Django TIME_ZONE.")
-    log_level: str = Field(default="INFO", description="Root logger level (e.g. DEBUG, INFO, WARNING).")
+    log_level: str = Field(default="INFO", description="Root logger level (e.g. DEBUG, INFO, WARNING). The LOG_LEVEL env var overrides it.")
+    enable_rich_logging: bool = Field(default=False, description="Render console logs with rich (colours, boxed tracebacks). A dev convenience; off by default, as plain one-line records suit container logs.")
 
 
 class PostgresSettings(BaseModel):

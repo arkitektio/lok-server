@@ -12,7 +12,9 @@ https://docs.djangoproject.com/en/4.2/ref/settings/
 
 from pathlib import Path
 from urllib.parse import urlparse
+import os
 from .configuration import Settings
+from .logs import build_logging
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -430,40 +432,12 @@ else:
 WHITENOISE_USE_FINDERS = True
 
 
-LOGGING = {
-    "version": 1,
-    "disable_existing_loggers": False,
-    "formatters": {
-        "console": {
-            # exact format is not important, this is the minimum information
-            "format": "%(message)s",
-        },
-    },
-    "handlers": {
-        "console": {
-            "class": "rich.logging.RichHandler",
-            "formatter": "console",
-            "rich_tracebacks": True,
-        },
-    },
-    "loggers": {
-        # root logger
-        "": {
-            "level": conf.django.log_level,
-            "handlers": ["console"],
-        },
-        "oauthlib": {
-            "handlers": ["console"],
-            "level": "INFO",
-            "propagate": True,
-        },
-        "delt": {
-            "handlers": ["console"],
-            "level": "INFO",
-            "propagate": False,
-        },
-    },
-}
+# Console logging: one plain line per record on root; see logs.py. ``LOG_LEVEL=DEBUG``
+# (env) brings back per-event detail; ``django.enable_rich_logging`` renders with rich.
+LOGGING = build_logging(
+    level=os.environ.get("LOG_LEVEL", conf.django.log_level),
+    rich=conf.django.enable_rich_logging,
+)
 
 LOGIN_URL = "account_login"  # Redirect to login page if not authenticated
 LOGOUT_URL = "account_logout"  # Redirect to logout page
