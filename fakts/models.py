@@ -544,6 +544,19 @@ class DeviceCode(models.Model):
     staging_manifest = models.JSONField(default=dict, help_text="The app Manifest or HubManifest staged at start.")
     expires_at = models.DateTimeField()
     denied = models.BooleanField(default=False)
+    request_auth_key = models.BooleanField(
+        default=False,
+        help_text="The app asked for a pre-authorized mesh key (app codes only; hubs ask in their manifest).",
+    )
+    auth_key = models.ForeignKey(
+        "IonscaleAuthKey",
+        on_delete=models.SET_NULL,
+        related_name="app_device_code",
+        null=True,
+        blank=True,
+        help_text="Mesh key minted at accept for an app that set `request_auth_key`. Handed out "
+        "once, in the device-code grant's token response, and gone with the burned code.",
+    )
 
     @property
     def manifest_as_model(self) -> base_models.Manifest:
@@ -609,6 +622,56 @@ class MeshDeviceCode(models.Model):
 
     def __str__(self):
         return f"MeshDeviceCode {self.code} ({self.requested_machine_name})"
+
+
+class AppMeshEnrollment(models.Model):
+    """An app installation's standing on its organization's mesh.
+
+    One row per (membership, app, device) — the app, not the release, so an
+    upgrade stays the same enrollment. Every re-grant that asks for a mesh key
+    goes through here: the new key is minted, the previous one revoked, and the
+    enrollment's stale nodes pruned, so re-authenticating never accumulates keys
+    or machines. Keys carry ``tag:app-<pk>`` so the enrollment's nodes can be
+    told apart on the tailnet.
+    """
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    organization = models.ForeignKey(Organization, on_delete=models.CASCADE, related_name="app_mesh_enrollments")
+    membership = models.ForeignKey("karakter.Membership", on_delete=models.CASCADE, related_name="app_mesh_enrollments")
+    app = models.ForeignKey("App", on_delete=models.CASCADE, related_name="mesh_enrollments")
+    device = models.ForeignKey(
+        "Device",
+        on_delete=models.CASCADE,
+        related_name="mesh_enrollments",
+        null=True,
+        blank=True,
+        help_text="The device the app runs on. Without one, nodes are never pruned: two "
+        "installations on different machines would be indistinguishable.",
+    )
+    auth_key = models.ForeignKey(
+        "IonscaleAuthKey",
+        on_delete=models.SET_NULL,
+        related_name="app_mesh_enrollments",
+        null=True,
+        blank=True,
+        help_text="The currently live key; the previous one is revoked in ionscale on re-grant.",
+    )
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["membership", "app", "device"],
+                nulls_distinct=False,
+                name="One mesh enrollment per membership, app and device",
+            )
+        ]
+
+    @property
+    def tag(self) -> str:
+        return f"tag:app-{self.pk}"
+
+    def __str__(self):
+        return f"AppMeshEnrollment {self.app_id}/{self.membership_id}/{self.device_id}"
 
 
 class App(models.Model):

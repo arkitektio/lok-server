@@ -68,6 +68,7 @@ def start_device_code(start_grant: base_models.DeviceCodeStartRequest) -> models
         client=client,
         staging_manifest=manifest.model_dump(),
         expires_at=_expires_at(start_grant.expiration_time_seconds),
+        request_auth_key=start_grant.request_auth_key,
     )
 
 

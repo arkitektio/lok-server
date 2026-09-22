@@ -199,6 +199,11 @@ class DeviceCodeStartRequest(BaseModel):
     requested_client_role: enums.ClientRoleVanilla = enums.ClientRoleVanilla.INTERFACE
     request_public: bool = False
     supported_layers: List[str] = Field(default_factory=lambda: ["web"])
+    request_auth_key: bool = False
+    """Ask for a pre-authorized key to the organization's mesh. If the approver allows
+    it, the device-code token response carries it once, as ``auth.ionscale_auth_key``
+    (+ ``auth.ionscale_coord_url``). Lives on the request, not the manifest: it is a
+    property of this grant, and the manifest is hashed for redeem-change detection."""
 
 
 class StagingAlias(BaseModel):
@@ -373,7 +378,10 @@ class FaktsEnvelope(BaseModel):
     """The fakts members appended to a successful OAuth2 token response for a
     fakts client. Auth material (access_token, refresh_token, expires_in,
     scope, client_id) lives in the standard token-response fields next to
-    these; there is no separate auth block anymore.
+    these. The one exception is mesh access: an app that set
+    ``request_auth_key`` and was granted a key gets an ``auth`` block
+    (``ionscale_auth_key``, ``ionscale_coord_url``) on the *initial*
+    device-code response only — never on refresh.
     """
 
     self: SelfClaim

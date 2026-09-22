@@ -53,6 +53,50 @@ def revoke_member(user_pk, organization_pk: Optional[object] = None) -> None:
     if affected:
         logger.info("Revoked ionscale access for user %s in tailnets %s", user_pk, affected)
 
+    # Apps that joined with a minted key own no account: their nodes belong to
+    # the tailnet's service user, so RevokeAccount misses them. Deactivation
+    # keeps the membership (and so the enrollments) — remove their nodes here.
+    # A deleted membership cascades its enrollments away; that path is covered
+    # by the enrollment's own pre_delete (see schedule_enrollment_revocation).
+    from fakts.models import AppMeshEnrollment
+
+    enrollments = AppMeshEnrollment.objects.filter(membership__user_id=user_pk).select_related("auth_key__layer")
+    if organization_pk is not None:
+        enrollments = enrollments.filter(organization_id=organization_pk)
+    for enrollment in enrollments:
+        target = _enrollment_target(enrollment)
+        if target:
+            revoke_enrollment_nodes(*target)
+
+
+def _enrollment_target(enrollment) -> Optional[tuple[str, str, Optional[str]]]:
+    """(tailnet, tag, live key) of an app enrollment, or None without a mesh."""
+    from .manager import get_org_mesh
+
+    layer = get_org_mesh(enrollment.organization_id)
+    if layer is None:
+        return None
+    key = enrollment.auth_key.key if enrollment.auth_key_id else None
+    return layer.tailnet_name, enrollment.tag, key
+
+
+def revoke_enrollment_nodes(tailnet: str, tag: str, key_value: Optional[str]) -> None:
+    """Delete an app enrollment's nodes (every node carrying its tag) and its
+    live key. Never raises."""
+    if not _configured():
+        return
+    from .repo import get_ionscale_repo
+
+    repo = get_ionscale_repo()
+    try:
+        if key_value:
+            repo.delete_auth_key(tailnet, key_value)
+        for machine in repo.list_machines(tailnet):
+            if tag in machine.tags:
+                repo.delete_machine(machine.id)
+    except Exception:
+        logger.exception("Could not remove the mesh nodes tagged %s from tailnet %s; remove them manually", tag, tailnet)
+
 
 def resync_organization(organization_pk) -> None:
     """Push the organization's current member list to each of its meshes.
@@ -120,6 +164,25 @@ def schedule_user_revocation(user_pk) -> None:
     if not _configured():
         return
     transaction.on_commit(lambda: revoke_member(user_pk, None))
+
+
+def schedule_enrollment_revocation(enrollment) -> None:
+    """After commit: remove a deleted app enrollment's nodes and key. The target
+    is captured now — by commit time the row (and its organization) may be gone."""
+    if not _configured():
+        return
+    target = _enrollment_target(enrollment)
+    if not target:
+        return
+
+    def _run() -> None:
+        from fakts.models import IonscaleLayer
+
+        # An organization delete tears its tailnet down as a whole.
+        if IonscaleLayer.objects.filter(tailnet_name=target[0]).exists():
+            revoke_enrollment_nodes(*target)
+
+    transaction.on_commit(_run)
 
 
 def schedule_teardown(tailnet_name: str) -> None:

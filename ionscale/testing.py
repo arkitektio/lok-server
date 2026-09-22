@@ -32,6 +32,11 @@ class FakeIonscaleRepository:
         self.machines: Dict[str, MachineDetail] = {}
         self.tailnets: List[Tailnet] = []
         self.auth_key: str = "tskey-fake-0000000000"
+        # When set, each minted key gets a distinct value (``<auth_key><n>_secret``),
+        # so tests can tell which key was revoked.
+        self.unique_auth_keys: bool = False
+        self.deleted_auth_keys: List[tuple[str, str]] = []
+        self.deleted_machines: List[str] = []
         # Tailnet lock. Default is the state a freshly provisioned tailnet is
         # actually in: no capability, no authority.
         self.lock_status: Dict[str, TailnetLockStatus] = {}
@@ -143,11 +148,25 @@ class FakeIonscaleRepository:
         self.dns_configs.append((tailnet, config))
         return "ok"
 
-    def create_auth_key(self, tailnet: str, ephemeral: bool = False, pre_authorized: bool = True, tags: List[str] = None) -> str:
+    def create_auth_key(self, tailnet: str, ephemeral: bool = False, pre_authorized: bool = True, tags: List[str] = None, expiry_seconds: Optional[int] = None) -> str:
+        self._maybe_fail("create_auth_key")
         self.created_auth_keys.append(
-            {"tailnet": tailnet, "ephemeral": ephemeral, "pre_authorized": pre_authorized, "tags": tags or []}
+            {"tailnet": tailnet, "ephemeral": ephemeral, "pre_authorized": pre_authorized, "tags": tags or [], "expiry_seconds": expiry_seconds}
         )
+        if self.unique_auth_keys:
+            return f"{self.auth_key}{len(self.created_auth_keys)}_secret"
         return self.auth_key
+
+    def delete_auth_key(self, tailnet: str, key_value: str) -> bool:
+        self._maybe_fail("delete_auth_key")
+        self.deleted_auth_keys.append((tailnet, key_value))
+        return True
+
+    def delete_machine(self, machine_id: str) -> None:
+        self._maybe_fail("delete_machine")
+        self.deleted_machines.append(str(machine_id))
+        for tailnet, machines in self.machines_by_tailnet.items():
+            self.machines_by_tailnet[tailnet] = [m for m in machines if m.id != str(machine_id)]
 
     def get_tailnet_lock_status(self, tailnet: str) -> TailnetLockStatus:
         return self.lock_status.get(tailnet, TailnetLockStatus())

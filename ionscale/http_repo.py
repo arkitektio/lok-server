@@ -260,6 +260,9 @@ class IonscaleHttpRepository:
         data = self._call("GetMachine", {"machine_id": str(machine_id)})
         return self._to_machine(data["machine"], detail=True)  # type: ignore[return-value]
 
+    def delete_machine(self, machine_id: str) -> None:
+        self._call("DeleteMachine", {"machine_id": str(machine_id)})
+
     # ------------------------------------------------------------------ policy
 
     def get_policy(self, tailnet: str) -> Dict[str, Any]:
@@ -325,6 +328,17 @@ class IonscaleHttpRepository:
         if not value:
             raise IonscaleError("internal", "CreateAuthKey returned no key")
         return value
+
+    def delete_auth_key(self, tailnet: str, key_value: str) -> bool:
+        # Keys are deleted by id; the listing exposes only the public prefix
+        # (the part of the value before ``_``), so resolve the id through it.
+        prefix = key_value.split("_", 1)[0]
+        data = self._tailnet_call("ListAuthKeys", tailnet)
+        for key in data.get("auth_keys") or data.get("authKeys") or []:
+            if key.get("key") == prefix:
+                self._call("DeleteAuthKey", {"auth_key_id": str(key["id"])})
+                return True
+        return False
 
     # ------------------------------------------------------------ tailnet lock
 

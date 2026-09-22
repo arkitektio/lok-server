@@ -256,3 +256,51 @@ def test_create_ionscale_layer_syncs_existing_members(ionscale_repo, commit_call
     assert ionscale_repo.updated_policies == [
         ("ionscale-create-org", {"subs": [str(first_user.pk), str(second_user.pk)]}),
     ]
+
+
+AUTH_KEYS_LIST_OUTPUT = (
+    "ID                  KEY              EPHEMERAL  EXPIRED  EXPIRES_AT           TAGS                   \n"
+    "221707112168816001  a1b2c3d4e5f6...  false      false    2026-09-22 20:15:00  tag:mesh-9,tag:app-1  \n"
+    "221707112168816002  zzzzzzzzzzzz...  false      true     2026-03-01 10:00:00  tag:mesh-9             \n"
+)
+
+
+def test_create_auth_key_passes_expiry_in_seconds():
+    repo = _repo()
+    out = "\nGenerated new auth key\nBe sure to copy your new key below. It won't be shown in full again.\n\n  a1b2c3d4e5f6_secret\n"
+    with mock.patch.object(repo, "_run_command", return_value=out) as run:
+        assert repo.create_auth_key("tn", tags=["tag:mesh-9"], expiry_seconds=900) == "a1b2c3d4e5f6_secret"
+    args = run.call_args.args[0]
+    assert args[args.index("--expiry") + 1] == "900s"
+
+
+def test_delete_auth_key_resolves_the_id_by_key_prefix():
+    repo = _repo()
+    with mock.patch.object(repo, "_run_command", side_effect=[AUTH_KEYS_LIST_OUTPUT, "Auth key deleted."]) as run:
+        assert repo.delete_auth_key("tn", "a1b2c3d4e5f6_secret") is True
+    assert run.call_args_list[0].args[0] == ["auth-keys", "list", "--tailnet", "tn"]
+    assert run.call_args_list[1].args[0] == ["auth-keys", "delete", "--id", "221707112168816001"]
+
+
+def test_delete_auth_key_of_an_unknown_key_is_a_noop():
+    repo = _repo()
+    with mock.patch.object(repo, "_run_command", return_value=AUTH_KEYS_LIST_OUTPUT) as run:
+        assert repo.delete_auth_key("tn", "nothere_secret") is False
+    assert run.call_count == 1
+
+
+def test_delete_machine():
+    repo = _repo()
+    with mock.patch.object(repo, "_run_command", return_value="Machine deleted.") as run:
+        repo.delete_machine("221707112168816643")
+    assert run.call_args.args[0] == ["machines", "delete", "--machine-id", "221707112168816643"]
+
+
+def test_machine_list_reads_connected_as_live():
+    """`machines list` prints LAST_SEEN "Connected" for live nodes."""
+    out = (
+        "ID                  TAILNET  NAME    IPv4          IPv6     AUTHORIZED  EPHEMERAL  VERSION  LAST_SEEN  TAGS  \n"
+        "221707112168816643  tn       laptop  100.98.11.67  fd7a::1  true        false      1.96.4   Connected  tag:app-1  \n"
+    )
+    (machine,) = _repo()._parse_machine_list_output(out)
+    assert machine.connected is True

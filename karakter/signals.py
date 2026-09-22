@@ -94,6 +94,16 @@ def revoke_ionscale_access_on_deactivation(sender, instance, **kwargs):
         schedule_user_revocation(instance.pk)
 
 
+@receiver(pre_delete, sender="fakts.AppMeshEnrollment")
+def revoke_ionscale_nodes_on_app_enrollment_delete(sender, instance, **kwargs):
+    # Key-joined app nodes are owned by the tailnet's service user, not the
+    # member, so account revocation misses them. Also fires when a membership
+    # (or user) delete cascades the enrollment away.
+    from ionscale.sync import schedule_enrollment_revocation
+
+    schedule_enrollment_revocation(instance)
+
+
 @receiver(pre_delete, sender=Organization)
 def teardown_ionscale_meshes_for_organization(sender, instance, **kwargs):
     from fakts.models import IonscaleLayer

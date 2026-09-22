@@ -20,6 +20,7 @@ from fakts.services.hubs import (
     create_hub_from_manifest,
     create_hub_from_partner,
     create_mesh_auth_key,
+    enroll_app_on_mesh,
     run_partner_pre_authorize_hook,
 )
 from fakts.services.device_codes import start_mesh_device_code, validate_device_code
@@ -46,6 +47,7 @@ __all__ = [
     "create_hub_from_partner",
     "create_device_code",
     "create_mesh_auth_key",
+    "enroll_app_on_mesh",
     "create_fake_linking_context",
     "create_linking_context",
     "create_public_client",

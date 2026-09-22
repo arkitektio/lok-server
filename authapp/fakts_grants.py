@@ -39,6 +39,7 @@ fakts imports are deliberately lazy — ``fakts.models`` imports
 import json
 import logging
 
+from django.conf import settings
 from django.utils import timezone
 
 from authlib.oauth2.rfc6749 import BaseGrant, TokenEndpointMixin
@@ -186,10 +187,29 @@ class FaktsDeviceCodeGrant(FaktsEnvelopeMixin, DeviceCodeGrant):
             logger.exception("Device-code grant failed to mint tokens for client %s", client.client_id)
             raise InvalidGrantError(description=str(e))
         self.append_fakts_envelope(token)
+        self.append_mesh_key(token, credential)
         # Single-use: burn the code once it has yielded its tokens. Continuity
         # from here on is the refresh-token chain, not the device code.
         credential.delete()
         return 200, token, self.TOKEN_RESPONSE_HEADER
+
+
+    @staticmethod
+    def append_mesh_key(token: dict, credential) -> dict:
+        """Hand an app its mesh key, minted at accept (``request_auth_key``).
+
+        Only here, on the initial device-code response: the code is burned right
+        after, so the key goes out exactly once and never rides along a refresh.
+        A hub's code carries no key (its ``auth`` comes from its envelope), so
+        this never overwrites one.
+        """
+        key = getattr(credential, "auth_key", None)
+        if key is not None and "auth" not in token:
+            token["auth"] = {
+                "ionscale_auth_key": key.key,
+                "ionscale_coord_url": settings.IONSCALE_COORD_URL,
+            }
+        return token
 
 
 class FaktsRedeemGrant(FaktsEnvelopeMixin, BaseGrant, TokenEndpointMixin):

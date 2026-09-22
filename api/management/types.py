@@ -1523,6 +1523,10 @@ class ManagementDeviceCode:
     expires_at: datetime.datetime
     code: str
     denied: bool
+    request_auth_key: bool = strawberry_django.field(
+        description="Whether the app asked for a pre-authorized key to the organization's mesh. "
+        "Accepting with `allowIonscale` (the default) grants it."
+    )
 
     @classmethod
     def get_queryset(cls, queryset, info: Info):

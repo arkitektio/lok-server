@@ -1,3 +1,5 @@
+import logging
+
 from kante import Info
 import strawberry
 from api.management import types
@@ -8,6 +10,8 @@ from graphql import GraphQLError
 from fakts import logic
 import kante
 from api.management.device_code_authz import resolve_device_code_with_proof
+
+logger = logging.getLogger(__name__)
 
 
 @kante.input
@@ -22,6 +26,10 @@ class AcceptDeviceCodeInput:
     device_name: str | None = strawberry.field(default=None, description="Name to give a newly created device (ignored if the device already exists).")
     declined_requirements: list[str] = strawberry.field(default_factory=list)
     """Requirement keys the user has explicitly declined (optional requirements only)."""
+    allow_ionscale: bool = strawberry.field(
+        default=True,
+        description="Hand the app a pre-authorized key for the organization's mesh, if it asked for one (`requestAuthKey`).",
+    )
 
 
 def accept_device_code(info: Info, input: AcceptDeviceCodeInput) -> types.ManagementClient:
@@ -64,7 +72,33 @@ def accept_device_code(info: Info, input: AcceptDeviceCodeInput) -> types.Manage
         declined_requirements=input.declined_requirements,
     )
 
+    if input.allow_ionscale and device_code.request_auth_key:
+        _grant_mesh_key(device_code, user, organization)
+
     return validate_device_code.client
+
+
+def _grant_mesh_key(device_code: fakts_models.DeviceCode, user, organization) -> None:
+    """Mint the app's mesh key onto the code; the token response hands it out once.
+
+    Best-effort: without a mesh, or with ionscale failing, the app is still
+    authorized and falls back to the interactive mesh login.
+    """
+    client = fakts_models.Client.objects.select_related("membership", "release__app", "node").get(pk=device_code.client_id)
+    try:
+        key = logic.enroll_app_on_mesh(
+            user=user,
+            organization=organization,
+            membership=client.membership,
+            app=client.release.app,
+            device=client.node,
+        )
+    except Exception:
+        logger.warning("Could not mint a mesh key for client %s", client.client_id, exc_info=True)
+        return
+    if key is not None:
+        device_code.auth_key = key
+        device_code.save(update_fields=["auth_key"])
 
 
 @kante.input

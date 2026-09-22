@@ -36,7 +36,9 @@ class IonscaleRepo(Protocol):
     def get_policy(self, tailnet: str) -> Dict[str, Any]: ...
     def update_policy(self, tailnet: str, policy: Union[Dict[str, Any], str, Path]) -> str: ...
     def set_dns_config(self, tailnet: str, config: DNSConfig) -> str: ...
-    def create_auth_key(self, tailnet: str, ephemeral: bool = ..., pre_authorized: bool = ..., tags: List[str] = ...) -> str: ...
+    def create_auth_key(self, tailnet: str, ephemeral: bool = ..., pre_authorized: bool = ..., tags: List[str] = ..., expiry_seconds: Optional[int] = ...) -> str: ...
+    def delete_auth_key(self, tailnet: str, key_value: str) -> bool: ...
+    def delete_machine(self, machine_id: str) -> None: ...
     def get_tailnet_lock_status(self, tailnet: str) -> TailnetLockStatus: ...
     def enable_tailnet_lock(self, tailnet: str) -> None: ...
     def disable_tailnet_lock(self, tailnet: str) -> None: ...
@@ -309,10 +311,10 @@ class IonscaleRepository:
             if not m_id:
                 continue
 
-            # `machines list` has no explicit online column; approximate "connected" from
-            # LAST_SEEN recency (ionscale prints "a minute ago" / "now" for live nodes).
+            # `machines list` has no explicit online column: LAST_SEEN reads "Connected"
+            # for live nodes; a very recent humanized time ("a minute ago") also counts.
             last_seen = (_col(parts, "last_seen") or "").lower()
-            connected = any(token in last_seen for token in ("now", "second", "minute"))
+            connected = any(token in last_seen for token in ("connected", "now", "second", "minute"))
 
             tags_raw = _col(parts, "tags") or ""
             tags = [t for t in re.split(r"[,\s]+", tags_raw) if t]
@@ -378,11 +380,14 @@ class IonscaleRepository:
             fqdn=data.get("fqdn", data.get("dns_name", data.get("magic_dns_name"))),
         )
     
-    def create_auth_key(self, tailnet: str, ephemeral: bool = False, pre_authorized: bool = True, tags: List[str] = None) -> str:
+    def create_auth_key(self, tailnet: str, ephemeral: bool = False, pre_authorized: bool = True, tags: List[str] = None, expiry_seconds: Optional[int] = None) -> str:
         """
-        Runs `ionscale auth-keys create` and returns the key.
+        Runs `ionscale auth-keys create` and returns the key. Without
+        ``expiry_seconds`` the CLI's own default (180d) applies.
         """
         args = ["auth-keys", "create", "--tailnet", tailnet]
+        if expiry_seconds:
+            args.extend(["--expiry", f"{int(expiry_seconds)}s"])
         
         if ephemeral:
             args.append("--ephemeral")
@@ -401,7 +406,29 @@ class IonscaleRepository:
             return match.group(1).strip()
         else:
             raise RuntimeError("Failed to parse auth key from output")
-        
+
+    def delete_auth_key(self, tailnet: str, key_value: str) -> bool:
+        """
+        Deletes the auth key whose full value is ``key_value``. The CLI only
+        deletes by id and only ever prints the key's public prefix (the part of
+        the value before ``_``, as ``<prefix>...``), so the id is looked up via
+        `ionscale auth-keys list`. Returns False if no such key exists (already
+        deleted or expired and reaped).
+        """
+        prefix = key_value.split("_", 1)[0]
+        output = self._run_command(["auth-keys", "list", "--tailnet", tailnet], command_type="auth-keys")
+        lines = [line for line in output.strip().splitlines() if line.strip()]
+        for line in lines[1:]:
+            parts = re.split(r"\s{2,}", line.strip())
+            if len(parts) >= 2 and parts[1].rstrip(".") == prefix:
+                self._run_command(["auth-keys", "delete", "--id", self._check_arg(parts[0], "auth key id")], command_type="auth-keys")
+                return True
+        return False
+
+    def delete_machine(self, machine_id: str) -> None:
+        """Runs `ionscale machines delete --machine-id <machine_id>`."""
+        self._run_command(["machines", "delete", "--machine-id", self._check_arg(machine_id, "machine id")])
+
 
     def get_policy(self, tailnet: str) -> Dict[str, Any]:
         """Runs `ionscale tailnets get-iam-policy` and returns the parsed policy.

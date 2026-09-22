@@ -303,3 +303,88 @@ def create_mesh_auth_key(user: karakter_models.User, organization: karakter_mode
     key = get_ionscale_repo().create_auth_key(tailnet=layer.tailnet_name, ephemeral=ephemeral, pre_authorized=True, tags=tags)
     key = models.IonscaleAuthKey.objects.create(layer=layer, key=key, creator=user, ephemeral=ephemeral, tags=tags)
     return key
+
+
+APP_MESH_KEY_EXPIRY_SECONDS = 15 * 60
+"""An app uses its key once, right after the grant, to register its node. ionscale
+keys are reusable until they expire, so keep the window short; the node itself
+outlives the key (tagged nodes have key expiry disabled)."""
+
+
+def enroll_app_on_mesh(
+    user: karakter_models.User,
+    organization: karakter_models.Organization,
+    membership: karakter_models.Membership,
+    app: models.App,
+    device: models.Device | None,
+) -> models.IonscaleAuthKey | None:
+    """Mint a mesh key for an app installation without accumulating keys or machines.
+
+    Returns ``None`` when the organization has no mesh. Re-grants of the same
+    (membership, app, device) reuse one ``AppMeshEnrollment``:
+
+    - the new key is minted first, so a failed mint leaves the old one in place;
+    - the previous key is then revoked in ionscale;
+    - the enrollment's stale nodes are pruned: every node tagged with the
+      enrollment that is offline *and* not the newest. ionscale ids are
+      time-ordered, and the newest node is the one the installation is most likely
+      to come back as (an app re-granting is typically offline at that moment,
+      and re-registering with its machine key updates that node in place). A node
+      orphaned by lost tailscale state therefore survives one grant and is pruned
+      on the next.
+
+    Pruning needs a device: without one, two installations on different machines
+    share the enrollment and would prune each other.
+    """
+    layer = get_org_mesh(organization)
+    if not layer:
+        return None
+
+    enrollment, _ = models.AppMeshEnrollment.objects.get_or_create(
+        membership=membership,
+        app=app,
+        device=device,
+        defaults={"organization": organization},
+    )
+
+    repo = get_ionscale_repo()
+    tags = ["tag:mesh-" + str(organization.pk), enrollment.tag]
+    value = repo.create_auth_key(
+        tailnet=layer.tailnet_name,
+        ephemeral=False,
+        pre_authorized=True,
+        tags=tags,
+        expiry_seconds=APP_MESH_KEY_EXPIRY_SECONDS,
+    )
+    key = models.IonscaleAuthKey.objects.create(layer=layer, key=value, creator=user, ephemeral=False, tags=tags)
+
+    previous = enrollment.auth_key
+    enrollment.auth_key = key
+    enrollment.save(update_fields=["auth_key"])
+
+    if previous is not None:
+        try:
+            repo.delete_auth_key(previous.layer.tailnet_name, previous.key)
+            previous.delete()
+        except Exception:
+            logger.warning("Could not revoke the previous mesh key of %s", enrollment, exc_info=True)
+
+    if device is not None:
+        try:
+            _prune_enrollment_machines(repo, layer.tailnet_name, enrollment)
+        except Exception:
+            logger.warning("Could not prune stale mesh nodes of %s", enrollment, exc_info=True)
+
+    return key
+
+
+def _prune_enrollment_machines(repo, tailnet: str, enrollment: models.AppMeshEnrollment) -> None:
+    tagged = [m for m in repo.list_machines(tailnet) if enrollment.tag in m.tags]
+    if len(tagged) < 2:
+        return
+    newest = max(tagged, key=lambda m: int(m.id))
+    for machine in tagged:
+        if machine is newest or machine.connected:
+            continue
+        logger.info("Pruning stale mesh node %s (%s) of %s", machine.id, machine.name, enrollment)
+        repo.delete_machine(machine.id)
