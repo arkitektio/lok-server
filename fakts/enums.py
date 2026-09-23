@@ -17,6 +17,7 @@ class AliasKindChoices(TextChoices):
 
     ABSOLUTE = "absolute", "ABSOLUTE (Value represent ABSOLUTE)"
     RELATIVE = "relative", "RELATIVE (Value represent RELATIVE)"
+    MESH = "mesh", "MESH (Value represent MESH)"
 
 
 class ClientKindChoices(TextChoices):

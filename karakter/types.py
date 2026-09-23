@@ -89,8 +89,12 @@ class User:
     email: str | None
     groups: list[Group]
     memberships: list["Membership"] = strawberry_django.field(description="The memberships of the user in organizations")
-    avatar: str | None
     profile: "Profile"
+
+    @strawberry_django.field(description="A short-lived URL of the user's avatar (`profile.avatar`), if they have one.")
+    def avatar(self, info: Info) -> str | None:
+        store = cast(models.User, self).avatar
+        return store.get_presigned_url(info, datalayer=get_current_datalayer()) if store else None
     com_channels: list["ComChannel"] = strawberry_django.field(description="The communication channels that the user has")
 
     @classmethod
@@ -367,7 +371,12 @@ class Organization:
     description: str | None = strawberry.field(description="A short description of the organization")
     brand_hue: Optional[float] = strawberry.field(description="The organization's default brand hue (0–360), if set. Members can override it per-membership.")
     brand_chroma: Optional[float] = strawberry.field(description="The organization's default brand chroma (0–1), if set. Members can override it per-membership.")
-    avatar: MediaStore | None = strawberry.field(description="The logo of the organization")
+
+    @strawberry_django.field(description="The logo of the organization. Mirrors `profile.avatar`; prefer that field.")
+    def avatar(self, info: Info) -> MediaStore | None:
+        org = cast(models.Organization, self)
+        profile = models.OrganizationProfile.objects.filter(organization=org).select_related("avatar").first()
+        return (profile.avatar if profile else None) or org.avatar
     active_users: List[User] = strawberry.field(description="The users that are currently active in the organization")
     profile: "OrganizationProfile"
     memberships: List["Membership"] = strawberry_django.field(description="the memberships of people")

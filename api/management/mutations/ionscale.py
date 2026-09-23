@@ -9,6 +9,7 @@ from ionscale.manager import ensure_org_mesh, apply_dns_config
 from ionscale.sync import schedule_teardown
 from api.management.authz import DENIED, assert_owner_or_admin, get_or_denied
 from graphql import GraphQLError
+from ionscale.acl import reserved_tags
 
 
 @kante.input
@@ -135,6 +136,7 @@ def create_ionscale_auth_key(info: Info, input: CreateIonscaleAuthKeyInput) -> t
     layer = get_or_denied(fakts_models.IonscaleLayer.objects, id=input.layer_id)
 
     assert_owner_or_admin(info, layer.organization)
+    _reject_reserved_tags(input.tags)
 
     key = get_ionscale_repo().create_auth_key(
         tailnet=layer.tailnet_name,
@@ -200,3 +202,12 @@ def disable_tailnet_lock(info: Info, input: TailnetLockInput) -> types.Managemen
         raise GraphQLError(f"Could not disable tailnet lock: {exc}")
 
     return layer
+
+
+def _reject_reserved_tags(tags) -> None:
+    """`tag:app-*` / `tag:hub-*` mark app and hub sidecars; only lok mints them."""
+    reserved = reserved_tags(tags)
+    if reserved:
+        raise GraphQLError(
+            f"Tags {', '.join(reserved)} are reserved for app and hub sidecars and cannot be assigned by hand."
+        )

@@ -35,6 +35,8 @@ class IonscaleRepo(Protocol):
     def delete_tailnet(self, tailnet: str, force: bool = ...) -> None: ...
     def get_policy(self, tailnet: str) -> Dict[str, Any]: ...
     def update_policy(self, tailnet: str, policy: Union[Dict[str, Any], str, Path]) -> str: ...
+    def get_acl_policy(self, tailnet: str) -> str: ...
+    def set_acl_policy(self, tailnet: str, policy: Dict[str, Any]) -> None: ...
     def set_dns_config(self, tailnet: str, config: DNSConfig) -> str: ...
     def create_auth_key(self, tailnet: str, ephemeral: bool = ..., pre_authorized: bool = ..., tags: List[str] = ..., expiry_seconds: Optional[int] = ...) -> str: ...
     def delete_auth_key(self, tailnet: str, key_value: str) -> bool: ...
@@ -445,6 +447,22 @@ class IonscaleRepository:
             return json.loads(output)
         except json.JSONDecodeError as exc:
             raise RuntimeError(f"Could not parse IAM policy: {exc}")
+
+    def get_acl_policy(self, tailnet: str) -> str:
+        """Runs `ionscale tailnets get-acl-policy`: the raw (HuJSON) ACL policy text."""
+        return self._run_command(["tailnets", "get-acl-policy", "--tailnet", self._check_arg(tailnet, "tailnet")])
+
+    def set_acl_policy(self, tailnet: str, policy: Dict[str, Any]) -> None:
+        """Runs `ionscale tailnets set-acl-policy --file <json>` (replaces the whole ACL policy)."""
+        import tempfile
+
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
+            json.dump(policy, f, indent=2)
+            temp_file = f.name
+        try:
+            self._run_command(["tailnets", "set-acl-policy", "--tailnet", self._check_arg(tailnet, "tailnet"), "--file", temp_file])
+        finally:
+            os.unlink(temp_file)
 
     def get_tailnet_lock_status(self, tailnet: str) -> TailnetLockStatus:
         """Runs `ionscale tailnets tailnet-lock-status --json`.

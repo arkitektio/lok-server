@@ -1,4 +1,5 @@
 import secrets as _secrets
+from django.conf import settings
 from django.db import models
 from django.utils import timezone
 from typing import Dict, Any
@@ -271,7 +272,9 @@ class ServiceInstance(models.Model):
         for alias in self.aliases.all():
             try:
                 url = alias.to_url(context)
-                urls.append(url)
+                # An unresolvable mesh alias (hub node not on the mesh) is left out.
+                if url is not None:
+                    urls.append(url)
             except AssertionError as e:
                 raise errors.InstanceAliasNotFound(f"Error rendering alias {alias}: {str(e)}")
 
@@ -344,8 +347,26 @@ class InstanceAlias(models.Model):
             )
         ]
 
-    def to_url(self, linking: base_models.LinkingContext) -> base_models.Alias:
-        """Convert the alias to a URL based on the linking context."""
+    def to_url(self, linking: base_models.LinkingContext) -> base_models.Alias | None:
+        """Convert the alias to a URL based on the linking context. ``None`` for a
+        mesh alias whose hub node cannot currently be resolved."""
+        if self.kind == enums.AliasKindChoices.MESH.value:
+            # Mesh alias: the host is the hub node's MagicDNS name on the org's mesh,
+            # so only clients on the mesh pass its challenge.
+            from fakts.services.mesh import resolve_hub_mesh_host
+
+            host = resolve_hub_mesh_host(self.instance.hub) if self.instance.hub_id else None
+            if host is None:
+                return None
+            return base_models.Alias(
+                id=str(self.id),
+                ssl=self.ssl,
+                host=host,
+                port=self.port,
+                path=self.path,
+                challenge=self.challenge,
+                public=self.public,
+            )
         if self.kind == enums.AliasKindChoices.RELATIVE.value:
             # Relative alias: resolved against the coordination server (the linking
             # request host), not any layer. The client reaches it and health-checks
@@ -474,7 +495,13 @@ class Hub(models.Model):
         related_name="hubs",
         null=True,
         blank=True,
+        help_text="The hub's currently live mesh key (rotated on every re-authorization).",
     )
+    last_seen_at = models.DateTimeField(null=True, blank=True, help_text="When the hub last reported its health (/f/hubhealth/).")
+    last_healthy = models.BooleanField(null=True, blank=True, help_text="Whether the hub's last health report said it was healthy.")
+    version = models.CharField(max_length=1000, blank=True, default="", help_text="The hub software version, as last reported.")
+    mesh_connected = models.BooleanField(null=True, blank=True, help_text="Whether the hub's last health report said its node is on the mesh (null: not reported).")
+    mesh_host = models.CharField(max_length=1000, blank=True, default="", help_text="The hub node's MagicDNS name (or mesh IP), as last reported by the hub.")
 
     class Meta:
         constraints = [
@@ -484,8 +511,34 @@ class Hub(models.Model):
             )
         ]
 
+    @property
+    def mesh_tag(self) -> str:
+        """The ionscale tag every mesh key (and so node) of this hub carries."""
+        return f"tag:hub-{self.pk}"
+
+    @property
+    def online(self) -> bool:
+        """Reported health within the last three reporting intervals."""
+        if self.last_seen_at is None:
+            return False
+        interval = getattr(settings, "HUB_HEALTH_INTERVAL", 60)
+        return (timezone.now() - self.last_seen_at).total_seconds() <= 3 * interval
+
     def __str__(self):
         return f"{self.name} ({self.organization})"
+
+
+class HubHealthSnapshot(models.Model):
+    """One health report of a hub. Only the latest ``settings.HUB_HEALTH_RETENTION``
+    per hub are kept (see ``fakts.services.hubs.report_hub_health``)."""
+
+    hub = models.ForeignKey(Hub, on_delete=models.CASCADE, related_name="health_snapshots")
+    healthy = models.BooleanField()
+    payload = models.JSONField(default=dict, help_text="The raw HubHealthReport.")
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-created_at", "-id"]
 
 
 class DeviceCode(models.Model):
@@ -554,8 +607,9 @@ class DeviceCode(models.Model):
         related_name="app_device_code",
         null=True,
         blank=True,
-        help_text="Mesh key minted at accept for an app that set `request_auth_key`. Handed out "
-        "once, in the device-code grant's token response, and gone with the burned code.",
+        help_text="Mesh key minted at accept for an app that set `request_auth_key` (or a hub whose "
+        "manifest did). Handed out once, in the device-code grant's token response, and gone with "
+        "the burned code.",
     )
 
     @property

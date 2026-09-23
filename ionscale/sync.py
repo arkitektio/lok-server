@@ -70,19 +70,24 @@ def revoke_member(user_pk, organization_pk: Optional[object] = None) -> None:
 
 
 def _enrollment_target(enrollment) -> Optional[tuple[str, str, Optional[str]]]:
-    """(tailnet, tag, live key) of an app enrollment, or None without a mesh."""
+    """(tailnet, tag, live key) of a mesh enrollment, or None without a mesh.
+
+    An enrollment is an ``AppMeshEnrollment`` (``tag``) or a ``Hub``
+    (``mesh_tag``): both own one live ``auth_key`` and tag every node they mint
+    a key for."""
     from .manager import get_org_mesh
 
     layer = get_org_mesh(enrollment.organization_id)
     if layer is None:
         return None
     key = enrollment.auth_key.key if enrollment.auth_key_id else None
-    return layer.tailnet_name, enrollment.tag, key
+    tag = getattr(enrollment, "mesh_tag", None) or enrollment.tag
+    return layer.tailnet_name, tag, key
 
 
 def revoke_enrollment_nodes(tailnet: str, tag: str, key_value: Optional[str]) -> None:
-    """Delete an app enrollment's nodes (every node carrying its tag) and its
-    live key. Never raises."""
+    """Delete an enrollment's nodes (every node carrying its tag) and its live
+    key. Never raises."""
     if not _configured():
         return
     from .repo import get_ionscale_repo
@@ -167,7 +172,7 @@ def schedule_user_revocation(user_pk) -> None:
 
 
 def schedule_enrollment_revocation(enrollment) -> None:
-    """After commit: remove a deleted app enrollment's nodes and key. The target
+    """After commit: remove a deleted app enrollment's (or hub's) nodes and key. The target
     is captured now — by commit time the row (and its organization) may be gone."""
     if not _configured():
         return

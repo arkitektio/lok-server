@@ -38,6 +38,7 @@ class Query:
     roles: list[karakter_types.Role] = strawberry_django.field()
     groups: list[karakter_types.Group] = strawberry_django.field()
     services: list[fakts_types.Service] = strawberry_django.field()
+    hubs: list[fakts_types.Hub] = strawberry_django.field()
     device_groups: list[fakts_types.DeviceGroup] = strawberry_django.field()
     service_instances: list[fakts_types.ServiceInstance] = strawberry_django.field()
     service_releases: list[fakts_types.ServiceRelease] = strawberry_django.field()
@@ -136,6 +137,10 @@ class Query:
     @kante.django_field()
     def service_instance(self, info: Info, id: strawberry.ID) -> fakts_types.ServiceInstance:
         return get_scoped_or_denied(fakts_models.ServiceInstance.objects, info, id=id)
+
+    @kante.django_field(description="A hub of the caller's organization, including its last reported health. The caller's own hub is also reachable as `mycontext { hub }`.")
+    def hub(self, info: Info, id: strawberry.ID) -> fakts_types.Hub:
+        return get_scoped_or_denied(fakts_models.Hub.objects, info, id=id)
 
 
 @strawberry.type

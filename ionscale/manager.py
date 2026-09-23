@@ -24,6 +24,21 @@ def ionscale_configured() -> bool:
     )
 
 
+def magic_dns_name(name: str | None, tailnet: str | None, fqdn: str | None = None) -> str | None:
+    """A machine's MagicDNS name: the FQDN ionscale reports if any, else derived.
+
+    ionscale namespaces machines under their tailnet, so the derived form is
+    `<name>.<tailnet>.<suffix>` (e.g. gpu-01.myorg.mesh.arkitekt.live). None
+    without a suffix configured. Callers decide whether MagicDNS is on.
+    """
+    if fqdn:
+        return fqdn.rstrip(".")
+    suffix = getattr(settings, "IONSCALE_MAGIC_DNS_SUFFIX", None)
+    if not (suffix and name):
+        return None
+    return ".".join([name, tailnet, suffix] if tailnet else [name, suffix])
+
+
 def get_org_mesh(organization) -> IonscaleLayer | None:
     """Return the organization's existing ionscale mesh, or None. Read-only — does
     not provision (that only happens via explicit opt-in, `ensure_org_mesh`)."""
@@ -71,6 +86,10 @@ def ensure_org_mesh(organization) -> IonscaleLayer | None:
         )
         sync(layer)
         apply_dns_config(layer)
+        # Replace ionscale's default allow-all ACL with lok's (sidecars isolated).
+        from .acl import apply_acl_policy
+
+        apply_acl_policy(organization.pk)
         return layer
     except Exception:
         logger.exception(

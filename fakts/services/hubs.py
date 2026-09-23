@@ -8,13 +8,16 @@ import logging
 import secrets
 
 import requests
+from django.conf import settings
 from django.db import transaction
+from django.utils import timezone
 
-from fakts import models
+from fakts import base_models, models
 from fakts.base_models import HubManifest
 from fakts.services import aliases
 from fakts.services.tokens import create_api_token  # noqa: F401  (kept for shim parity)
 from ionscale.repo import get_ionscale_repo
+from ionscale.acl import schedule_acl_apply
 from ionscale.manager import get_org_mesh
 from karakter import models as karakter_models
 
@@ -263,29 +266,10 @@ def auto_configure_kommunity_partners(
     return applied_partners
 
 
-def create_hub_auth_key(user: karakter_models.User, hub: models.Hub, ephemeral: bool = False, tags: list[str] = None) -> models.IonscaleAuthKey:
-    # The mesh is a per-organization singleton, provisioned on explicit opt-in.
-    # Read-only here: a hub uses the org's mesh if it has one, but does not
-    # silently create a tailnet.
-    layer = get_org_mesh(hub.organization)
-
-    if not layer:
-        raise Exception(
-            "This organization has no mesh. Enable the ionscale mesh for the "
-            "organization (or bring your own), or configure ionscale on this deployment."
-        )
-
-    tags = ["tag:hub-" + str(hub.pk)] if tags is None else tags
-
-    key = get_ionscale_repo().create_auth_key(tailnet=layer.tailnet_name, ephemeral=ephemeral, pre_authorized=True, tags=tags)
-    key = models.IonscaleAuthKey.objects.create(layer=layer, key=key, creator=user, ephemeral=ephemeral, tags=tags)
-    return key
-
-
 def create_mesh_auth_key(user: karakter_models.User, organization: karakter_models.Organization, ephemeral: bool = False, tags: list[str] = None) -> models.IonscaleAuthKey:
     """Mint a single-use pre-authorized key for an organization's mesh.
 
-    Organization-scoped counterpart to ``create_hub_auth_key``: used by the mesh
+    Organization-scoped counterpart to ``enroll_hub_on_mesh``: used by the mesh
     device-code flow to let a standalone machine join the org's tailnet. Read-only on the
     mesh — a machine uses the org's mesh if it has one, but does not silently create a
     tailnet.
@@ -348,7 +332,9 @@ def enroll_app_on_mesh(
     )
 
     repo = get_ionscale_repo()
-    tags = ["tag:mesh-" + str(organization.pk), enrollment.tag]
+    # Only the sidecar tag: `tag:mesh-<org>` is what member-reachable standalone
+    # machines carry, and the ACL (ionscale.acl) keeps sidecars out of it.
+    tags = [enrollment.tag]
     value = repo.create_auth_key(
         tailnet=layer.tailnet_name,
         ephemeral=False,
@@ -371,20 +357,96 @@ def enroll_app_on_mesh(
 
     if device is not None:
         try:
-            _prune_enrollment_machines(repo, layer.tailnet_name, enrollment)
+            _prune_stale_machines(repo, layer.tailnet_name, enrollment.tag)
         except Exception:
             logger.warning("Could not prune stale mesh nodes of %s", enrollment, exc_info=True)
 
+    schedule_acl_apply(organization.pk)
     return key
 
 
-def _prune_enrollment_machines(repo, tailnet: str, enrollment: models.AppMeshEnrollment) -> None:
-    tagged = [m for m in repo.list_machines(tailnet) if enrollment.tag in m.tags]
+def enroll_hub_on_mesh(user: karakter_models.User, hub: models.Hub) -> models.IonscaleAuthKey | None:
+    """Mint a mesh key for a hub, the way ``enroll_app_on_mesh`` does for an app.
+
+    The hub row is its own enrollment (one per organization and identifier), so
+    a re-authorization of the same hub rotates its key: mint first, then revoke
+    the previous key and prune the hub's stale nodes (offline and not the
+    newest). Returns ``None`` when the organization has no mesh.
+    """
+    layer = get_org_mesh(hub.organization)
+    if not layer:
+        return None
+
+    repo = get_ionscale_repo()
+    tags = [hub.mesh_tag]  # sidecar tag only, see enroll_app_on_mesh
+    value = repo.create_auth_key(
+        tailnet=layer.tailnet_name,
+        ephemeral=False,
+        pre_authorized=True,
+        tags=tags,
+        expiry_seconds=APP_MESH_KEY_EXPIRY_SECONDS,
+    )
+    key = models.IonscaleAuthKey.objects.create(hub=hub, layer=layer, key=value, creator=user, ephemeral=False, tags=tags)
+
+    previous = hub.auth_key
+    hub.auth_key = key
+    hub.save(update_fields=["auth_key"])
+
+    if previous is not None:
+        try:
+            repo.delete_auth_key(previous.layer.tailnet_name, previous.key)
+            previous.delete()
+        except Exception:
+            logger.warning("Could not revoke the previous mesh key of hub %s", hub, exc_info=True)
+
+    try:
+        _prune_stale_machines(repo, layer.tailnet_name, hub.mesh_tag)
+    except Exception:
+        logger.warning("Could not prune stale mesh nodes of hub %s", hub, exc_info=True)
+
+    schedule_acl_apply(hub.organization_id)
+    return key
+
+
+def _prune_stale_machines(repo, tailnet: str, tag: str) -> None:
+    """Delete the nodes carrying ``tag`` that are offline and not the newest."""
+    tagged = [m for m in repo.list_machines(tailnet) if tag in m.tags]
     if len(tagged) < 2:
         return
     newest = max(tagged, key=lambda m: int(m.id))
     for machine in tagged:
         if machine is newest or machine.connected:
             continue
-        logger.info("Pruning stale mesh node %s (%s) of %s", machine.id, machine.name, enrollment)
+        logger.info("Pruning stale mesh node %s (%s) tagged %s", machine.id, machine.name, tag)
         repo.delete_machine(machine.id)
+
+
+def report_hub_health(hub: models.Hub, report: base_models.HubHealthReport) -> models.Hub:
+    """Record a hub's health callback: liveness, version and mesh state on the hub,
+    plus a snapshot (only the latest ``settings.HUB_HEALTH_RETENTION`` are kept).
+
+    Instances the hub reports that are not its own are dropped from the snapshot.
+    The reported mesh hostname is what ``kind: mesh`` aliases resolve to while
+    the hub keeps calling in (see ``fakts.services.mesh``).
+    """
+    own = {str(pk) for pk in hub.instances.values_list("id", flat=True)} | set(
+        hub.instances.values_list("token", flat=True)
+    )
+    payload = report.model_dump()
+    payload["instances"] = {key: value for key, value in payload["instances"].items() if key in own}
+
+    hub.last_seen_at = timezone.now()
+    hub.last_healthy = report.healthy
+    hub.version = report.version or ""
+    fields = ["last_seen_at", "last_healthy", "version"]
+    if report.mesh is not None:
+        hub.mesh_connected = report.mesh.connected
+        hub.mesh_host = (report.mesh.hostname or report.mesh.ipv4 or "") if report.mesh.connected else ""
+        fields += ["mesh_connected", "mesh_host"]
+    hub.save(update_fields=fields)
+
+    models.HubHealthSnapshot.objects.create(hub=hub, healthy=report.healthy, payload=payload)
+    retention = getattr(settings, "HUB_HEALTH_RETENTION", 20)
+    keep = list(models.HubHealthSnapshot.objects.filter(hub=hub).values_list("id", flat=True)[:retention])
+    models.HubHealthSnapshot.objects.filter(hub=hub).exclude(id__in=keep).delete()
+    return hub

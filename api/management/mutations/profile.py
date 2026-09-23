@@ -16,6 +16,7 @@ logger = logging.getLogger(__name__)
 class CreateProfileInput:
     user: strawberry.ID
     name: str
+    bio: str | None = None
 
 
 def create_profile(info: Info, input: CreateProfileInput) -> types.ManagementProfile:
@@ -27,7 +28,7 @@ def create_profile(info: Info, input: CreateProfileInput) -> types.ManagementPro
 
     # A post_save signal creates a Profile for every new user, so a plain
     # create() always hit the OneToOne unique constraint: upsert instead.
-    profile, _ = models.Profile.objects.update_or_create(user=user, defaults={"name": input.name})
+    profile, _ = models.Profile.objects.update_or_create(user=user, defaults={"name": input.name, "bio": input.bio})
     return profile
 
 
@@ -35,6 +36,7 @@ def create_profile(info: Info, input: CreateProfileInput) -> types.ManagementPro
 class UpdateProfileInput:
     id: strawberry.ID
     name: str | None = None
+    bio: str | None = None
     banner: strawberry.ID | None = None
     avatar: strawberry.ID | None = None
 
@@ -47,6 +49,9 @@ def update_profile(info: Info, input: UpdateProfileInput) -> types.ManagementPro
 
     if input.name:
         profile.name = input.name
+    if input.bio is not None:
+        # An empty string clears the bio, so check for None rather than falsiness.
+        profile.bio = input.bio[:4000]
     if input.avatar:
         profile.avatar = resolve_own_media_store(info, input.avatar, models.MediaStore)
     if input.banner:

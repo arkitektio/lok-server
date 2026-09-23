@@ -27,7 +27,7 @@ from django.http import HttpResponse
 from strawberry.django.views import AsyncGraphQLView
 from allauth.headless.constants import Client
 from api.management.schema import schema
-from authapp.views import oauth_authorization_server, open_id_configuration
+from authapp.views import jwks, oauth_authorization_server, open_id_configuration
 from lok_server.headless_config import PrivacyConfigView
 
 
@@ -83,4 +83,7 @@ urlpatterns = [
     dynamicpath(".well-known/fakts", WellKnownFakts.as_view()),
     dynamicpath(".well-known/openid-configuration", open_id_configuration, name="openid_configuration"),
     dynamicpath(".well-known/oauth-authorization-server", oauth_authorization_server, name="oauth_authorization_server"),
+    # Hubs are handed this URL as `auth.jwks_url` in their fakts claim (see
+    # fakts.services.rendering.render_server_fakts); same keys as /o/jwks/.
+    dynamicpath(".well-known/jwks.json", jwks, name="well_known_jwks"),
 ]

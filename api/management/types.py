@@ -147,8 +147,12 @@ class ManagementUser:
     username: str
     groups: list[ManagementGroup]
     memberships: list["ManagementMembership"] = strawberry_django.field(description="The memberships of the user in organizations")
-    avatar: str | None
     profile: "ManagementProfile"
+
+    @strawberry_django.field(description="A short-lived URL of the user's avatar (`profile.avatar`), if they have one.")
+    def avatar(self, info: Info) -> str | None:
+        store = cast(models.User, self).avatar
+        return store.get_presigned_url(info, datalayer=get_current_datalayer()) if store else None
     com_channels: list["ManagementComChannel"] = strawberry_django.field(description="The communication channels that the user has")
 
     @strawberry_django.field(
@@ -511,6 +515,13 @@ class ManagementMembership:
     )
     def has_notification_channel(self) -> bool:
         return models.ComChannel.objects.filter(user_id=self.user_id).exists()
+
+    @strawberry_django.field(
+        description="Whether this member owns the organization. The owner cannot be removed by others; ownership must be transferred first.",
+        only=["user_id", "organization_id"],
+    )
+    def is_owner(self) -> bool:
+        return models.Organization.objects.filter(pk=self.organization_id, owner_id=self.user_id).exists()
 
     @classmethod
     def get_queryset(cls, queryset, info: Info):
@@ -923,10 +934,41 @@ class ManagementHub:
         description="The instances of the hub. A service instance is a configured instance of a service."
     )
     clients: list["ManagementClient"] = strawberry_django.field(description="The clients that are part of this hub. A client is an application that uses the services in the hub.")
+    last_seen_at: Optional[datetime.datetime] = strawberry.field(description="When the hub last reported its health. Null if it never has.")
+    last_healthy: Optional[bool] = strawberry.field(description="Whether the hub's last health report said it was healthy.")
+    version: str = strawberry.field(description="The hub software version, as last reported.")
+    mesh_connected: Optional[bool] = strawberry.field(description="Whether the hub's last health report said its node is on the mesh. Null if it never reported mesh state.")
+    mesh_host: str = strawberry.field(description="The hub node's MagicDNS name (or mesh IP), as last reported by the hub.")
+    health_snapshots: list["ManagementHubHealthSnapshot"] = strawberry_django.field(description="The hub's most recent health reports, newest first.")
+
+    @strawberry_django.field(description="Whether the hub has reported its health within the last three reporting intervals.")
+    def online(self) -> bool:
+        return self.online
 
     @classmethod
     def get_queryset(cls, queryset, info: Info):
         return queryset.filter(organization__memberships__user=info.context.request.user).distinct()
+
+
+@strawberry.type(description="The health one instance reported in a hub health report.")
+class ManagementInstanceHealth:
+    identifier: str = strawberry.field(description="The instance identifier the hub reported under.")
+    healthy: bool
+    reason: Optional[str] = None
+
+
+@strawberry_django.type(fakts_models.HubHealthSnapshot, description="One health report a hub posted to /f/hubhealth/.")
+class ManagementHubHealthSnapshot:
+    id: strawberry.ID
+    healthy: bool = strawberry.field(description="Did the hub report itself healthy?")
+    created_at: datetime.datetime
+
+    @strawberry_django.field(description="The per-instance health the hub reported.")
+    def instances(self) -> list[ManagementInstanceHealth]:
+        return [
+            ManagementInstanceHealth(identifier=key, healthy=bool(value.get("healthy")), reason=value.get("reason"))
+            for key, value in ((self.payload or {}).get("instances") or {}).items()
+        ]
 
 
 @strawberry_django.type(
@@ -941,7 +983,7 @@ class ManagementInstanceAlias:
     layer: Optional["ManagementLayer"] = strawberry.field(description="The layer that this alias belongs to.")
     instance: ManagementServiceInstance = strawberry_django.field(description="The instance that this alias belongs to.")
     name: Optional[str] = strawberry.field(description="The name of the alias.")
-    kind: str = strawberry.field(description="The kind of alias (relative or absolute).")
+    kind: str = strawberry.field(description="The kind of alias (relative, absolute or mesh). A mesh alias has no host of its own: it resolves to its hub node's MagicDNS name.")
     host: Optional[str] = strawberry.field(description="The host of the alias, if its a ABSOLUTE alias (e.g. 'example.com'). If not set, the alias is relative to the layer's domain.")
     port: Optional[int] = strawberry.field(description="The port of the alias, if its a ABSOLUTE alias (e.g. 'example.com:8080'). If not set, the alias is relative to the layer's port.")
     path: Optional[str] = strawberry.field(description="The path of the alias, if its a ABSOLUTE alias (e.g. 'example.com/path'). If not set, the alias is relative to the layer's path.")
@@ -954,6 +996,14 @@ class ManagementInstanceAlias:
     @strawberry_django.field(description="The organization that owns this alias (via the instance).")
     def organization(self) -> "ManagementOrganization":
         return self.instance.organization
+
+    @strawberry_django.field(description="For a mesh alias, the host it currently resolves to (its hub node's MagicDNS name, or mesh IP). Null for other kinds, or while the hub is not on the mesh.")
+    def resolved_host(self) -> Optional[str]:
+        if self.kind != fakts_enums.AliasKindChoices.MESH.value or not self.instance.hub_id:
+            return None
+        from fakts.services.mesh import resolve_hub_mesh_host
+
+        return resolve_hub_mesh_host(self.instance.hub)
 
     @classmethod
     def get_queryset(cls, queryset, info: Info):
@@ -1075,20 +1125,9 @@ class ManagementMachine:
         # MagicDNS off for this mesh -> the name would not resolve, so surface nothing.
         if not self.magic_dns_enabled:
             return None
-        # Prefer the real FQDN reported by ionscale over deriving it (avoids guessing the format).
-        fqdn = getattr(self.instance, "fqdn", None)
-        if fqdn:
-            return fqdn
-        # Derive the MagicDNS name. ionscale namespaces machines under their tailnet, so the
-        # form is `<name>.<tailnet>.<suffix>` (e.g. gpu-01.myorg.mesh.arkitekt.live).
-        suffix = getattr(settings, "IONSCALE_MAGIC_DNS_SUFFIX", None)
-        if suffix and self.instance.name:
-            parts = [self.instance.name]
-            if self.tailnet:
-                parts.append(self.tailnet)
-            parts.append(suffix)
-            return ".".join(parts)
-        return None
+        from ionscale.manager import magic_dns_name
+
+        return magic_dns_name(self.instance.name, self.tailnet, getattr(self.instance, "fqdn", None))
 
 
 

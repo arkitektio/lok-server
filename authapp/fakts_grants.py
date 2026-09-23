@@ -196,19 +196,21 @@ class FaktsDeviceCodeGrant(FaktsEnvelopeMixin, DeviceCodeGrant):
 
     @staticmethod
     def append_mesh_key(token: dict, credential) -> dict:
-        """Hand an app its mesh key, minted at accept (``request_auth_key``).
+        """Hand an app or hub its mesh key, minted at accept (``request_auth_key``).
 
         Only here, on the initial device-code response: the code is burned right
         after, so the key goes out exactly once and never rides along a refresh.
-        A hub's code carries no key (its ``auth`` comes from its envelope), so
-        this never overwrites one.
+        Apps and hubs get the same ``mesh`` shape (``MeshClaim``); the identity
+        it belongs to (sub, organization, hub) is in the envelope's ``self``.
         """
+        from fakts.base_models import MeshClaim
+
         key = getattr(credential, "auth_key", None)
-        if key is not None and "auth" not in token:
-            token["auth"] = {
-                "ionscale_auth_key": key.key,
-                "ionscale_coord_url": settings.IONSCALE_COORD_URL,
-            }
+        if key is not None:
+            token["mesh"] = MeshClaim(
+                ionscale_auth_key=key.key,
+                ionscale_coord_url=settings.IONSCALE_COORD_URL,
+            ).model_dump()
         return token
 
 

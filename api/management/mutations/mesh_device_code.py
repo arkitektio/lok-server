@@ -7,6 +7,8 @@ from api.management.authz import assert_owner_or_admin, get_or_denied
 from api.management.device_code_authz import resolve_device_code_with_proof
 from fakts import logic
 import kante
+from ionscale.acl import reserved_tags
+from graphql import GraphQLError
 
 
 @kante.input
@@ -40,6 +42,7 @@ def accept_mesh_device_code(info: Info, input: AcceptMeshDeviceCodeInput) -> typ
     organization = get_or_denied(models.Organization.objects, id=input.organization)
 
     assert_owner_or_admin(info, organization)
+    _reject_reserved_tags(input.tags)
 
     key = logic.create_mesh_auth_key(
         user=user,
@@ -77,3 +80,12 @@ def decline_mesh_device_code(info: Info, input: DeclineMeshDeviceCodeInput) -> t
     device_code.save()
 
     return device_code
+
+
+def _reject_reserved_tags(tags) -> None:
+    """`tag:app-*` / `tag:hub-*` mark app and hub sidecars; only lok mints them."""
+    reserved = reserved_tags(tags)
+    if reserved:
+        raise GraphQLError(
+            f"Tags {', '.join(reserved)} are reserved for app and hub sidecars and cannot be assigned by hand."
+        )

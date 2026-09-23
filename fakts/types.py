@@ -27,6 +27,7 @@ class PresignedPostCredentials:
     datalayer: str
     bucket: str
     store: str
+    content_type: str = strawberry.field(description="The Content-Type the upload form must send; the policy pins it exactly.")
 
 
 @strawberry.type(description="A scope that can be assigned to a client. Scopes are used to limit the access of a client to a user's data. They represent app-level permissions.")
@@ -68,10 +69,47 @@ class Hub:
     identifier: scalars.ServiceIdentifier = strawberry.field(description="The identifier of the hub. This should be a globally unique string that identifies the hub. We encourage you to use the reverse domain name notation. E.g. `com.example.myhub`")
     description: str | None = strawberry.field(description="The description of the service. This should be a human readable description of the service.")
     name: str = strawberry.field(description="The name of the hub. This should be a human readable name of the hub.")
+    last_seen_at: Optional[datetime.datetime] = strawberry.field(description="When the hub last reported its health. Null if it never has.")
+    last_healthy: Optional[bool] = strawberry.field(description="Whether the hub's last health report said it was healthy. Null if it never reported.")
+    version: str = strawberry.field(description="The hub software version, as last reported (empty if never reported).")
+    mesh_connected: Optional[bool] = strawberry.field(description="Whether the hub's last health report said its node is on the mesh. Null if it never reported mesh state.")
+    mesh_host: str = strawberry.field(description="The hub node's MagicDNS name (or mesh IP), as last reported by the hub. Empty when unknown or off the mesh.")
+
+    @strawberry_django.field(description="Whether the hub reported its health within the last three reporting intervals.")
+    def online(self) -> bool:
+        return self.online
+
+    @strawberry_django.field(description="The hub's most recent health report, or null if it never reported.")
+    def latest_health(self) -> Optional["HubHealthReport"]:
+        return self.health_snapshots.first()
 
     @classmethod
     def get_queryset(cls, queryset, info: Info, **kwargs):
         return build_prescoped_queryset(info, queryset)
+
+
+@strawberry.type(description="The health a hub reported for one of its service instances.")
+class InstanceHealth:
+    instance: "ServiceInstance" = strawberry.field(description="The service instance this entry is about.")
+    healthy: bool = strawberry.field(description="Did the hub report the instance healthy?")
+    reason: Optional[str] = strawberry.field(default=None, description="Why the instance is unhealthy, if the hub said.")
+
+
+@strawberry_django.type(models.HubHealthSnapshot, description="One health report a hub posted to lok.")
+class HubHealthReport:
+    id: strawberry.ID
+    healthy: bool = strawberry.field(description="Did the hub report itself healthy?")
+    created_at: datetime.datetime = strawberry.field(description="When the hub reported.")
+
+    @strawberry_django.field(description="The per-instance health in this report. Only instances of the hub are listed.")
+    def instances(self) -> list[InstanceHealth]:
+        reported = (self.payload or {}).get("instances") or {}
+        by_token = {i.token: i for i in self.hub.instances.filter(token__in=list(reported))}
+        return [
+            InstanceHealth(instance=by_token[key], healthy=bool(value.get("healthy")), reason=value.get("reason"))
+            for key, value in reported.items()
+            if key in by_token
+        ]
 
 
 @strawberry_django.type(

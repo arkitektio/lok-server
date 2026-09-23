@@ -287,6 +287,14 @@ class IonscaleHttpRepository:
         self._tailnet_call("SetIAMPolicy", tailnet, {"policy": text})
         return "ok"
 
+    def get_acl_policy(self, tailnet: str) -> str:
+        """The raw ACL policy text (HuJSON as stored; may carry comments)."""
+        return self._tailnet_call("GetACLPolicy", tailnet).get("policy") or ""
+
+    def set_acl_policy(self, tailnet: str, policy: Dict[str, Any]) -> None:
+        """Replace the tailnet's whole ACL policy; ionscale pushes it to every node."""
+        self._tailnet_call("SetACLPolicy", tailnet, {"policy": json.dumps(policy, indent=2)})
+
     # --------------------------------------------------------------------- dns
 
     def set_dns_config(self, tailnet: str, config: DNSConfig) -> str:

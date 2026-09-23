@@ -211,6 +211,11 @@ class RefreshTokenGrant(FaktsEnvelopeMixin, grants.RefreshTokenGrant):
                 chain_started_at=item.chain_started_at,
                 revoked=False,
             ).update(revoked=True)
+            # A leaked chain's mesh sidecar is revoked with it.
+            from fakts.models import Client
+            from fakts.services.mesh import schedule_reap_for_clients
+
+            schedule_reap_for_clients(Client.objects.filter(client_id=item.client_id))
             logger.warning(
                 "Refresh token reuse detected for client %s (chain started %s); "
                 "revoked %s live token(s) in that chain.",

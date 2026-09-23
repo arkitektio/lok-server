@@ -1,3 +1,5 @@
+import logging
+
 from kante import Info
 import strawberry
 from django.db import IntegrityError, transaction
@@ -12,6 +14,8 @@ from fakts import logic, builders, base_models, enums
 from fakts.services import aliases as alias_services
 import kante
 from api.management.device_code_authz import resolve_device_code_with_proof
+
+logger = logging.getLogger(__name__)
 
 
 @kante.input
@@ -34,6 +38,11 @@ def accept_hub_device_code(info: Info, input: AcceptHubDeviceCodeInput) -> types
 
     Requires the user code the device displayed (proof of possession) and
     ownership of — or the `admin` role in — the target organization.
+
+    A manifest whose identifier already names a hub in the organization
+    re-authorizes that hub in place: its instances, aliases and clients are
+    upserted, its identity moves to the new staged client (the old one's
+    refresh chain dies), and its mesh key is rotated.
     """
     user = info.context.request.user
     device_code = resolve_device_code_with_proof(
@@ -53,32 +62,28 @@ def accept_hub_device_code(info: Info, input: AcceptHubDeviceCodeInput) -> types
     except (PydanticValidationError, TypeError):
         raise GraphQLError("The staged hub manifest of this device code is malformed.")
 
-    if fakts_models.Hub.objects.filter(organization=organization, identifier=manifest.identifier).exists():
-        raise GraphQLError(
-            f"A hub with identifier '{manifest.identifier}' already exists in this organization."
-        )
-
     try:
         with transaction.atomic():
             return _provision_hub(info, input, device_code, organization, manifest, user)
     except IntegrityError:
-        # The pre-check above closes the common case; this closes the race (or a
-        # duplicate further down the manifest) without leaking a half-built hub.
-        if fakts_models.Hub.objects.filter(organization=organization, identifier=manifest.identifier).exists():
-            raise GraphQLError(
-                f"A hub with identifier '{manifest.identifier}' already exists in this organization."
-            )
+        # A concurrent accept of the same identifier, or a duplicate further down
+        # the manifest; the transaction leaves no half-built hub behind.
         raise GraphQLError("Could not provision the hub: the manifest conflicts with existing objects in this organization.")
 
 
 def _provision_hub(info: Info, input: AcceptHubDeviceCodeInput, device_code, organization, manifest, user) -> fakts_models.Hub:
-    hub = fakts_models.Hub.objects.create(
-        name=manifest.identifier,
-        identifier=manifest.identifier,
-        description=manifest.description or "",
+    hub, created = fakts_models.Hub.objects.select_for_update().get_or_create(
         organization=organization,
-        creator=user,
+        identifier=manifest.identifier,
+        defaults={
+            "name": manifest.identifier,
+            "description": manifest.description or "",
+            "creator": user,
+        },
     )
+    if not created and manifest.description:
+        hub.description = manifest.description
+        hub.save(update_fields=["description"])
 
     for servicer in manifest.instances:
         service_manifest = servicer.manifest
@@ -147,6 +152,15 @@ def _provision_hub(info: Info, input: AcceptHubDeviceCodeInput, device_code, org
     for clr in manifest.clients:
         client_manifest = clr.manifest
 
+        # Re-authorization keeps the hub's existing clients (and their client_ids).
+        if fakts_models.Client.objects.filter(
+            hub=hub,
+            kind=enums.ClientKindVanilla.DEVELOPMENT.value,
+            release__app__identifier=client_manifest.identifier,
+            release__version=client_manifest.version,
+        ).exists():
+            continue
+
         client = builders.create_public_client(
             kind=enums.ClientKindVanilla.DEVELOPMENT.value,
         )
@@ -157,10 +171,6 @@ def _provision_hub(info: Info, input: AcceptHubDeviceCodeInput, device_code, org
             hub=hub,
         )
 
-    if input.allow_ionscale and manifest.request_auth_key:
-        hub.auth_key = logic.create_hub_auth_key(user=info.context.request.user, hub=hub)
-        hub.save()
-
     # Bind the staged (registered-at-start) client to the hub and the approving
     # user's membership: the hub server polls the token endpoint as this client
     # and receives its config in the token response envelope.
@@ -170,14 +180,40 @@ def _provision_hub(info: Info, input: AcceptHubDeviceCodeInput, device_code, org
     staged.scope = "openid"
     staged.name = manifest.identifier
     staged.save()
+    previous_identity = hub.client
     hub.client = staged
     hub.save(update_fields=["client"])
+    if previous_identity is not None and previous_identity.pk != staged.pk:
+        # The re-authorizing server takes over; the old one's refresh chain dies.
+        previous_identity.delete()
+
+    if input.allow_ionscale and manifest.request_auth_key:
+        _grant_hub_mesh_key(device_code, user, hub)
 
     device_code.organization = organization
     device_code.granted_scope = "openid"
     device_code.save()
 
     return hub
+
+
+def _grant_hub_mesh_key(device_code: fakts_models.DeviceCode, user, hub: fakts_models.Hub) -> None:
+    """Mint (or rotate) the hub's mesh key onto the code; the token response hands
+    it out once, exactly like an app's.
+
+    Best-effort: without a mesh, or with ionscale failing, the hub is still
+    provisioned (a savepoint keeps a failure from poisoning the accept's
+    transaction) and can join the mesh interactively.
+    """
+    try:
+        with transaction.atomic():
+            key = logic.enroll_hub_on_mesh(user=user, hub=hub)
+    except Exception:
+        logger.warning("Could not mint a mesh key for hub %s", hub, exc_info=True)
+        return
+    if key is not None:
+        device_code.auth_key = key
+        device_code.save(update_fields=["auth_key"])
 
 
 @kante.input

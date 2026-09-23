@@ -13,7 +13,7 @@ from django.test import override_settings
 
 from fakts import models as fakts_models
 from fakts import enums as fakts_enums
-from fakts.services.hubs import create_hub_auth_key
+from fakts.services.hubs import enroll_hub_on_mesh
 from ionscale.manager import ensure_org_mesh, get_org_mesh
 from tests import factories
 
@@ -336,14 +336,13 @@ def test_hub_auth_key_needs_opted_in_mesh(ionscale_repo):
     hub = factories.make_hub()
     org = hub.organization
 
-    # No mesh opted in yet -> actionable message, and no tailnet auto-created.
-    with pytest.raises(Exception, match="no mesh"):
-        create_hub_auth_key(org.owner, hub)
+    # No mesh opted in yet -> no key, and no tailnet auto-created.
+    assert enroll_hub_on_mesh(org.owner, hub) is None
     assert len(ionscale_repo.created_tailnets) == 0
 
     # Opt in, then issuing a key works against the singleton mesh.
     ensure_org_mesh(org)
-    key = create_hub_auth_key(org.owner, hub)
+    key = enroll_hub_on_mesh(org.owner, hub)
     assert key.pk is not None
     assert len(ionscale_repo.created_auth_keys) == 1
     assert ionscale_repo.created_auth_keys[-1]["tailnet"] == get_org_mesh(org).tailnet_name

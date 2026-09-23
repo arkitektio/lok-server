@@ -16,7 +16,6 @@ from fakts import base_models, errors, models
 from fakts.base_models import (
     Alias,
     FaktsEnvelope,
-    HubAuthClaim,
     HubClaimAnswer,
     HubClientClaim,
     HubInstanceClaim,
@@ -26,16 +25,24 @@ from fakts.base_models import (
 from fakts.services.tokens import hash_requirements
 
 
+def _identity(membership, hub: models.Hub | None) -> dict:
+    """``self``'s identity fields: the same values as the access token's
+    ``sub`` / ``org`` claims, plus the (stable) hub pk."""
+    return {
+        "sub": str(membership.user_id) if membership else None,
+        "organization": str(membership.organization_id) if membership else None,
+        "hub": str(hub.pk) if hub is not None else None,
+    }
+
+
 def render_server_fakts(hub: models.Hub, context: base_models.ServerLinkingContext) -> HubClaimAnswer:
+    identity = _identity(hub.client.membership if hub.client_id else None, hub)
+    identity["organization"] = str(hub.organization_id)
     self_claim = SelfClaim(
         deployment_name=context.deployment_name,
         alias=Alias(id="self", host=context.request.host, port=context.request.port, ssl=context.request.is_secure, path="lok", challenge="ht"),
-    )
-
-    auth_claim = HubAuthClaim(
-        jwks_url=f"{context.request.base_url}/.well-known/jwks.json",
-        ionscale_auth_key=hub.auth_key.key if hub.auth_key else None,
-        ionscale_coord_url=settings.IONSCALE_COORD_URL,
+        jwks_url=context.request.jwks_url,
+        **identity,
     )
 
     instance_claims: Dict[str, HubInstanceClaim] = {}
@@ -53,7 +60,6 @@ def render_server_fakts(hub: models.Hub, context: base_models.ServerLinkingConte
         )
 
     claim = HubClaimAnswer(
-        auth=auth_claim,
         self=self_claim,
         instances=instance_claims,
         clients=client_claims,
@@ -71,6 +77,8 @@ def render_envelope_from_context(client: models.Client, context: base_models.Lin
     self_claim = SelfClaim(
         deployment_name=context.deployment_name,
         alias=Alias(id="self", host=context.request.host, port=context.request.port, ssl=context.request.is_secure, path="lok", challenge="ht"),
+        jwks_url=context.request.jwks_url,
+        **_identity(client.membership if client.membership_id else None, client.hub if client.hub_id else None),
     )
 
     instances_map: Dict[str, InstanceClaim] = {}
@@ -101,10 +109,11 @@ def render_envelope(request: HttpRequest, client: models.Client) -> dict:
 
 def render_hub_envelope(request: HttpRequest, hub: models.Hub) -> dict:
     """Render a hub's config envelope for the token response (the hub-client
-    counterpart of :func:`render_envelope`): `self`, `auth` (jwks + ionscale),
+    counterpart of :func:`render_envelope`): `self` (incl. `jwks_url`),
     `instances` (with private keys) and `clients` (by OAuth2 client_id). Hub
     servers refresh hourly and pick up new instances/clients with each
-    re-render."""
+    re-render. Mesh keys are not part of it: like an app's, a hub's key rides
+    the initial device-code response only (``FaktsDeviceCodeGrant.append_mesh_key``)."""
     context = create_serverlinking_context(request, hub)
     return render_server_fakts(hub, context).model_dump()
 
@@ -169,6 +178,13 @@ def auto_compose(client: models.Client, manifest: base_models.Manifest, user: mo
     return client
 
 
+def _jwks_url(request: HttpRequest) -> str:
+    """The JWKS endpoint, anchored to the configured issuer like openid-configuration's."""
+    from authapp.views import issuer_absolute_uri
+
+    return issuer_absolute_uri(request, "jwks")
+
+
 def create_linking_context(request: HttpRequest, client: models.Client) -> base_models.LinkingContext:
     host_string = request.get_host().split(":")
     if len(host_string) == 2:
@@ -186,6 +202,7 @@ def create_linking_context(request: HttpRequest, client: models.Client) -> base_
             port=port,
             base_url=base_url,
             is_secure=request.is_secure(),
+            jwks_url=_jwks_url(request),
         ),
         secure=request.is_secure(),
         manifest=base_models.Manifest(
@@ -217,6 +234,7 @@ def create_serverlinking_context(request: HttpRequest, hub: models.Hub, claim: b
             port=port,
             base_url=base_url,
             is_secure=request.is_secure(),
+            jwks_url=_jwks_url(request),
         ),
     )
 

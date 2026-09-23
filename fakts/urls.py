@@ -24,6 +24,7 @@ def index(request):
 base_urlpatterns = [
     re_path(r"^$", index, name="index"),
     re_path(r"^report/$", views.ReportView.as_view(), name="report"),
+    re_path(r"^hubhealth/$", views.HubHealthView.as_view(), name="hubhealth"),
     re_path(r"^meshstart/$", views.MeshStartChallengeView.as_view(), name="meshstart"),
     re_path(r"^meshchallenge/$", views.MeshChallengeView.as_view(), name="meshchallenge"),
     re_path(r"^claimhub/$", views.ClaimHubView.as_view(), name="hubclaim"),

@@ -258,6 +258,11 @@ def bind_client(
 
     finalize_client_scope(client)
 
+    # The client's hub decides which hub sidecar its app sidecar may reach.
+    from ionscale.acl import schedule_acl_apply
+
+    schedule_acl_apply(organization.pk)
+
     return client
 
 

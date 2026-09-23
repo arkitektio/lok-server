@@ -88,15 +88,20 @@ def mesh_org():
 def test_requested_key_rides_the_initial_token_response_once(client, ionscale_repo, mesh_org):
     token = _grant(client, mesh_org.membership, mesh_org.hub)
 
-    assert token["auth"] == {
+    assert token["mesh"] == {
         "ionscale_auth_key": ionscale_repo.auth_key,
         "ionscale_coord_url": settings.IONSCALE_COORD_URL,
     }
+    # What the app keys its persisted logins by: the same values as the token's
+    # `sub` / `org` claims, and the hub its client is bound to.
+    identity = {"sub": str(mesh_org.membership.user_id), "organization": str(mesh_org.organization.pk), "hub": str(mesh_org.hub.pk)}
+    assert {k: token["self"][k] for k in identity} == identity
     enrollment = models.AppMeshEnrollment.objects.get()
     assert enrollment.membership == mesh_org.membership
     minted = ionscale_repo.created_auth_keys[-1]
     assert minted["tailnet"] == mesh_org.layer.tailnet_name
-    assert minted["tags"] == [f"tag:mesh-{mesh_org.organization.pk}", enrollment.tag]
+    # Sidecar tag only: tag:mesh-<org> is for member-reachable machines.
+    assert minted["tags"] == [enrollment.tag]
     assert minted["expiry_seconds"] == APP_MESH_KEY_EXPIRY_SECONDS
     assert minted["ephemeral"] is False
 
@@ -107,7 +112,9 @@ def test_requested_key_rides_the_initial_token_response_once(client, ionscale_re
         secure=True,
     ).json()
     assert refreshed["refresh_token"]
-    assert "auth" not in refreshed
+    assert "mesh" not in refreshed
+    # The identity is in `self` on every response, refreshes included.
+    assert {k: refreshed["self"][k] for k in identity} == identity
 
 
 @pytest.mark.django_db
@@ -116,7 +123,11 @@ def test_no_key_unless_requested_and_allowed(client, ionscale_repo, mesh_org, re
     token = _grant(
         client, mesh_org.membership, mesh_org.hub, request_auth_key=request_auth_key, allow_ionscale=allow_ionscale
     )
-    assert "auth" not in token
+    assert "mesh" not in token
+    # The identity does not depend on a mesh key: it is in `self` either way.
+    assert token["self"]["sub"] == str(mesh_org.membership.user_id)
+    assert token["self"]["organization"] == str(mesh_org.organization.pk)
+    assert token["self"]["hub"] == str(mesh_org.hub.pk)
     assert ionscale_repo.created_auth_keys == []
     assert not models.AppMeshEnrollment.objects.exists()
 
@@ -127,7 +138,7 @@ def test_org_without_mesh_still_authorizes_the_app(client, ionscale_repo):
     membership = factories.make_membership(organization=hub.organization)
     token = _grant(client, membership, hub)
     assert token["access_token"]
-    assert "auth" not in token
+    assert "mesh" not in token
     assert ionscale_repo.created_auth_keys == []
 
 
@@ -138,7 +149,7 @@ def test_ionscale_failure_still_authorizes_the_app(client, ionscale_repo, mesh_o
     ionscale_repo.fail_with["create_auth_key"] = IonscaleError("unavailable", "down")
     token = _grant(client, mesh_org.membership, mesh_org.hub)
     assert token["access_token"]
-    assert "auth" not in token
+    assert "mesh" not in token
 
 
 @pytest.mark.django_db
@@ -148,12 +159,12 @@ def test_regrant_reuses_the_enrollment_and_revokes_the_previous_key(client, ions
     # An upgrade is the same installation: enrollment keys on the app, not the release.
     second = _grant(client, mesh_org.membership, mesh_org.hub, version="2.0.0")
 
-    assert first["auth"]["ionscale_auth_key"] != second["auth"]["ionscale_auth_key"]
+    assert first["mesh"]["ionscale_auth_key"] != second["mesh"]["ionscale_auth_key"]
     enrollment = models.AppMeshEnrollment.objects.get()
-    assert enrollment.auth_key.key == second["auth"]["ionscale_auth_key"]
-    assert ionscale_repo.deleted_auth_keys == [(mesh_org.layer.tailnet_name, first["auth"]["ionscale_auth_key"])]
+    assert enrollment.auth_key.key == second["mesh"]["ionscale_auth_key"]
+    assert ionscale_repo.deleted_auth_keys == [(mesh_org.layer.tailnet_name, first["mesh"]["ionscale_auth_key"])]
     # Only the live key is kept on our side too.
-    assert list(models.IonscaleAuthKey.objects.values_list("key", flat=True)) == [second["auth"]["ionscale_auth_key"]]
+    assert list(models.IonscaleAuthKey.objects.values_list("key", flat=True)) == [second["mesh"]["ionscale_auth_key"]]
 
 
 @pytest.mark.django_db
@@ -221,7 +232,7 @@ def test_leaving_the_organization_removes_the_apps_mesh_nodes(
 
     assert not models.AppMeshEnrollment.objects.exists()
     assert ionscale_repo.deleted_machines == ["100"]
-    assert (mesh_org.layer.tailnet_name, token["auth"]["ionscale_auth_key"]) in ionscale_repo.deleted_auth_keys
+    assert (mesh_org.layer.tailnet_name, token["mesh"]["ionscale_auth_key"]) in ionscale_repo.deleted_auth_keys
 
 
 @pytest.mark.django_db
@@ -249,3 +260,46 @@ def test_deleting_the_organization_leaves_node_cleanup_to_the_tailnet_teardown(
 
     assert ionscale_repo.deleted_machines == []
     assert (mesh_org.layer.tailnet_name, True) in ionscale_repo.deleted_tailnets
+
+
+@pytest.mark.django_db(transaction=True)
+def test_approval_is_not_redeemable_until_the_mesh_key_is_attached(client, ionscale_repo, mesh_org, monkeypatch):
+    """Approve + mint is one transaction, so a poll can't redeem the code before the key lands.
+
+    Regression: `validate_device_code` committed on its own, the device's poll
+    redeemed (and burned) the code while ionscale minted the key, and the key's
+    save then raised `NotUpdated`, so kontrol showed "access denied" for an app
+    that had in fact been authorized, without its mesh key.
+    """
+    from django.db import connection
+
+    from fakts import logic
+
+    seen = {}
+    real_enroll = logic.enroll_app_on_mesh
+
+    def enroll(**kwargs):
+        seen["in_atomic_block"] = connection.in_atomic_block
+        return real_enroll(**kwargs)
+
+    monkeypatch.setattr(logic, "enroll_app_on_mesh", enroll)
+    token = _grant(client, mesh_org.membership, mesh_org.hub)
+
+    assert seen["in_atomic_block"] is True
+    assert token["mesh"]["ionscale_auth_key"] == ionscale_repo.auth_key
+
+
+@pytest.mark.django_db
+def test_code_burned_during_minting_does_not_fail_the_approval(client, ionscale_repo, mesh_org, monkeypatch):
+    from fakts import logic
+
+    body = _start(client)
+    real_enroll = logic.enroll_app_on_mesh
+
+    def enroll_then_burn(**kwargs):
+        key = real_enroll(**kwargs)
+        models.DeviceCode.objects.filter(secret=body["device_code"]).delete()
+        return key
+
+    monkeypatch.setattr(logic, "enroll_app_on_mesh", enroll_then_burn)
+    assert _accept(body, mesh_org.membership, mesh_org.hub) is not None

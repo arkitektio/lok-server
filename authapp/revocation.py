@@ -37,3 +37,8 @@ class MyRevocationEndpoint(RevocationEndpoint):
     def revoke_token(self, token, request):
         token.revoked = True
         token.save(update_fields=["revoked"])
+        # A client that revokes its own session also gives up its mesh sidecar.
+        from fakts.models import Client
+        from fakts.services.mesh import schedule_reap_for_clients
+
+        schedule_reap_for_clients(Client.objects.filter(client_id=token.client_id))

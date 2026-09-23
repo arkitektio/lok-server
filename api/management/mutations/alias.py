@@ -3,7 +3,18 @@ import strawberry
 from api.management import types
 import kante
 from api.management.authz import assert_owner_or_admin, get_or_denied
+from fakts import enums as fakts_enums
 from fakts import models as fakts_models
+from graphql import GraphQLError
+
+
+def _host_for(kind: str, host: str | None) -> str | None:
+    """A mesh alias resolves its own host; every other kind needs one."""
+    if kind == fakts_enums.AliasKindChoices.MESH.value:
+        return None
+    if not host:
+        raise GraphQLError(f"An alias of kind '{kind}' needs a host.")
+    return host
 
 
 @kante.input
@@ -12,8 +23,8 @@ class CreateAliasInput:
 
     instance: strawberry.ID  # Service Instance ID to create the alias for
     port: int
-    host: str
     kind: str
+    host: str | None = None
     path: str | None = None
     public: bool = False
 
@@ -30,7 +41,7 @@ def create_alias(info: Info, input: CreateAliasInput) -> types.ManagementInstanc
     alias = fakts_models.InstanceAlias.objects.create(
         instance=instance,
         port=input.port,
-        host=input.host,
+        host=_host_for(input.kind, input.host),
         kind=input.kind,
         path=input.path,
         public=input.public,
@@ -45,8 +56,8 @@ class UpdateAliasInput:
 
     id: strawberry.ID
     port: int
-    host: str
     kind: str
+    host: str | None = None
     path: str | None = None
     public: bool | None = None
 
@@ -59,7 +70,7 @@ def update_alias(info: Info, input: UpdateAliasInput) -> types.ManagementInstanc
     assert_owner_or_admin(info, alias.instance.organization)
 
     alias.port = input.port
-    alias.host = input.host
+    alias.host = _host_for(input.kind, input.host)
     alias.kind = input.kind
     alias.path = input.path
     if input.public is not None:

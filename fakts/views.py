@@ -14,7 +14,7 @@ from authapp.bearer import InvalidBearerToken, decode_bearer_token
 from authapp.views import issuer_absolute_uri, issuer_base_url
 from authapp.throttle import AUTHORIZATION_LIMIT_PER_MINUTE, is_throttled, throttled_response
 from fakts import base_models, models
-from fakts.services import clients, device_codes, rendering
+from fakts.services import clients, device_codes, hubs, rendering
 
 logger = logging.getLogger(__name__)
 
@@ -427,3 +427,50 @@ class ReportView(View):
                 http_status=500,
                 message="Error processing report",
             )
+
+
+@method_decorator(csrf_exempt, name="dispatch")
+class HubHealthView(View):
+    """A hub's health callback (``HubHealthReport``): the hub calls us on a timer,
+    and the answer tells it when to call next (``next_report_in``, seconds).
+
+    Authenticated with the hub's own Bearer access token (the one its
+    device-code grant and refresh chain yield) — the JWT's `client_id` claim
+    must be a hub identity."""
+
+    def post(self, request, *args, **kwargs):
+        try:
+            claims = decode_bearer_token(request)
+        except InvalidBearerToken as e:
+            return _error(ERROR_INVALID_GRANT, str(e), http_status=401, message=str(e))
+
+        hub = models.Hub.objects.filter(client__client_id=claims.get("client_id")).first()
+        if hub is None:
+            return _error(
+                ERROR_INVALID_GRANT,
+                "No hub found for this token",
+                http_status=401,
+                message="No hub found for this token",
+            )
+
+        report, err = _parse(request, base_models.HubHealthReport, error_key="message")
+        if err:
+            return err
+
+        try:
+            hubs.report_hub_health(hub, report)
+        except Exception:
+            logger.exception("Processing the health report of hub %s failed", hub.pk)
+            return _error(
+                ERROR_SERVER_ERROR,
+                "Error processing health report",
+                http_status=500,
+                message="Error processing health report",
+            )
+        return JsonResponse(
+            {
+                "status": "reported",
+                "message": "Health report processed successfully",
+                "next_report_in": getattr(settings, "HUB_HEALTH_INTERVAL", 60),
+            }
+        )

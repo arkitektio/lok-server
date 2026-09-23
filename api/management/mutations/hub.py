@@ -41,7 +41,7 @@ class DeleteHubInput:
 
 def delete_hub(info: Info, input: DeleteHubInput) -> strawberry.ID:
     hub = get_or_denied(fakts_models.Hub.objects, pk=input.id)
-    if hub.organization.owner_id != info.context.request.user.id:
-        raise GraphQLError(DENIED)
+    # Same bar as adding (accepting) a hub: the owner or an admin.
+    assert_owner_or_admin(info, hub.organization)
     hub.delete()
     return input.id

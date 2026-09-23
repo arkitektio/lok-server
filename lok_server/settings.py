@@ -34,6 +34,11 @@ ALLOWED_HOSTS = conf.django.hosts
 FAKTS_PROTOCOL_VERSION = "0.1.0"
 # How many of a client's most recent self-reports to retain (see fakts.services.clients.report_client).
 CLIENT_REPORT_RETENTION = 5
+# Seconds between a hub's health callbacks (/f/hubhealth/ hands it back as
+# `next_report_in`); a hub silent for 3x this counts as offline.
+HUB_HEALTH_INTERVAL = 60
+# How many of a hub's most recent health reports to retain.
+HUB_HEALTH_RETENTION = 20
 DEPLOYMENT_NAME = conf.deployment.name
 DEPLOYMENT_DESCRIPTION = conf.deployment.description
 # URL template advertised as the fakts well-known `configure` endpoint (see the
@@ -118,6 +123,8 @@ INSTALLED_APPS += [
     "allauth.socialaccount",
     # The MFA app:
     "allauth.mfa",
+    # Lets users list and end their browser sessions (kontrol /account/sessions).
+    "allauth.usersessions",
 ]
 
 # Social provider apps (e.g. orcid, google) are configurable per deployment.
@@ -188,6 +195,8 @@ MIDDLEWARE = [
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
     # Add the account middleware:
     "allauth.account.middleware.AccountMiddleware",
+    # Records IP / user agent / last-seen on each session for the sessions page.
+    "allauth.usersessions.middleware.UserSessionsMiddleware",
 ]
 
 
@@ -200,6 +209,8 @@ MIDDLEWARE = [
 # "Send me a sign-in code" option automatically.
 ACCOUNT_LOGIN_BY_CODE_ENABLED = conf.account.login_by_code_enabled and conf.email is not None
 MFA_TRUST_ENABLED = conf.account.mfa_trust_enabled  # Allow trusted devices
+# Keep last-seen / IP current on each session so the sessions page is meaningful.
+USERSESSIONS_TRACK_ACTIVITY = True
 
 # WebAuthn security keys / passkeys as an MFA type.
 #

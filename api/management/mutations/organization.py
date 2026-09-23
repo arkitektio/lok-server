@@ -55,7 +55,11 @@ def update_organization(info: Info, input: UpdateOrganizationInput) -> types.Man
         organization.slug = candidate
 
     if input.avatar is not None:
-        organization.avatar = resolve_own_media_store(info, input.avatar, models.MediaStore)
+        # The logo lives on OrganizationProfile (what kontrol reads and writes);
+        # Organization.avatar is a deprecated fallback column.
+        profile, _ = models.OrganizationProfile.objects.get_or_create(organization=organization)
+        profile.avatar = resolve_own_media_store(info, input.avatar, models.MediaStore)
+        profile.save(update_fields=["avatar"])
 
     if input.brand_hue is not None:
         organization.brand_hue = input.brand_hue

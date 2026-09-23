@@ -354,7 +354,9 @@ def test_full_hub_grant_returns_tokens_and_hub_config(client):
     # Standard token response + the hub envelope.
     assert token["refresh_token"]
     assert token["client_id"] == body["client_id"]
-    assert token["auth"]["jwks_url"].endswith("/.well-known/jwks.json")
+    # Same layout as an app's: the jwks under `self`, no `auth` without a mesh key.
+    assert token["self"]["jwks_url"].endswith("/o/jwks/")
+    assert "mesh" not in token
     assert token["instances"] == {}
     assert token["clients"] == {}
 
@@ -376,7 +378,8 @@ def test_full_hub_grant_returns_tokens_and_hub_config(client):
         secure=True,
     )
     assert refreshed.status_code == 200
-    assert "auth" in refreshed.json()
+    assert "mesh" not in refreshed.json()
+    assert refreshed.json()["self"]["jwks_url"] == token["self"]["jwks_url"]
     assert "clients" in refreshed.json()
 
 

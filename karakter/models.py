@@ -82,6 +82,8 @@ class Organization(models.Model):
     slug = models.CharField(max_length=1000, null=True, blank=True, unique=True)
     name = models.CharField(max_length=1000, null=True, blank=True)
     description = models.CharField(max_length=4000, null=True, blank=True)
+    # Deprecated: the canonical organization logo is `OrganizationProfile.avatar`.
+    # Writes go there; this column is only read as a fallback for old rows.
     avatar = models.ForeignKey(MediaStore, on_delete=models.CASCADE, null=True)
     owner = models.ForeignKey("User", on_delete=models.CASCADE, related_name="owned_organizations")
     brand_hue = models.FloatField(
@@ -310,8 +312,10 @@ class User(AbstractUser):
         return self.groups.filter(name="admin").exists()
 
     @property
-    def avatar(self):
-        return None
+    def avatar(self) -> "MediaStore | None":
+        """The user's avatar, which lives on their `Profile`."""
+        profile = Profile.objects.filter(user=self).select_related("avatar").first()
+        return profile.avatar if profile else None
 
     def notify(self, title: str, message: str) -> List[Tuple[Optional[int], str]]:
         """Send a notification to all registered communication channels.

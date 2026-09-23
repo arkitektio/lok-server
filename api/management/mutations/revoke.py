@@ -15,6 +15,7 @@ from api.management import types
 from api.management.authz import assert_owner_or_admin, get_or_denied
 from authapp.models import OAuth2Token
 from fakts import models as fakts_models
+from fakts.services.mesh import schedule_reap_for_clients
 from karakter import models
 
 
@@ -33,6 +34,8 @@ def revoke_client_sessions(info: Info, input: RevokeClientSessionsInput) -> type
     assert_owner_or_admin(info, client.organization)
 
     OAuth2Token.objects.filter(client_id=client.client_id).update(revoked=True)
+    # A revoked client's mesh sidecar goes with its sessions.
+    schedule_reap_for_clients(fakts_models.Client.objects.filter(pk=client.pk))
 
     return client
 
@@ -58,4 +61,6 @@ def revoke_organization_sessions(info: Info, input: RevokeOrganizationSessionsIn
         fakts_models.Client.objects.filter(organization=organization).values_list("client_id", flat=True)
     )
 
-    return OAuth2Token.objects.filter(client_id__in=client_ids, revoked=False).update(revoked=True)
+    revoked = OAuth2Token.objects.filter(client_id__in=client_ids, revoked=False).update(revoked=True)
+    schedule_reap_for_clients(fakts_models.Client.objects.filter(client_id__in=client_ids))
+    return revoked

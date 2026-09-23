@@ -128,13 +128,13 @@ async def test_cannot_overwrite_another_users_profile():
 async def test_upload_key_is_namespaced_under_the_caller():
     """A presigned POST grants write to exactly one key, so it must not be
     attacker-chosen — `MEDIA_BUCKET` is served publicly by the gateway."""
-    from karakter.graphql.mutations.upload import _scoped_key
+    import re
 
-    my_context, mine, _their_context, _theirs = await sync_to_async(_two_principals)()
+    from karakter.graphql.mutations.upload import scoped_key
 
-    class _Info:
-        context = my_context
+    _my_context, mine, _their_context, _theirs = await sync_to_async(_two_principals)()
 
-    assert _scoped_key(_Info(), "../../../etc/passwd") == f"users/{mine.user.id}/passwd"
-    assert _scoped_key(_Info(), "users/999/avatar.png") == f"users/{mine.user.id}/avatar.png"
-    assert _scoped_key(_Info(), "avatar.png") == f"users/{mine.user.id}/avatar.png"
+    # The client's filename is not used at all, so it cannot pick or escape the prefix.
+    key = scoped_key(mine.user, "image/png")
+    assert re.fullmatch(rf"users/{mine.user.id}/[0-9a-f]{{32}}\.png", key), key
+    assert scoped_key(mine.user, "image/png") != key

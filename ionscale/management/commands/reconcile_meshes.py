@@ -2,7 +2,7 @@ from django.core.management.base import BaseCommand, CommandError
 
 from fakts.models import IonscaleLayer
 from ionscale.manager import ionscale_configured
-from ionscale.reconcile import orphaned_tailnets, reconcile_layer
+from ionscale.reconcile import orphaned_tailnets, reconcile_layer, reconcile_sidecars
 from karakter.models import Organization
 
 
@@ -21,6 +21,21 @@ class Command(BaseCommand):
             action="store_true",
             help="Revoke ionscale users whose subject is no longer a member of the organization.",
         )
+        parser.add_argument(
+            "--sidecars",
+            action="store_true",
+            help="Also reap app/hub sidecars no live client backs, delete orphaned sidecar nodes and re-apply the ACL.",
+        )
+        parser.add_argument(
+            "--sidecars-only",
+            action="store_true",
+            help="Only the sidecar pass (for the periodic job): skip tailnet, member and DNS reconciliation.",
+        )
+        parser.add_argument(
+            "--migrate-tags",
+            action="store_true",
+            help="With the sidecar pass: delete sidecar nodes still tagged tag:mesh-<org> (one-off migration).",
+        )
 
     def handle(self, *args, **options):
         if not ionscale_configured():
@@ -38,25 +53,41 @@ class Command(BaseCommand):
 
         failed = 0
         changed = 0
+        sidecars = options["sidecars"] or options["sidecars_only"]
         for layer in layers:
             try:
-                report = reconcile_layer(
-                    layer,
-                    dry_run=options["dry_run"],
-                    revoke_orphans=options["revoke_orphans"],
-                    out=self.stdout,
-                )
+                reports = []
+                if not options["sidecars_only"]:
+                    reports.append(
+                        reconcile_layer(
+                            layer,
+                            dry_run=options["dry_run"],
+                            revoke_orphans=options["revoke_orphans"],
+                            out=self.stdout,
+                        )
+                    )
+                if sidecars:
+                    layer.refresh_from_db()
+                    reports.append(
+                        reconcile_sidecars(
+                            layer,
+                            dry_run=options["dry_run"],
+                            migrate_tags=options["migrate_tags"],
+                            out=self.stdout,
+                        )
+                    )
             except Exception as exc:  # one broken mesh must not stop the others
                 failed += 1
                 self.stderr.write(self.style.ERROR(f"[{layer.organization.slug}] failed: {exc}"))
                 continue
-            if report.changed:
+            if any(r.changed for r in reports):
                 changed += 1
-            status = "would change" if options["dry_run"] and report.changed else ("changed" if report.changed else "ok")
-            style = self.style.WARNING if report.warnings else self.style.SUCCESS
+            any_changed = any(r.changed for r in reports)
+            status = "would change" if options["dry_run"] and any_changed else ("changed" if any_changed else "ok")
+            style = self.style.WARNING if any(getattr(r, "warnings", None) for r in reports) else self.style.SUCCESS
             self.stdout.write(style(f"[{layer.organization.slug}] {status}"))
 
-        if not options["organization"]:
+        if not options["organization"] and not options["sidecars_only"]:
             try:
                 orphans = orphaned_tailnets(layers)
             except Exception as exc:

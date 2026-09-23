@@ -104,6 +104,53 @@ def revoke_ionscale_nodes_on_app_enrollment_delete(sender, instance, **kwargs):
     schedule_enrollment_revocation(instance)
 
 
+@receiver(pre_delete, sender="fakts.Hub")
+def revoke_ionscale_nodes_on_hub_delete(sender, instance, **kwargs):
+    # A hub's nodes joined with a minted key, like an app's; its own tag
+    # (`tag:hub-<pk>`) finds them. Also fires on an organization cascade, where
+    # the tailnet teardown wins (schedule_enrollment_revocation checks).
+    from ionscale.sync import schedule_enrollment_revocation
+
+    schedule_enrollment_revocation(instance)
+
+
+@receiver(post_delete, sender="fakts.AppMeshEnrollment")
+def reapply_acl_on_app_enrollment_delete(sender, instance, **kwargs):
+    from ionscale.acl import schedule_acl_apply
+
+    schedule_acl_apply(instance.organization_id)
+
+
+@receiver(post_delete, sender="fakts.Hub")
+def delete_hub_identity_with_the_hub(sender, instance, **kwargs):
+    # The hub server's credential dies with the hub (its refresh chain included);
+    # left alone it would keep a membership-bound session for a hub that is gone.
+    from fakts.models import Client
+    from ionscale.acl import schedule_acl_apply
+
+    if instance.client_id:
+        Client.objects.filter(pk=instance.client_id).delete()
+    schedule_acl_apply(instance.organization_id)
+
+
+@receiver(pre_delete, sender="fakts.Client")
+def reap_mesh_sidecar_on_client_delete(sender, instance, **kwargs):
+    # A sidecar lives only while a live client backs it. The check runs at
+    # commit, so a re-authorization (old client deleted, new one bound in the
+    # same transaction) keeps its sidecar.
+    from fakts.models import Hub
+    from fakts.services.mesh import schedule_client_reap
+    from ionscale.acl import schedule_acl_apply
+
+    schedule_client_reap(
+        membership_id=instance.membership_id,
+        app_id=instance.release.app_id if instance.release_id else None,
+        device_id=instance.node_id,
+        hub_id=Hub.objects.filter(client=instance).values_list("pk", flat=True).first(),
+    )
+    schedule_acl_apply(instance.organization_id)
+
+
 @receiver(pre_delete, sender=Organization)
 def teardown_ionscale_meshes_for_organization(sender, instance, **kwargs):
     from fakts.models import IonscaleLayer

@@ -1,4 +1,4 @@
-from pydantic import AliasChoices, BaseModel, Field
+from pydantic import AliasChoices, BaseModel, Field, model_validator
 from typing import Dict, List, Optional, Literal, Union
 from django.conf import settings
 from fakts import enums
@@ -210,7 +210,9 @@ class StagingAlias(BaseModel):
     id: str
     name: Optional[str] = None
     ssl: bool = True
-    host: str
+    host: Optional[str] = None
+    """Required for every kind but ``mesh``. A mesh alias's host is filled in at
+    render time with the hub node's MagicDNS name, so a declared one is ignored."""
     port: Optional[int] = None
     path: Optional[str] = None
     challenge: Optional[str] = None
@@ -218,6 +220,14 @@ class StagingAlias(BaseModel):
     scope: Literal["local", "network", "public", "ionscale"] = "local"
     public: bool = False
     """If the alias is publicly reachable, the coordination server can also check its health directly (enabling health checks from the kontrol interface)."""
+
+    @model_validator(mode="after")
+    def _host_unless_mesh(self) -> "StagingAlias":
+        if self.kind == enums.AliasKindChoices.MESH.value:
+            self.host = None
+        elif not self.host:
+            raise ValueError(f"Alias '{self.id}' needs a host (only kind 'mesh' resolves its own).")
+        return self
 
 
 class MeshDeviceCodeStartRequest(BaseModel):
@@ -311,6 +321,8 @@ class LinkingRequest(BaseModel):
     port: Optional[str] = None
     base_url: Optional[str] = None
     is_secure: bool = False
+    jwks_url: Optional[str] = None
+    """The issuer's JWKS endpoint (the `jwks_uri` openid-configuration advertises)."""
 
 
 class LinkingClient(BaseModel):
@@ -372,16 +384,38 @@ class InstanceClaim(BaseModel):
 class SelfClaim(BaseModel):
     deployment_name: str = Field(default=settings.DEPLOYMENT_NAME)
     alias: Alias
+    jwks_url: Optional[str] = None
+    """Where to fetch the keys that sign this deployment's access tokens."""
+    sub: Optional[str] = None
+    """The id of the user the client acts for: the access token's `sub` claim."""
+    organization: Optional[str] = None
+    """The organization pk: the access token's `org` claim."""
+    hub: Optional[str] = None
+    """The hub pk: for an app, the hub its client is bound to; for a hub, the hub
+    itself. Null for an app client bound to no hub. Unlike the access token's
+    `hub` claim (the hub identifier), this is stable, and matches the hub's mesh
+    tag (`tag:hub-<pk>`). With `sub` and `organization`, what a client keys its
+    persisted logins (e.g. its mesh state) by."""
+
+
+class MeshClaim(BaseModel):
+    """Mesh access, identical for apps and hubs: the ``mesh`` member of the
+    *initial* device-code token response when a key was requested and granted.
+    Never part of a (refresh-rendered) envelope; the identity it belongs to is
+    in ``self``."""
+
+    ionscale_auth_key: str
+    ionscale_coord_url: str | None = None
 
 
 class FaktsEnvelope(BaseModel):
     """The fakts members appended to a successful OAuth2 token response for a
     fakts client. Auth material (access_token, refresh_token, expires_in,
     scope, client_id) lives in the standard token-response fields next to
-    these. The one exception is mesh access: an app that set
-    ``request_auth_key`` and was granted a key gets an ``auth`` block
-    (``ionscale_auth_key``, ``ionscale_coord_url``) on the *initial*
-    device-code response only — never on refresh.
+    these. The one exception is mesh access: an app (``request_auth_key``) or
+    hub (``HubManifest.request_auth_key``) that was granted a key gets a
+    ``mesh`` block (:class:`MeshClaim`) on the *initial* device-code
+    response only — never on refresh.
     """
 
     self: SelfClaim
@@ -390,12 +424,6 @@ class FaktsEnvelope(BaseModel):
     """Per-requirement grant outcomes keyed by manifest requirement key.
     Values: 'granted' | 'denied' | 'unavailable'. Omitted for registrations
     that predate this feature (clients should treat missing keys as 'unknown')."""
-
-
-class HubAuthClaim(BaseModel):
-    jwks_url: str
-    ionscale_auth_key: str | None = None
-    ionscale_coord_url: str | None = None
 
 
 class HubInstanceClaim(BaseModel):
@@ -417,11 +445,33 @@ class HubClientClaim(BaseModel):
 
 
 class HubClaimAnswer(BaseModel):
-    """A ClaimAnswer is the answer to a claim request. It contains the
-    linking context that should be used to link the client to the server.
-    """
+    """A hub's envelope, appended to its token responses like an app's
+    :class:`FaktsEnvelope` (and with the same one-shot ``auth`` rule: mesh keys
+    are never rendered here, see :class:`MeshClaim`)."""
 
     self: SelfClaim
-    auth: HubAuthClaim
     instances: Dict[str, HubInstanceClaim] = Field(default_factory=dict)
     clients: Dict[str, HubClientClaim] = Field(default_factory=dict)
+
+
+class InstanceHealth(BaseModel):
+    healthy: bool
+    reason: Optional[str] = None
+
+
+class MeshHealth(BaseModel):
+    connected: bool
+    hostname: Optional[str] = None
+    """The hub node's MagicDNS name, as its tailscaled reports it."""
+    ipv4: Optional[str] = None
+
+
+class HubHealthReport(BaseModel):
+    """What a hub posts to ``/f/hubhealth/``. The hub is identified by its
+    Bearer access token (the JWT's `client_id` claim), like a client report."""
+
+    healthy: bool
+    version: Optional[str] = None
+    instances: Dict[str, InstanceHealth] = Field(default_factory=dict)
+    """Keyed by instance identifier (the keys of the hub envelope's `instances`)."""
+    mesh: Optional[MeshHealth] = None

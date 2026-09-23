@@ -159,15 +159,15 @@ async def test_cannot_hijack_another_orgs_alias():
 @pytest.mark.django_db(transaction=True)
 def test_upload_key_is_namespaced_to_the_caller():
     """An attacker-chosen upload key must not address another tenant's object."""
-    from api.management.mutations.upload import _scoped_key
+    from api.management.mutations.upload import request_media_upload, RequestMediaUploadInput
 
     context, _org_a, _org_b, attacker, _victim = _two_org_setup()
     info = type("Info", (), {"context": context})()
 
-    assert _scoped_key(info, "avatar.png") == f"users/{attacker.id}/avatar.png"
-    # Traversal and absolute paths cannot escape the per-user prefix.
-    assert _scoped_key(info, "../../victim/avatar.png") == f"users/{attacker.id}/avatar.png"
-    assert _scoped_key(info, "/etc/passwd") == f"users/{attacker.id}/passwd"
+    for key in ("avatar.png", "../../victim/avatar.png", "/etc/passwd.png", "users/999/avatar.png"):
+        creds = request_media_upload(info, RequestMediaUploadInput(key=key, datalayer="default"))
+        assert creds.key.startswith(f"users/{attacker.id}/"), creds.key
+        assert ".." not in creds.key and "victim" not in creds.key and "users/999" not in creds.key
 
 
 def _invite_leak_setup():

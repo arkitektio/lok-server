@@ -10,6 +10,7 @@ test settings already point here) or per-test with
 ``ionscale.repo.set_ionscale_repo(FakeIonscaleRepository())``.
 """
 
+import json
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Union
 
@@ -27,6 +28,9 @@ class FakeIonscaleRepository:
         self.created_auth_keys: List[Dict[str, Any]] = []
         self.dns_configs: List[tuple[str, DNSConfig]] = []
         self.policies: Dict[str, Dict[str, Any]] = {}
+        # ACL (traffic) policy per tailnet, and every set call in order.
+        self.acl_policies: Dict[str, Dict[str, Any]] = {}
+        self.set_acl_policies: List[tuple[str, Dict[str, Any]]] = []
         # Canned read data — seed these in tests as needed.
         self.machines_by_tailnet: Dict[str, List[Machine]] = {}
         self.machines: Dict[str, MachineDetail] = {}
@@ -142,6 +146,15 @@ class FakeIonscaleRepository:
     def get_policy(self, tailnet: str) -> Dict[str, Any]:
         self._maybe_fail("get_policy")
         return dict(self.policies.get(tailnet, {}))
+
+    def get_acl_policy(self, tailnet: str) -> str:
+        self._maybe_fail("get_acl_policy")
+        return json.dumps(self.acl_policies.get(tailnet, {}))
+
+    def set_acl_policy(self, tailnet: str, policy: Dict[str, Any]) -> None:
+        self._maybe_fail("set_acl_policy")
+        self.set_acl_policies.append((tailnet, policy))
+        self.acl_policies[tailnet] = policy
 
     def set_dns_config(self, tailnet: str, config: DNSConfig) -> str:
         self._maybe_fail("set_dns_config")

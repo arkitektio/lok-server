@@ -1,5 +1,6 @@
 import logging
 
+from django.db import transaction
 from kante import Info
 import strawberry
 from api.management import types
@@ -63,17 +64,23 @@ def accept_device_code(info: Info, input: AcceptDeviceCodeInput) -> types.Manage
     # another tenant's hub and provision credentials there.
     assert_member(info, organization)
 
-    validate_device_code = logic.validate_device_code(
-        device_code=device_code,
-        user=user,
-        organization=organization,
-        hub=hub,
-        device_name=input.device_name,
-        declined_requirements=input.declined_requirements,
-    )
+    # One transaction for approve + mesh key: `validate_device_code` makes the
+    # code redeemable (the device is polling /o/token/), and redemption burns the
+    # code. Committing the approval before the key was minted let the poll win
+    # the race: the app got tokens without its mesh key and the key save then hit
+    # a deleted row, failing this mutation after the app was already authorized.
+    with transaction.atomic():
+        validate_device_code = logic.validate_device_code(
+            device_code=device_code,
+            user=user,
+            organization=organization,
+            hub=hub,
+            device_name=input.device_name,
+            declined_requirements=input.declined_requirements,
+        )
 
-    if input.allow_ionscale and device_code.request_auth_key:
-        _grant_mesh_key(device_code, user, organization)
+        if input.allow_ionscale and device_code.request_auth_key:
+            _grant_mesh_key(device_code, user, organization)
 
     return validate_device_code.client
 
@@ -86,19 +93,23 @@ def _grant_mesh_key(device_code: fakts_models.DeviceCode, user, organization) ->
     """
     client = fakts_models.Client.objects.select_related("membership", "release__app", "node").get(pk=device_code.client_id)
     try:
-        key = logic.enroll_app_on_mesh(
-            user=user,
-            organization=organization,
-            membership=client.membership,
-            app=client.release.app,
-            device=client.node,
-        )
+        # A savepoint, so a failed enrollment cannot poison the caller's transaction.
+        with transaction.atomic():
+            key = logic.enroll_app_on_mesh(
+                user=user,
+                organization=organization,
+                membership=client.membership,
+                app=client.release.app,
+                device=client.node,
+            )
     except Exception:
         logger.warning("Could not mint a mesh key for client %s", client.client_id, exc_info=True)
         return
     if key is not None:
-        device_code.auth_key = key
-        device_code.save(update_fields=["auth_key"])
+        # `update`, not `save(update_fields=...)`: if the code was already redeemed
+        # (and burned), the app is authorized without a key; don't fail the approval.
+        if not fakts_models.DeviceCode.objects.filter(pk=device_code.pk).update(auth_key=key):
+            logger.warning("Device code for client %s was redeemed before its mesh key was attached", client.client_id)
 
 
 @kante.input

@@ -106,24 +106,25 @@ async def test_change_organization_owner_works():
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_accept_hub_device_code_duplicate_identifier_is_a_clean_error():
+async def test_accept_hub_device_code_with_an_existing_identifier_reauthorizes_that_hub():
+    """A known identifier re-authorizes the hub in place instead of erroring or duplicating it."""
     def _setup():
         org, context = _owner_setup()
-        factories.make_hub(organization=org, identifier="dup")
+        hub = factories.make_hub(organization=org, identifier="dup")
         dc = factories.make_device_code(
             kind="hub",
             staging_manifest={"identifier": "dup", "instances": [], "clients": []},
         )
-        return org, context, dc
+        return org, context, dc, hub
 
-    org, context, dc = await sync_to_async(_setup)()
+    org, context, dc, hub = await sync_to_async(_setup)()
     result = await management_schema.execute(
         "mutation ($input: AcceptHubDeviceCodeInput!) { acceptHubDeviceCode(input: $input) { id } }",
         context_value=context,
         variable_values={"input": {"deviceCode": str(dc.id), "code": dc.code, "organization": str(org.id), "allowIonscale": False}},
     )
-    assert result.errors
-    assert "already exists" in result.errors[0].message
+    assert not result.errors, result.errors
+    assert result.data["acceptHubDeviceCode"]["id"] == str(hub.id)
     count = await sync_to_async(lambda: fakts_models.Hub.objects.filter(organization=org, identifier="dup").count())()
     assert count == 1
 
