@@ -220,6 +220,9 @@ def test_mesh_alias_resolves_to_the_hub_nodes_magicdns_name(client, ionscale_rep
     rendered = alias.to_url(None)
     assert rendered.host == f"meshhub.{mesh_org.layer.tailnet_name}.{SUFFIX}"
     assert rendered.port == 80 and rendered.path == "rekuest"
+    # Clients route mesh aliases (and their challenge) through their sidecar.
+    assert rendered.kind == "mesh"
+    assert rendered.model_dump()["kind"] == "mesh"
 
 
 @pytest.mark.django_db
@@ -242,6 +245,7 @@ def test_unresolvable_mesh_alias_is_left_out_of_the_instance_claim(client, ionsc
     # No node carries the hub's tag: the mesh alias is dropped, the rest render.
     claim = instance.render(None)
     assert [a.id for a in claim.aliases] == [str(public.id)]
+    assert claim.aliases[0].kind == "absolute"
 
 
 # --------------------------------------------------------------------------- #

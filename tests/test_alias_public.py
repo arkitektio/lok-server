@@ -316,3 +316,21 @@ async def test_delete_alias_mutation_removes_alias():
     assert result.data["deleteAlias"] == str(alias.id)
     exists = await sync_to_async(models.InstanceAlias.objects.filter(id=alias.id).exists)()
     assert exists is False
+
+
+# --------------------------------------------------------------------------- #
+# to_url() tells the client how the alias is reached (``kind``).
+# --------------------------------------------------------------------------- #
+
+def test_alias_defaults_kind_absolute():
+    """Callers that never mention ``kind`` (e.g. the self alias) stay absolute."""
+    alias = base_models.Alias(id="a1", host="example.com", challenge="ht")
+    assert alias.kind == "absolute"
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("kind", ["absolute", "relative"])
+def test_to_url_propagates_kind(kind):
+    instance = factories.make_service_instance()
+    alias = models.InstanceAlias.objects.create(instance=instance, host="example.com", kind=kind)
+    assert alias.to_url(_linking_context()).kind == kind

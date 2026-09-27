@@ -364,6 +364,10 @@ class Alias(BaseModel):
     )
     public: bool = False
     """If the alias is publicly reachable, the coordination server can also check its health directly (enabling health checks from the kontrol interface)."""
+    kind: Literal["absolute", "relative", "mesh"] = "absolute"
+    """How the alias is reached. ``mesh`` aliases are only reachable over the
+    organization's mesh: clients route them (and their challenge) through their
+    mesh sidecar. Clients that do not know the field ignore it."""
 
 
 class InstanceClaim(BaseModel):

@@ -366,6 +366,7 @@ class InstanceAlias(models.Model):
                 path=self.path,
                 challenge=self.challenge,
                 public=self.public,
+                kind=enums.AliasKindChoices.MESH.value,
             )
         if self.kind == enums.AliasKindChoices.RELATIVE.value:
             # Relative alias: resolved against the coordination server (the linking
@@ -379,6 +380,7 @@ class InstanceAlias(models.Model):
                 path=self.path,
                 challenge=self.challenge,
                 public=self.public,
+                kind=enums.AliasKindChoices.RELATIVE.value,
             )
         else:
             return base_models.Alias(
@@ -389,6 +391,7 @@ class InstanceAlias(models.Model):
                 path=self.path,
                 challenge=self.challenge,
                 public=self.public,
+                kind=enums.AliasKindChoices.ABSOLUTE.value,
             )
 
     def __str__(self) -> str:
