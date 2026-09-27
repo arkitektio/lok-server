@@ -15,6 +15,7 @@ from django.utils import timezone
 from fakts import base_models, models
 from fakts.base_models import HubManifest
 from fakts.services import aliases
+from fakts.services.instance_keys import validate_challenge_key
 from fakts.services.tokens import create_api_token  # noqa: F401  (kept for shim parity)
 from ionscale.repo import get_ionscale_repo
 from ionscale.acl import schedule_acl_apply
@@ -158,6 +159,10 @@ def create_hub_from_manifest(
                 "instance_id": instance_request.identifier,
             },
         )
+
+        if service_manifest.challenge_key and instance.public_key != service_manifest.challenge_key:
+            instance.public_key = validate_challenge_key(service_manifest.challenge_key)
+            instance.save(update_fields=["public_key"])
 
         counts["instances"] += 1
         logger.debug("%s instance %s", "Created" if inst_created else "Updated", instance.token)

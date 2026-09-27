@@ -18,7 +18,7 @@ Including another URLconf
 from django.contrib import admin
 from django.contrib.auth.decorators import login_required
 from django.urls import include
-from fakts.views import WellKnownFakts
+from fakts.views import WellKnownFakts, hub_keys
 from django.shortcuts import render
 from kante.path import dynamicpath
 from health_check.views import HealthCheckView
@@ -83,7 +83,9 @@ urlpatterns = [
     dynamicpath(".well-known/fakts", WellKnownFakts.as_view()),
     dynamicpath(".well-known/openid-configuration", open_id_configuration, name="openid_configuration"),
     dynamicpath(".well-known/oauth-authorization-server", oauth_authorization_server, name="oauth_authorization_server"),
-    # Hubs are handed this URL as `auth.jwks_url` in their fakts claim (see
+    # Hubs are handed this URL as `self.jwks_url` in their fakts claim (see
     # fakts.services.rendering.render_server_fakts); same keys as /o/jwks/.
     dynamicpath(".well-known/jwks.json", jwks, name="well_known_jwks"),
+    # A hub's trust bundle (its service instances' public keys), handed out as `self.hub_keys_url`.
+    dynamicpath(".well-known/hub-keys/<int:hub_id>", hub_keys, name="hub_keys"),
 ]

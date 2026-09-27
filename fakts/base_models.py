@@ -323,6 +323,8 @@ class LinkingRequest(BaseModel):
     is_secure: bool = False
     jwks_url: Optional[str] = None
     """The issuer's JWKS endpoint (the `jwks_uri` openid-configuration advertises)."""
+    hub_keys_base: Optional[str] = None
+    """Where hubs' trust bundles live (issuer-anchored); a hub's is `<base><hub pk>`."""
 
 
 class LinkingClient(BaseModel):
@@ -390,6 +392,9 @@ class SelfClaim(BaseModel):
     alias: Alias
     jwks_url: Optional[str] = None
     """Where to fetch the keys that sign this deployment's access tokens."""
+    hub_keys_url: Optional[str] = None
+    """Where to fetch the hub's trust bundle: the public keys of its service instances (a JWKS;
+    each key names its `service`). Services verify each other's signed requests against it."""
     sub: Optional[str] = None
     """The id of the user the client acts for: the access token's `sub` claim."""
     organization: Optional[str] = None

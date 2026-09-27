@@ -12,6 +12,7 @@ from api.management.authz import DENIED, HUB_ADMIN_REQUIRED, assert_member, get_
 from graphql import GraphQLError
 from fakts import logic, builders, base_models, enums
 from fakts.services import aliases as alias_services
+from fakts.services.instance_keys import validate_challenge_key
 import kante
 from api.management.device_code_authz import resolve_device_code_with_proof
 
@@ -118,6 +119,12 @@ def _provision_hub(info: Info, input: AcceptHubDeviceCodeInput, device_code, org
                 instance_id=service_manifest.instance_id,
                 organization=organization,
             )
+
+        # The instance's public key, vouched for from here on (its private half never left the
+        # instance). A re-authorized hub may bring a new one: that is the rotation.
+        if service_manifest.challenge_key and instance.public_key != service_manifest.challenge_key:
+            instance.public_key = validate_challenge_key(service_manifest.challenge_key)
+            instance.save(update_fields=["public_key"])
 
         for role in service_manifest.roles or []:
             r, _ = models.Role.objects.get_or_create(

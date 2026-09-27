@@ -42,6 +42,7 @@ def render_server_fakts(hub: models.Hub, context: base_models.ServerLinkingConte
         deployment_name=context.deployment_name,
         alias=Alias(id="self", host=context.request.host, port=context.request.port, ssl=context.request.is_secure, path="lok", challenge="ht"),
         jwks_url=context.request.jwks_url,
+        hub_keys_url=_hub_keys_url(context.request, hub.pk),
         **identity,
     )
 
@@ -78,6 +79,7 @@ def render_envelope_from_context(client: models.Client, context: base_models.Lin
         deployment_name=context.deployment_name,
         alias=Alias(id="self", host=context.request.host, port=context.request.port, ssl=context.request.is_secure, path="lok", challenge="ht"),
         jwks_url=context.request.jwks_url,
+        hub_keys_url=_hub_keys_url(context.request, client.hub_id) if client.hub_id else None,
         **_identity(client.membership if client.membership_id else None, client.hub if client.hub_id else None),
     )
 
@@ -178,6 +180,21 @@ def auto_compose(client: models.Client, manifest: base_models.Manifest, user: mo
     return client
 
 
+def _hub_keys_url(linking_request: base_models.LinkingRequest, hub_pk) -> str | None:
+    return f"{linking_request.hub_keys_base}{hub_pk}" if linking_request.hub_keys_base else None
+
+
+def _hub_keys_base(request: HttpRequest) -> str:
+    """The trust-bundle URL prefix, anchored to the configured issuer like the JWKS."""
+    from urllib.parse import urljoin
+
+    from django.urls import reverse
+
+    path = reverse("hub_keys", kwargs={"hub_id": 0})[: -len("0")]
+    issuer = (settings.OIDC_ISSUER or "").rstrip("/")
+    return request.build_absolute_uri(path) if not issuer else urljoin(issuer + "/", path.lstrip("/"))
+
+
 def _jwks_url(request: HttpRequest) -> str:
     """The JWKS endpoint, anchored to the configured issuer like openid-configuration's."""
     from authapp.views import issuer_absolute_uri
@@ -203,6 +220,7 @@ def create_linking_context(request: HttpRequest, client: models.Client) -> base_
             base_url=base_url,
             is_secure=request.is_secure(),
             jwks_url=_jwks_url(request),
+            hub_keys_base=_hub_keys_base(request),
         ),
         secure=request.is_secure(),
         manifest=base_models.Manifest(
@@ -235,6 +253,7 @@ def create_serverlinking_context(request: HttpRequest, hub: models.Hub, claim: b
             base_url=base_url,
             is_secure=request.is_secure(),
             jwks_url=_jwks_url(request),
+            hub_keys_base=_hub_keys_base(request),
         ),
     )
 
