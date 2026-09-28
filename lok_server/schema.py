@@ -58,6 +58,9 @@ class Query:
     scopes = strawberry_django.field(resolver=fakts_queries.scopes)
 
     redeem_tokens: list[fakts_types.RedeemToken] = strawberry_django.field()
+    mandates: list[fakts_types.Mandate] = strawberry_django.field(description="Mandates you granted, or (as an agent app) may provision under. Org admins see all.")
+    mandate = strawberry_django.field(resolver=fakts_mutations.mandate)
+    mandate_token = strawberry_django.field(resolver=fakts_mutations.mandate_token)
 
     my_active_messages = strawberry_django.field(resolver=karakter_queries.my_active_messages)
     message = strawberry_django.field(resolver=karakter_queries.message)
@@ -170,6 +173,11 @@ class Mutation:
     delete_redeem_token = strawberry_django.mutation(
         resolver=fakts_mutations.delete_redeem_token,
     )
+
+    create_mandate = strawberry_django.mutation(resolver=fakts_mutations.create_mandate)
+    provision = strawberry_django.mutation(resolver=fakts_mutations.provision)
+    release_mandate_client = strawberry_django.mutation(resolver=fakts_mutations.release_mandate_client)
+    revoke_mandate = strawberry_django.mutation(resolver=fakts_mutations.revoke_mandate)
 
     create_developmental_client = strawberry_django.mutation(
         resolver=fakts_mutations.create_developmental_client,

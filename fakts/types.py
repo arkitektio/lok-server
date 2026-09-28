@@ -8,6 +8,7 @@ from fakts import models, scalars, filters, enums
 from authapp import types as atypes
 from kante.types import Info
 from strawberry.scalars import JSON
+from django.db.models import Q
 
 # `DENIED` is re-exported for `fakts.graphql.mutations.render`; the single source
 # of truth (and of the tenant-scoping helpers) is `karakter.authz`.
@@ -430,6 +431,48 @@ class Device:
         return build_prescoped_queryset(info, queryset)
 
 
+@strawberry_django.type(models.Mandate, pagination=True, description="A standing authorization: the grantor lets an agent app provision clients of a subject app that act as the grantor.")
+class Mandate:
+    id: strawberry.ID
+    hub: Hub = strawberry_django.field(description="The hub provisioned clients compose against.")
+    agent_identifier: str = strawberry_django.field(description="The app allowed to provision under this mandate.")
+    agent_device: Optional[Device] = strawberry_django.field(description="If set, only an agent running on this device may provision.")
+    subject_manifest: JSON = strawberry_django.field(description="The approved subject: identifier, version, and the scope/requirement ceilings.")
+    attestation: str = strawberry_django.field(description="Opaque binding set by the approving service (e.g. a release digest).")
+    max_clients: int | None = strawberry_django.field(description="How many clients may be provisioned at once. Null means unlimited.")
+    created_at: datetime.datetime
+    expires_at: datetime.datetime | None = strawberry_django.field(description="After this, no new clients may be provisioned.")
+    revoked_at: datetime.datetime | None = strawberry_django.field(description="When the grantor withdrew the mandate; its clients were deleted then.")
+    clients: list[Client] = strawberry_django.field(description="The clients currently provisioned under this mandate.")
+
+    @strawberry_django.field(description="The user the provisioned clients act as.", select_related=["membership__user"])
+    def grantor(self, info: Info) -> types.User:
+        return self.membership.user
+
+    @strawberry_django.field(description="If set, only an agent acting as this user may provision.", select_related=["agent_membership__user"])
+    def agent_user(self, info: Info) -> types.User | None:
+        return self.agent_membership.user if self.agent_membership_id else None
+
+    @strawberry_django.field(description="Whether the agent may still provision under this mandate.", only=["revoked_at", "expires_at"])
+    def is_live(self, info: Info) -> bool:
+        return self.is_live()
+
+    @classmethod
+    def get_queryset(cls, queryset, info: Info, **kwargs):
+        """Visible to its grantor, to org admins, and to the agent app itself."""
+        from karakter.models import Membership
+        from fakts.services.mandates import is_org_admin
+
+        queryset = build_prescoped_queryset(info, queryset)
+        request = info.context.request
+        membership = Membership.objects.filter(user=request.user, organization=request.organization).first()
+        if membership is not None and is_org_admin(membership):
+            return queryset
+        client = getattr(request, "client", None)
+        agent = client.release.app.identifier if client is not None and client.release_id else None
+        return queryset.filter(Q(membership__user=request.user) | Q(agent_identifier=agent))
+
+
 @strawberry_django.type(models.RedeemToken, filters=filters.RedeemTokenFilter, pagination=True, ordering=filters.RedeemTokenOrdering)
 class RedeemToken:
     id: strawberry.ID
@@ -439,6 +482,7 @@ class RedeemToken:
     expires_at: datetime.datetime | None = strawberry.field(description="When this token stops being redeemable. Null means never.")
     max_redemptions: int | None = strawberry.field(description="How many times this token may be redeemed. Null means unlimited.")
     redemption_count: int = strawberry.field(description="How many times this token has been redeemed so far.")
+    mandate: Mandate | None = strawberry.field(description="The mandate this token was provisioned under, if any.")
     pinned_manifest: JSON | None = strawberry.field(
         description=(
             "The manifest this token was pre-authorized for at mint time, or null for an "

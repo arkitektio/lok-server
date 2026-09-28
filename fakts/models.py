@@ -399,6 +399,87 @@ class InstanceAlias(models.Model):
         return f"{self.instance}@{self.layer}:{self.name}"
 
 
+class Mandate(models.Model):
+    """A standing authorization: *grantor* lets *agent* provision *subject* as them.
+
+    The grantor (a membership, into one hub) pre-authorizes a subject app manifest
+    once; the agent app — a deployer, a launcher, a scheduler — may then provision
+    clients for that subject unattended, each one acting as the grantor. The subject
+    manifest is a ceiling in the same sense as a pinned redeem token (it is copied
+    into every token the agent provisions), so the agent can never obtain more than
+    the grantor approved.
+
+    The agent is named by app *identifier*, not by client: ``bind_client`` rotates
+    client rows on re-approval, so a client reference would silently die. It can be
+    narrowed to one device and/or one operator membership.
+
+    ``attestation`` is opaque to lok: the service the grantor approved from (e.g.
+    kabinet's release digest) stores what it needs to recheck at provision time.
+
+    Revoking deletes every client provisioned under the mandate (their refresh
+    chains die with them); expiry only stops *new* provisioning.
+    """
+
+    membership = models.ForeignKey(
+        "karakter.Membership",
+        on_delete=models.CASCADE,
+        related_name="granted_mandates",
+        help_text="The grantor: every client provisioned under this mandate acts as this membership.",
+    )
+    organization = models.ForeignKey(Organization, on_delete=models.CASCADE, related_name="mandates")
+    hub = models.ForeignKey(
+        "Hub",
+        on_delete=models.CASCADE,
+        related_name="mandates",
+        help_text="The hub provisioned clients compose against.",
+    )
+    agent_identifier = fields.IdentifierField(
+        help_text="The app (by identifier, within the organization) allowed to provision under this mandate."
+    )
+    agent_device = models.ForeignKey(
+        "Device",
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name="agent_mandates",
+        help_text="If set, only an agent client running on this device may provision.",
+    )
+    agent_membership = models.ForeignKey(
+        "karakter.Membership",
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name="agent_mandates",
+        help_text="If set, only an agent client acting as this membership may provision.",
+    )
+    subject_manifest = models.JSONField(
+        help_text="The manifest the grantor approved (identifier, version, scopes, requirements). Copied as the pin into every provisioned token."
+    )
+    attestation = models.CharField(
+        max_length=1000,
+        blank=True,
+        default="",
+        help_text="Opaque binding set by the approving service (e.g. a release digest). lok stores it; the agent checks it.",
+    )
+    max_clients = models.PositiveIntegerField(
+        null=True,
+        blank=True,
+        help_text="How many live clients (plus outstanding tokens) may exist under this mandate. Null means unlimited.",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    expires_at = models.DateTimeField(null=True, blank=True, help_text="After this, no new clients may be provisioned. Existing ones keep running.")
+    revoked_at = models.DateTimeField(null=True, blank=True)
+
+    def is_live(self) -> bool:
+        """Whether the agent may still provision under this mandate."""
+        if self.revoked_at is not None:
+            return False
+        return not (self.expires_at and self.expires_at <= timezone.now())
+
+    def __str__(self) -> str:
+        return f"Mandate {self.pk}: {self.agent_identifier} → {self.subject_manifest.get('identifier')}:{self.subject_manifest.get('version')}"
+
+
 class RedeemToken(models.Model):
     """A redeem token is a token that can be used to redeem the rights to create
     a client. It is used to give the recipient the right to create a client.
@@ -446,6 +527,14 @@ class RedeemToken(models.Model):
     redemption_count = models.PositiveIntegerField(
         default=0,
         help_text="How many times this token has been redeemed so far.",
+    )
+    mandate = models.ForeignKey(
+        Mandate,
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name="redeem_tokens",
+        help_text="The mandate this token was provisioned under, if any. The client it produces is stamped with it.",
     )
 
     def redemptions_exhausted(self) -> bool:
@@ -945,6 +1034,14 @@ class Client(models.Model, ClientMixin):
     )
     manifest = models.JSONField(default=dict)
     scopes = models.ManyToManyField("karakter.Scope", related_name="clients", blank=True)
+    mandate = models.ForeignKey(
+        Mandate,
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name="clients",
+        help_text="The mandate this client was provisioned under. Revoking the mandate deletes the client.",
+    )
 
     class Meta:
         constraints = [

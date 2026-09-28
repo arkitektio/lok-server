@@ -369,6 +369,10 @@ def validate_redeem_token(redeem_token: models.RedeemToken, manifest: Manifest, 
         hub=hub,
     )
 
+    if redeem_token.mandate_id is not None and client.mandate_id != redeem_token.mandate_id:
+        client.mandate_id = redeem_token.mandate_id
+        client.save(update_fields=["mandate"])
+
     redeem_token.client = client
     redeem_token.save()
     return redeem_token
@@ -397,6 +401,11 @@ def redeem_token(token: str, manifest: Manifest, role: enums.ClientRoleVanilla =
             # A pre-authorized token is checked against its pin *before* anything is
             # looked up or provisioned, on every redeem: the pin is what makes the
             # token safe to hand to an unattended container.
+            if valid_token.mandate_id is not None:
+                from fakts.services.mandates import assert_redeemable
+
+                assert_redeemable(valid_token)
+
             if valid_token.pinned_manifest:
                 check_pinned_manifest(valid_token.pinned_manifest, manifest)
 

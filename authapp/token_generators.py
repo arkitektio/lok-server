@@ -48,6 +48,14 @@ def public_jwks() -> dict:
     return {"keys": [public_jwk_dict]}
 
 
+
+def _actor_claim(client: Any) -> dict:
+    """``act`` for a client provisioned under a mandate, else nothing."""
+    mandate_id = getattr(client, "mandate_id", None) if client is not None else None
+    if mandate_id is None:
+        return {}
+    return {"act": {"client_app": client.mandate.agent_identifier, "mandate": str(mandate_id)}}
+
 class MyJWTBearerTokenGenerator(JWTBearerTokenGenerator):
     """Custom JWT Bearer token generator that adds application claims.
 
@@ -133,6 +141,9 @@ class MyJWTBearerTokenGenerator(JWTBearerTokenGenerator):
             "client_device": fakts_client.node.node_id if fakts_client and fakts_client.node else None,
             "client_role": fakts_client.role if fakts_client else None,
             "hub": hub.identifier if hub else None,
+            # RFC 8693 §4.1: the client acts as the grantor, but was provisioned by
+            # the mandate's agent app — resource servers can tell who started it.
+            **_actor_claim(fakts_client),
         }
 
     def get_audiences(self, client: Any, user: Any, scope: Optional[str]) -> str | list[str]:

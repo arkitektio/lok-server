@@ -230,6 +230,7 @@ class FaktsRedeemGrant(FaktsEnvelopeMixin, BaseGrant, TokenEndpointMixin):
         from fakts import base_models, enums
         from fakts import models as fakts_models
         from fakts.services import clients as client_services
+        from fakts.services.mandates import MandateNotLive
 
         data = self.request.payload.data
 
@@ -267,6 +268,8 @@ class FaktsRedeemGrant(FaktsEnvelopeMixin, BaseGrant, TokenEndpointMixin):
             raise InvalidGrantError(description=str(e))
         except client_services.UnknownScope as e:
             raise InvalidScopeError(description=str(e))
+        except MandateNotLive as e:
+            raise InvalidGrantError(description=str(e))
         except client_services.DeviceAuthRequired as e:
             raise InvalidGrantError(description=str(e))
         except OAuth2Error:
