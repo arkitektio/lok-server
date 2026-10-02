@@ -312,3 +312,47 @@ def test_reported_mesh_state_drives_mesh_aliases_without_asking_ionscale(client,
     _report(client, token["access_token"], {"healthy": True, "mesh": {"connected": False}})
     hub.refresh_from_db()
     assert resolve_hub_mesh_host(hub) is None
+
+
+# --------------------------------------------------------------------------- #
+# a hub removing itself
+# --------------------------------------------------------------------------- #
+
+
+def _delete(client, access_token):
+    return client.post(reverse("fakts:hubdelete"), HTTP_AUTHORIZATION=f"Bearer {access_token}")
+
+
+@pytest.mark.django_db
+def test_a_hub_deletes_itself_with_its_own_token(client, ionscale_repo, mesh_org, django_capture_on_commit_callbacks):
+    hub, token = _grant(client, mesh_org)
+    identity = hub.client_id
+
+    with django_capture_on_commit_callbacks(execute=True):
+        resp = _delete(client, token["access_token"])
+
+    assert resp.status_code == 200, resp.content
+    assert resp.json()["status"] == "deleted"
+    assert not models.Hub.objects.filter(pk=hub.pk).exists()
+    assert not models.Client.objects.filter(pk=identity).exists()
+    assert (mesh_org.layer.tailnet_name, token["mesh"]["ionscale_auth_key"]) in ionscale_repo.deleted_auth_keys
+
+
+@pytest.mark.django_db
+def test_hub_deletion_needs_a_hub_token(client, ionscale_repo, mesh_org):
+    assert client.post(reverse("fakts:hubdelete")).status_code == 401
+
+    # A valid token whose client is no (longer a) hub identity: nothing to delete, said
+    # with a code the caller can tell from a server that has no such route.
+    hub, token = _grant(client, mesh_org)
+    models.Hub.objects.filter(pk=hub.pk).update(client=None)
+    resp = _delete(client, token["access_token"])
+    assert resp.status_code == 404
+    assert resp.json()["error"] == "hub_not_found"
+    assert models.Hub.objects.filter(pk=hub.pk).exists()
+
+
+@pytest.mark.django_db
+def test_the_well_known_says_where_a_hub_deletes_itself(client):
+    data = client.get("/lok/.well-known/fakts").json()
+    assert data["hub_deletion_endpoint"].endswith("/f/hubdelete/")

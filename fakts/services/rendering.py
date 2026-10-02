@@ -102,8 +102,8 @@ def render_envelope_from_context(client: models.Client, context: base_models.Lin
 
 def render_envelope(request: HttpRequest, client: models.Client) -> dict:
     """Render the fakts envelope from an incoming HTTP request (the token
-    endpoint's). Aliases stay host-aware: relative aliases resolve against this
-    request's host, so every refresh re-renders them for where the client is
+    endpoint's). The envelope stays host-aware: its `self` alias is this
+    request's host, so every refresh re-renders it for where the client is
     actually connecting from."""
     context = create_linking_context(request, client)
     return render_envelope_from_context(client, context)

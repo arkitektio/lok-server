@@ -41,6 +41,8 @@ ERROR_EXPIRED_TOKEN = "expired_token"
 ERROR_AUTHORIZATION_PENDING = "authorization_pending"
 ERROR_SLOW_DOWN = "slow_down"
 ERROR_SERVER_ERROR = "server_error"
+# Not OAuth vocabulary: only the hub deletion endpoint answers it.
+ERROR_HUB_NOT_FOUND = "hub_not_found"
 
 
 def _error(
@@ -161,6 +163,7 @@ class WellKnownFakts(View):
                 mesh_challenge_url=issuer_absolute_uri(request, "fakts:meshchallenge"),
                 mesh_configure=_absolute_configure_url(settings.DEPLOYMENT_MESH_CONFIGURE_URL, base_domain),
                 hub_authorization_endpoint=issuer_absolute_uri(request, "hub_authorization"),
+                hub_deletion_endpoint=issuer_absolute_uri(request, "fakts:hubdelete"),
                 hub_claim=issuer_absolute_uri(request, "fakts:hubclaim"),
                 hub_configure=_absolute_configure_url(settings.DEPLOYMENT_HUB_CONFIGURE_URL, base_domain),
             ).model_dump()
@@ -474,6 +477,46 @@ class HubHealthView(View):
                 "next_report_in": getattr(settings, "HUB_HEALTH_INTERVAL", 60),
             }
         )
+
+
+@method_decorator(csrf_exempt, name="dispatch")
+class HubDeleteView(View):
+    """A hub removing itself: what it calls when it is being destroyed.
+
+    Authenticated like the health callback, with the hub's own Bearer access
+    token. Deleting the hub takes its identity client, its mesh key and its
+    mesh nodes with it (see ``karakter.signals``).
+
+    A token that names no hub is a 404 ``hub_not_found`` rather than a 401: the
+    caller tells "already removed" from "refused" by it, and from a server that
+    has no such route by the error code."""
+
+    def post(self, request, *args, **kwargs):
+        try:
+            claims = decode_bearer_token(request)
+        except InvalidBearerToken as e:
+            return _error(ERROR_INVALID_GRANT, str(e), http_status=401, message=str(e))
+
+        hub = models.Hub.objects.filter(client__client_id=claims.get("client_id")).first()
+        if hub is None:
+            return _error(
+                ERROR_HUB_NOT_FOUND,
+                "No hub found for this token",
+                http_status=404,
+                message="No hub found for this token",
+            )
+
+        try:
+            hub.delete()
+        except Exception:
+            logger.exception("Deleting hub %s on its own request failed", hub.pk)
+            return _error(
+                ERROR_SERVER_ERROR,
+                "Error deleting hub",
+                http_status=500,
+                message="Error deleting hub",
+            )
+        return JsonResponse({"status": "deleted", "message": "Hub deleted"})
 
 
 def hub_keys(request, hub_id: int) -> JsonResponse:

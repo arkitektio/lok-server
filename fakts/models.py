@@ -309,7 +309,7 @@ class InstanceAlias(models.Model):
         max_length=1000,
         null=True,
         blank=True,
-        help_text="The host of the alias, if its a ABSOLUTE alias (e.g. 'example.com'). If not set, the alias is relative to the layer's domain.",
+        help_text="The host of the alias (e.g. 'example.com'). Not set for a mesh alias, which resolves to its hub node on the organization's mesh.",
     )
     port = models.IntegerField(
         null=True,
@@ -318,8 +318,8 @@ class InstanceAlias(models.Model):
     )
     kind = TextChoicesField(
         choices_enum=enums.AliasKindChoices,
-        default=enums.AliasKindChoices.RELATIVE.value,
-        help_text="The kind of alias. If relative, the alias is relative to the layer's domain. If absolute, the alias is an absolute URL.",
+        default=enums.AliasKindChoices.ABSOLUTE.value,
+        help_text="The kind of alias. If absolute, the alias is an absolute URL. If mesh, it resolves to its hub node on the organization's mesh. If docker, it is only reachable from inside the hub's own docker environment.",
     )
     ssl = models.BooleanField(
         default=True,
@@ -368,19 +368,18 @@ class InstanceAlias(models.Model):
                 public=self.public,
                 kind=enums.AliasKindChoices.MESH.value,
             )
-        if self.kind == enums.AliasKindChoices.RELATIVE.value:
-            # Relative alias: resolved against the coordination server (the linking
-            # request host), not any layer. The client reaches it and health-checks
-            # the `challenge` directly — no layer indirection.
+        if self.kind == enums.AliasKindChoices.DOCKER.value:
+            # Docker alias: a name on the hub's own docker network. Every client
+            # gets it; only one running in that network passes its challenge.
             return base_models.Alias(
                 id=str(self.id),
-                ssl=linking.request.is_secure,
-                host=linking.request.host,
-                port=self.port if self.port else linking.request.port,
+                ssl=self.ssl,
+                host=self.host,
+                port=self.port,
                 path=self.path,
                 challenge=self.challenge,
-                public=self.public,
-                kind=enums.AliasKindChoices.RELATIVE.value,
+                public=False,
+                kind=enums.AliasKindChoices.DOCKER.value,
             )
         else:
             return base_models.Alias(

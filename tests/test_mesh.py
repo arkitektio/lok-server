@@ -33,14 +33,6 @@ def test_alias_render_is_layer_independent():
     a = absolute.to_url(_linking())
     assert a.host == "svc.example" and a.port == 8080 and a.ssl is True
 
-    # RELATIVE alias with no layer → resolves against the linking request host.
-    relative = fakts_models.InstanceAlias(
-        kind=fakts_enums.AliasKindChoices.RELATIVE.value,
-        host=None, port=None, ssl=True, path="p", challenge="ht", public=False, layer=None,
-    )
-    r = relative.to_url(_linking(host="coord.example", port=443, is_secure=True))
-    assert r.host == "coord.example" and r.port == 443
-
 
 @pytest.mark.django_db
 def test_ensure_org_mesh_is_idempotent_singleton(ionscale_repo):

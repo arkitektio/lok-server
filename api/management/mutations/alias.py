@@ -10,11 +10,21 @@ from graphql import GraphQLError
 
 def _host_for(kind: str, host: str | None) -> str | None:
     """A mesh alias resolves its own host; every other kind needs one."""
+    if kind not in fakts_enums.AliasKindChoices.values:
+        raise GraphQLError(f"Unknown alias kind '{kind}' (one of: {', '.join(fakts_enums.AliasKindChoices.values)}).")
     if kind == fakts_enums.AliasKindChoices.MESH.value:
         return None
     if not host:
         raise GraphQLError(f"An alias of kind '{kind}' needs a host.")
     return host
+
+
+def _public_for(kind: str, public: bool) -> bool:
+    """A docker alias is only reachable from inside its hub's docker environment,
+    so the coordination server could never health-check it."""
+    if public and kind == fakts_enums.AliasKindChoices.DOCKER.value:
+        raise GraphQLError("An alias of kind 'docker' cannot be public.")
+    return public
 
 
 @kante.input
@@ -44,7 +54,7 @@ def create_alias(info: Info, input: CreateAliasInput) -> types.ManagementInstanc
         host=_host_for(input.kind, input.host),
         kind=input.kind,
         path=input.path,
-        public=input.public,
+        public=_public_for(input.kind, input.public),
     )
 
     return alias
@@ -75,6 +85,7 @@ def update_alias(info: Info, input: UpdateAliasInput) -> types.ManagementInstanc
     alias.path = input.path
     if input.public is not None:
         alias.public = input.public
+    alias.public = _public_for(input.kind, alias.public)
     alias.save()
 
     return alias

@@ -16,8 +16,8 @@ class AliasKindChoices(TextChoices):
     """Event Type for the Event Operator"""
 
     ABSOLUTE = "absolute", "ABSOLUTE (Value represent ABSOLUTE)"
-    RELATIVE = "relative", "RELATIVE (Value represent RELATIVE)"
     MESH = "mesh", "MESH (Value represent MESH)"
+    DOCKER = "docker", "DOCKER (only reachable from inside the hub's own docker environment)"
 
 
 class ClientKindChoices(TextChoices):

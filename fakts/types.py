@@ -178,7 +178,7 @@ class ServiceInstance:
     mappings: list["ServiceInstanceMapping"] = strawberry_django.field(description="The mappings of the hub. A mapping is a mapping of a service to a service instance. This is used to configure the hub.")
     logo: types.MediaStore | None = strawberry.field(description="The logo of the app. This should be a url to a logo that can be used to represent the app.")
     aliases: list["InstanceAlias"] = strawberry_django.field(
-        description="The aliases of the instance. An alias is a way to reach the instance. Clients can use these aliases to check if they can reach the instance. An alias can be an absolute alias (e.g. 'example.com') or a relative alias (e.g. 'example.com/path'). If the alias is relative, it will be relative to the layer's domain, port and path."
+        description="The aliases of the instance. An alias is a way to reach the instance. Clients can use these aliases to check if they can reach the instance."
     )
 
     @classmethod
@@ -195,10 +195,10 @@ class InstanceAlias:
     id: strawberry.ID
     layer: Optional[Layer] = strawberry.field(description="The layer that this alias belongs to, if any.")
     instance: ServiceInstance = strawberry.field(description="The instance that this alias belongs to.")
-    kind: str = strawberry.field(description="The kind of alias. If relative, the alias is resolved against the layer's domain/port/path; if absolute, it is a full URL.")
-    host: Optional[str] = strawberry.field(description="The host of the alias, if its a ABSOLUTE alias (e.g. 'example.com'). If not set, the alias is relative to the layer's domain.")
-    port: Optional[int] = strawberry.field(description="The port of the alias, if its a ABSOLUTE alias (e.g. 'example.com:8080'). If not set, the alias is relative to the layer's port.")
-    path: Optional[str] = strawberry.field(description="The path of the alias, if its a ABSOLUTE alias (e.g. 'example.com/path'). If not set, the alias is relative to the layer's path.")
+    kind: str = strawberry.field(description="The kind of alias. If absolute, it is a full URL; if mesh, it resolves to its hub node on the organization's mesh; if docker, it is only reachable from inside the hub's own docker environment.")
+    host: Optional[str] = strawberry.field(description="The host of the alias (e.g. 'example.com'). Not set for a mesh alias, which resolves to its hub node's MagicDNS name.")
+    port: Optional[int] = strawberry.field(description="The port of the alias (e.g. 8080 for 'example.com:8080'). If not set, the scheme's default port is used.")
+    path: Optional[str] = strawberry.field(description="The path of the alias (e.g. 'path' for 'example.com/path').")
     ssl: bool = strawberry.field(description="Is this alias using SSL? If true, the alias will be accessed via https:// instead of http://. This is used to indicate that the alias is secure and should be accessed via SSL")
     challenge: str = strawberry.field(description="The challenge of the alias. This is used to verify that the alias is reachable. If set, the alias will be accessed via the challenge URL (e.g. 'example.com/.well-known/challenge'). If not set, the alias will be accessed via the instance's URL.")
     public: bool = strawberry.field(description="Is this alias publicly reachable? If true, the coordination server can also check the alias's health directly, enabling health checks from the kontrol interface.")

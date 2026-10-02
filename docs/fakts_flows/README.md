@@ -218,7 +218,7 @@ of the service flow and the `aliases` of a hub instance.
 | `port` | int? | `null` | Port. |
 | `path` | str? | `null` | Path. |
 | `challenge` | str? | `null` | Health/verify URL (200 ⇒ reachable). |
-| `kind` | str | `"absolute"` | `absolute` or `relative` (resolved against the linking request). |
+| `kind` | str | `"absolute"` | `absolute`, `mesh` (host filled in with the hub node's mesh name) or `docker` (only reachable from inside the hub's own docker environment). |
 | `scope` | `"local"` \| `"network"` \| `"public"` \| `"ionscale"` | `"local"` | Reachability scope. |
 | `public` | bool | `false` | If publicly reachable, the coordinator can health-check it directly. |
 

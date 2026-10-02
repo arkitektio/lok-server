@@ -71,6 +71,9 @@ class WellKnownFakts(BaseModel):
     hub manifest here to dynamically register a public OAuth2 client and stage
     a hub device code; it then polls `token_endpoint` with the device-code
     grant and receives tokens + its rendered hub config in one response."""
+    hub_deletion_endpoint: str | None = None
+    """Absolute URL a hub POSTs to, with its own Bearer access token, to remove
+    itself from this server — the hub, its identity client and its mesh nodes."""
     hub_claim: str | None = None
     """DEPRECATED. Absolute URL of the *hub* claim endpoint — the holder of a
     hub token POSTs it here to receive the rendered server configuration. Only
@@ -212,7 +215,8 @@ class StagingAlias(BaseModel):
     ssl: bool = True
     host: Optional[str] = None
     """Required for every kind but ``mesh``. A mesh alias's host is filled in at
-    render time with the hub node's MagicDNS name, so a declared one is ignored."""
+    render time with the hub node's MagicDNS name, so a declared one is ignored.
+    A ``docker`` alias's host is a name on the hub's own docker network."""
     port: Optional[int] = None
     path: Optional[str] = None
     challenge: Optional[str] = None
@@ -223,10 +227,14 @@ class StagingAlias(BaseModel):
 
     @model_validator(mode="after")
     def _host_unless_mesh(self) -> "StagingAlias":
+        if self.kind not in enums.AliasKindChoices.values:
+            raise ValueError(f"Alias '{self.id}' has an unknown kind '{self.kind}' (one of: {', '.join(enums.AliasKindChoices.values)}).")
         if self.kind == enums.AliasKindChoices.MESH.value:
             self.host = None
         elif not self.host:
             raise ValueError(f"Alias '{self.id}' needs a host (only kind 'mesh' resolves its own).")
+        if self.kind == enums.AliasKindChoices.DOCKER.value and self.public:
+            raise ValueError(f"Alias '{self.id}' is of kind 'docker' and cannot be public: it is only reachable from inside the hub's own docker environment.")
         return self
 
 
@@ -366,10 +374,12 @@ class Alias(BaseModel):
     )
     public: bool = False
     """If the alias is publicly reachable, the coordination server can also check its health directly (enabling health checks from the kontrol interface)."""
-    kind: Literal["absolute", "relative", "mesh"] = "absolute"
+    kind: Literal["absolute", "mesh", "docker"] = "absolute"
     """How the alias is reached. ``mesh`` aliases are only reachable over the
     organization's mesh: clients route them (and their challenge) through their
-    mesh sidecar. Clients that do not know the field ignore it."""
+    mesh sidecar. ``docker`` aliases are only reachable from inside the hub's own
+    docker environment: every client gets them, and only one running there passes
+    the challenge. Clients that do not know the field ignore it."""
 
 
 class InstanceClaim(BaseModel):

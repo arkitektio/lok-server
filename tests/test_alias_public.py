@@ -11,6 +11,7 @@ keep working unchanged.
 
 import pytest
 from asgiref.sync import sync_to_async
+from pydantic import ValidationError
 
 from api.management.schema import schema as management_schema
 from fakts import base_models, models
@@ -71,16 +72,6 @@ def test_to_url_propagates_public_for_absolute_alias():
     instance = factories.make_service_instance()
     alias = models.InstanceAlias.objects.create(
         instance=instance, host="example.com", kind="absolute", public=True
-    )
-    url = alias.to_url(_linking_context())
-    assert url.public is True
-
-
-@pytest.mark.django_db
-def test_to_url_propagates_public_for_relative_alias():
-    instance = factories.make_service_instance()
-    alias = models.InstanceAlias.objects.create(
-        instance=instance, host="example.com", kind="relative", public=True
     )
     url = alias.to_url(_linking_context())
     assert url.public is True
@@ -329,8 +320,172 @@ def test_alias_defaults_kind_absolute():
 
 
 @pytest.mark.django_db
-@pytest.mark.parametrize("kind", ["absolute", "relative"])
+@pytest.mark.parametrize("kind", ["absolute", "docker"])
 def test_to_url_propagates_kind(kind):
     instance = factories.make_service_instance()
     alias = models.InstanceAlias.objects.create(instance=instance, host="example.com", kind=kind)
     assert alias.to_url(_linking_context()).kind == kind
+
+
+# --------------------------------------------------------------------------- #
+# kind: relative is gone. It resolved against the host a client reached the
+# coordination server on, which is not where a hub's services live.
+# --------------------------------------------------------------------------- #
+
+@pytest.mark.django_db
+def test_instance_alias_model_defaults_kind_absolute():
+    instance = factories.make_service_instance()
+    alias = models.InstanceAlias.objects.create(instance=instance, host="example.com")
+    alias.refresh_from_db()
+    assert alias.kind == "absolute"
+
+
+@pytest.mark.parametrize("kind", ["relative", "satellite"])
+def test_staging_alias_refuses_an_unknown_kind(kind):
+    with pytest.raises(ValidationError, match="unknown kind"):
+        base_models.StagingAlias(id="a", kind=kind, host="example.com")
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_create_alias_mutation_refuses_a_relative_alias():
+    context, instance = await sync_to_async(_mutation_setup)()
+
+    result = await management_schema.execute(
+        CREATE_ALIAS,
+        context_value=context,
+        variable_values={"input": {"instance": str(instance.id), "port": 80, "host": "example.com", "kind": "relative"}},
+    )
+
+    assert result.errors
+    assert "Unknown alias kind 'relative'" in str(result.errors[0])
+    assert not await sync_to_async(models.InstanceAlias.objects.filter(instance=instance).exists)()
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_update_alias_mutation_refuses_a_relative_alias():
+    context, instance = await sync_to_async(_mutation_setup)()
+    alias = await sync_to_async(models.InstanceAlias.objects.create)(instance=instance, host="example.com", kind="absolute")
+
+    result = await management_schema.execute(
+        UPDATE_ALIAS,
+        context_value=context,
+        variable_values={"input": {"id": str(alias.id), "port": 80, "host": "example.com", "kind": "relative"}},
+    )
+
+    assert result.errors
+    await sync_to_async(alias.refresh_from_db)()
+    assert alias.kind == "absolute"
+
+
+# --------------------------------------------------------------------------- #
+# kind: docker aliases — only reachable from inside the hub's own docker
+# environment. Every client gets them; the challenge decides who can use them.
+# --------------------------------------------------------------------------- #
+
+def test_docker_staging_alias_needs_a_host():
+    with pytest.raises(ValidationError):
+        base_models.StagingAlias(id="d", kind="docker")
+    assert base_models.StagingAlias(id="d", kind="docker", host="gateway").host == "gateway"
+
+
+def test_docker_staging_alias_cannot_be_public():
+    """The coordination server is outside the docker network: it could never
+    health-check the alias, which is all ``public`` is for."""
+    with pytest.raises(ValidationError):
+        base_models.StagingAlias(id="d", kind="docker", host="gateway", public=True)
+
+
+@pytest.mark.django_db
+def test_docker_alias_renders_its_stored_address_not_the_request_host():
+    instance = factories.make_service_instance()
+    alias = models.InstanceAlias.objects.create(
+        instance=instance, host="gateway", port=80, ssl=False, path="rekuest", kind="docker"
+    )
+    rendered = alias.to_url(_linking_context())
+    assert (rendered.host, rendered.port, rendered.ssl, rendered.path) == ("gateway", 80, False, "rekuest")
+    assert rendered.model_dump()["kind"] == "docker"
+    assert rendered.public is False
+
+
+@pytest.mark.django_db
+def test_docker_alias_is_rendered_next_to_the_others():
+    """No audience filtering: every client of the instance gets the docker alias."""
+    instance = factories.make_service_instance()
+    models.InstanceAlias.objects.create(instance=instance, host="gateway", port=80, ssl=False, kind="docker")
+    models.InstanceAlias.objects.create(instance=instance, host="public.example", port=443, kind="absolute")
+
+    claim = instance.render(_linking_context())
+    assert sorted(a.kind for a in claim.aliases) == ["absolute", "docker"]
+
+
+@pytest.mark.django_db
+def test_create_hub_persists_docker_alias():
+    manifest = base_models.HubManifest(
+        identifier="com.example.comp",
+        instances=[
+            base_models.InstanceRequest(
+                identifier="inst-1",
+                manifest=base_models.ServiceManifest(identifier="com.example.svc", version="1.0.0"),
+                aliases=[
+                    base_models.StagingAlias(id="docker", kind="docker", host="gateway", port=80, ssl=False, path="svc", challenge="ht"),
+                ],
+            )
+        ],
+    )
+    hubs.create_hub_from_manifest(manifest, factories.make_organization())
+
+    alias = models.InstanceAlias.objects.get(name="docker")
+    assert (alias.kind, alias.host, alias.port, alias.ssl) == ("docker", "gateway", 80, False)
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_create_alias_mutation_creates_docker_alias():
+    context, instance = await sync_to_async(_mutation_setup)()
+
+    result = await management_schema.execute(
+        CREATE_ALIAS,
+        context_value=context,
+        variable_values={"input": {"instance": str(instance.id), "port": 80, "host": "gateway", "kind": "docker"}},
+    )
+
+    assert not result.errors, result.errors
+    assert result.data["createAlias"]["kind"] == "docker"
+    assert result.data["createAlias"]["host"] == "gateway"
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_create_alias_mutation_rejects_public_docker_alias():
+    context, instance = await sync_to_async(_mutation_setup)()
+
+    result = await management_schema.execute(
+        CREATE_ALIAS,
+        context_value=context,
+        variable_values={"input": {"instance": str(instance.id), "port": 80, "host": "gateway", "kind": "docker", "public": True}},
+    )
+
+    assert result.errors
+    assert "cannot be public" in str(result.errors[0])
+    assert not await sync_to_async(models.InstanceAlias.objects.filter(instance=instance).exists)()
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_update_alias_mutation_rejects_turning_a_public_alias_into_docker():
+    context, instance = await sync_to_async(_mutation_setup)()
+    alias = await sync_to_async(models.InstanceAlias.objects.create)(
+        instance=instance, host="example.com", kind="absolute", public=True
+    )
+
+    result = await management_schema.execute(
+        UPDATE_ALIAS,
+        context_value=context,
+        variable_values={"input": {"id": str(alias.id), "port": 80, "host": "gateway", "kind": "docker"}},
+    )
+
+    assert result.errors
+    await sync_to_async(alias.refresh_from_db)()
+    assert alias.kind == "absolute"

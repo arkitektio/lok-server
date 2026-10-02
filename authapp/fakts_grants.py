@@ -81,8 +81,8 @@ class FaktsEnvelopeMixin:
             token["please_report"] = True
 
         # `_request` is the raw Django HttpRequest behind authlib's
-        # DjangoOAuth2Request — needed because instance aliases render
-        # host-aware (relative aliases resolve against the request host).
+        # DjangoOAuth2Request — needed because the envelope renders
+        # host-aware (its `self` alias is the request host).
         http_request = getattr(self.request, "_request", None)
         if http_request is None:
             return token
