@@ -155,6 +155,7 @@ class WellKnownFakts(View):
                 issuer=settings.OIDC_ISSUER,
                 device_authorization_endpoint=issuer_absolute_uri(request, "app_authorization"),
                 token_endpoint=issuer_absolute_uri(request, "token"),
+                revocation_endpoint=issuer_absolute_uri(request, "revoke"),
                 jwks_uri=issuer_absolute_uri(request, "jwks"),
                 grant_types_supported=GRANT_TYPES_SUPPORTED,
                 token_endpoint_auth_methods_supported=TOKEN_ENDPOINT_AUTH_METHODS_SUPPORTED,

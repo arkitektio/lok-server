@@ -356,3 +356,11 @@ def test_hub_deletion_needs_a_hub_token(client, ionscale_repo, mesh_org):
 def test_the_well_known_says_where_a_hub_deletes_itself(client):
     data = client.get("/lok/.well-known/fakts").json()
     assert data["hub_deletion_endpoint"].endswith("/f/hubdelete/")
+
+
+@pytest.mark.django_db
+def test_the_well_known_says_where_a_client_revokes_its_session(client):
+    """A fakts client reads one discovery document, so the revocation endpoint has to
+    be in it: advertised only in the OIDC metadata, a logout could not find it."""
+    data = client.get("/lok/.well-known/fakts").json()
+    assert data["revocation_endpoint"].endswith("/o/revoke/")

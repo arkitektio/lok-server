@@ -45,6 +45,10 @@ class WellKnownFakts(BaseModel):
     redeem token via urn:fakts:grant-type:redeem) and receives the access token,
     refresh token and rendered instances in one response. Refreshing there
     re-renders the instances."""
+    revocation_endpoint: str | None = None
+    """Absolute URL of the RFC 7009 revocation endpoint. A client that logs out
+    POSTs its refresh token here (`token`, `token_type_hint=refresh_token`,
+    `client_id`): the refresh chain ends at once, and its mesh sidecar is reaped."""
     jwks_uri: str | None = None
     """Absolute URL of the JWKS used to verify issued access tokens."""
     grant_types_supported: List[str] = Field(default_factory=list)

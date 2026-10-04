@@ -45,6 +45,9 @@ def test_revoke_endpoint_kills_the_refresh_chain(client):
         secure=True,
     )
     assert resp.status_code == 200
+    # A fakts client reads every OAuth answer as a JSON object: an empty body
+    # would make each logout look like a failed revocation.
+    assert resp.json() == {}
 
     refreshed = _refresh(client, token["refresh_token"], body["client_id"])
     assert refreshed.status_code == 400
