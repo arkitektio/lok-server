@@ -237,6 +237,16 @@ class Mutation:
         resolver=karakter_mutations.update_membership_colors,
     )
 
+    request_membership = strawberry_django.mutation(
+        resolver=karakter_mutations.request_membership,
+    )
+    approve_membership_request = strawberry_django.mutation(
+        resolver=karakter_mutations.approve_membership_request,
+    )
+    decline_membership_request = strawberry_django.mutation(
+        resolver=karakter_mutations.decline_membership_request,
+    )
+
     update_device = strawberry_django.mutation(resolver=fakts_mutations.update_device)
 
 

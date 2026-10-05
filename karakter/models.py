@@ -265,6 +265,68 @@ class RoleRequest(models.Model):
         self.save(update_fields=["status", "resolved_by", "responded_at"])
 
 
+class MembershipRequest(models.Model):
+    """A User's request to become a member of an Organization they are not in.
+
+    The counterpart of an Invite, started from the other side: someone who was
+    shared a link into an organization asks to be let in, and the organization's
+    owner or one of its admins approves or declines. Approval creates the
+    Membership with the roles the approver picked.
+    """
+
+    class Status(models.TextChoices):
+        PENDING = "pending", "Pending"
+        APPROVED = "approved", "Approved"
+        DECLINED = "declined", "Declined"
+
+    user = models.ForeignKey("User", on_delete=models.CASCADE, related_name="membership_requests")
+    organization = models.ForeignKey(Organization, on_delete=models.CASCADE, related_name="membership_requests")
+    reason = models.CharField(
+        max_length=2000, null=True, blank=True, help_text="Optional note from the user explaining the request."
+    )
+    status = models.CharField(max_length=20, choices=Status.choices, default=Status.PENDING)
+    created_at = models.DateTimeField(auto_now_add=True)
+    resolved_by = models.ForeignKey(
+        "User", on_delete=models.SET_NULL, null=True, blank=True, related_name="resolved_membership_requests"
+    )
+    responded_at = models.DateTimeField(null=True, blank=True)
+    created_membership = models.ForeignKey(
+        Membership, on_delete=models.SET_NULL, null=True, blank=True, related_name="created_through_request"
+    )
+
+    class Meta:
+        ordering = ["-created_at"]
+        constraints = [
+            # At most one *pending* request per (user, organization); resolved
+            # requests don't block asking again later.
+            models.UniqueConstraint(
+                fields=["user", "organization"],
+                condition=models.Q(status="pending"),
+                name="unique_pending_membership_request",
+            )
+        ]
+
+    def approve(self, user, roles=None):
+        """Let the requester in. `roles` are Role rows of this organization;
+        without any the member gets `guest`, as an invite without roles does."""
+        membership, _ = Membership.objects.get_or_create(user=self.user, organization=self.organization)
+        if not roles:
+            roles = list(Role.objects.filter(identifier="guest", organization=self.organization))
+        membership.roles.add(*roles)
+        self.status = self.Status.APPROVED
+        self.resolved_by = user
+        self.responded_at = timezone.now()
+        self.created_membership = membership
+        self.save(update_fields=["status", "resolved_by", "responded_at", "created_membership"])
+        return membership
+
+    def decline(self, user):
+        self.status = self.Status.DECLINED
+        self.resolved_by = user
+        self.responded_at = timezone.now()
+        self.save(update_fields=["status", "resolved_by", "responded_at"])
+
+
 class User(AbstractUser):
     """A User of the System
 

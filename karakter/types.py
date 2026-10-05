@@ -381,6 +381,9 @@ class Organization:
     profile: "OrganizationProfile"
     memberships: List["Membership"] = strawberry_django.field(description="the memberships of people")
     invites: List["Invite"] = strawberry_django.field(description="the invites for this organization")
+    membership_requests: List["MembershipRequest"] = strawberry_django.field(
+        description="Requests of non-members to join this organization. Only its owner and admins see any."
+    )
 
     @strawberry_django.field(description="The roles that are available in the organization")
     def roles(self) -> List["Role"]:
@@ -462,6 +465,40 @@ class Invite:
         ).distinct()
 
 
+@strawberry_django.type(models.MembershipRequest, description="""A request of a user who is not a member of an organization to become one.""")
+class MembershipRequest:
+    id: strawberry.ID
+    reason: str | None
+    status: str
+    created_at: datetime.datetime
+    resolved_by: User | None
+    responded_at: datetime.datetime | None
+
+    @strawberry_django.field(description="The user who asks to join. Not a member yet, so they are visible here and nowhere else.")
+    def user(self) -> User:
+        # Fetched as a row, not a queryset: `User.get_queryset` only shows
+        # members of the active organization, which the requester is not. By
+        # asking they chose to be seen by the people who can answer.
+        return models.User.objects.get(pk=self.user_id)
+
+    @classmethod
+    def get_queryset(cls, queryset, info: Info, **kwargs):
+        """Restrict requests to the active organization, and to its owner and admins.
+
+        Who asked to join is nobody else's business, and only they can answer.
+        """
+        user = get_user(info)
+        organization = get_organization(info)
+        return queryset.filter(
+            Q(organization=organization),
+            Q(organization__owner=user)
+            | Q(
+                organization__memberships__user=user,
+                organization__memberships__roles__identifier="admin",
+            ),
+        ).distinct()
+
+
 @strawberry.type
 class Context:
     """The context of this app. It is used to provide information about the current request and user."""
@@ -485,3 +522,15 @@ class Context:
         if not self.user or not self.organization:
             return False
         return self.user.active_organization == self.organization
+
+    @strawberry_django.field(
+        description="Is the user a member of this organization? False for an organization that does not exist, so it says nothing about other tenants."
+    )
+    def member_of(self, organization: strawberry.ID) -> bool:
+        """The one membership question that reaches past the active organization:
+        `user.memberships` is scoped to it, so a client holding a link into
+        another organization could not otherwise tell "join" from "connect"."""
+        try:
+            return models.Membership.objects.filter(user=self.user, organization_id=organization).exists()
+        except (ValueError, TypeError):
+            return False

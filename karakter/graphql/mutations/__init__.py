@@ -7,3 +7,4 @@ from .com_channel import *
 from .invite import *
 from .organization import *
 from .membership import *
+from .membership_request import *
