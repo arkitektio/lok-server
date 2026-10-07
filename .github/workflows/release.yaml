@@ -155,3 +155,8 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+          # Where the image's code came from: `arkitekt-service describe` says it (`source`),
+          # so that an installer can run the service from a checkout of this commit.
+          build-args: |
+            ARKITEKT_SOURCE_REPOSITORY=${{ github.server_url }}/${{ github.repository }}
+            ARKITEKT_SOURCE_REVISION=${{ github.sha }}

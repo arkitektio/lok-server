@@ -74,6 +74,21 @@ def user_info(request: HttpRequest) -> JsonResponse:
     )
 
 
+def discovery_anchor() -> str:
+    """What advertised URLs are built on: the configured issuer, or ``""`` for
+    "the address this request arrived at".
+
+    The issuer is the anchor unless the deployment said otherwise
+    (``discovery_follows_request``) — see :func:`issuer_absolute_uri` for why the
+    request is not trusted by default. With it on, ``oidc_issuer`` is only the
+    ``iss`` of issued tokens and may be a name rather than an address, which is
+    what lets one deployment be logged into at every address it answers on.
+    """
+    if settings.DISCOVERY_FOLLOWS_REQUEST:
+        return ""
+    return (settings.OIDC_ISSUER or "").rstrip("/")
+
+
 def issuer_absolute_uri(request: HttpRequest, view_name: str) -> str:
     """Absolute URL for ``view_name``, anchored to the configured issuer.
 
@@ -88,10 +103,11 @@ def issuer_absolute_uri(request: HttpRequest, view_name: str) -> str:
 
     ``issuer`` was already pinned to config; every other endpoint in the document
     now shares that anchor. Falls back to the request only when ``oidc_issuer``
-    is left unconfigured, which keeps a bare development server working.
+    is left unconfigured, which keeps a bare development server working — or when
+    the deployment opted into it, see :func:`discovery_anchor`.
     """
     path = reverse(view_name)
-    issuer = (settings.OIDC_ISSUER or "").rstrip("/")
+    issuer = discovery_anchor()
     if not issuer:
         return request.build_absolute_uri(path)
     return urljoin(issuer + "/", path.lstrip("/"))
@@ -106,7 +122,7 @@ def issuer_base_url(request: HttpRequest) -> str:
     code — so letting the caller choose its host is a ready-made phishing
     primitive on the deployment's own name.
     """
-    issuer = (settings.OIDC_ISSUER or "").rstrip("/")
+    issuer = discovery_anchor()
     if not issuer:
         issuer = request.build_absolute_uri("/").rstrip("/")
 

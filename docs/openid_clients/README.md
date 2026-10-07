@@ -20,7 +20,7 @@ exist"**.
 - lok stores each relying party as an `OAuth2Client`
   (`authapp/models.py`; `fakts.models.OAuth2Client` re-exports the same model).
 - Clients are **provisioned on boot** by the `ensureopenid` management command
-  (run from `run.sh`) from the `openid_apps` list in the lok config
+  (run from `arkitekt-service serve`) from the `openid_apps` list in the lok config
   (`configuration.py` → `OpenIDAppSettings`, mapped to
   `settings.ENSURED_OPENID_APPS`). Nothing is created by default — if
   `openid_apps` is empty, **no clients exist**.

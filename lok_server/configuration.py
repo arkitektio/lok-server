@@ -2,7 +2,7 @@
 
 Owned by this service. Values resolve (highest precedence first) from init
 kwargs, environment variables (nested via ``__`` — e.g. ``POSTGRES__PASSWORD``),
-then the YAML file (the mount's ``config.yaml`` by default; override with
+then the YAML file (``config.yaml`` where the service runs by default; override with
 ``ARKITEKT_CONFIG_FILE``). Secret fields have **no default**: loading fails fast
 with a ``ValidationError`` if they are not supplied via config or environment.
 """
@@ -13,33 +13,14 @@ import os
 from typing import Any, Dict, List, Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
-from pydantic_settings import (
-    BaseSettings,
-    PydanticBaseSettingsSource,
-    SettingsConfigDict,
-    YamlConfigSettingsSource,
-)
 
+from arkitekt_service.server import settings as shared
+from arkitekt_service.server.settings import AdminSettings, PostgresSettings, ServiceSettings
 from authentikate.base_models import AuthentikateSettings
 
-_DEFAULT_CONFIG = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "config.yaml")
-
-
-class AdminSettings(BaseModel):
-    """Django superuser created on first boot."""
-
-    username: str = Field(description="Superuser login name.")
-    password: str = Field(description="Superuser password. Secret — must be set.")
-    email: Optional[str] = Field(default=None, description="Superuser email address.")
-
-
-class DjangoSettings(BaseModel):
+class DjangoSettings(shared.DjangoSettings):
     """Core Django framework settings."""
 
-    secret_key: str = Field(description="Django SECRET_KEY for cryptographic signing. Secret — must be set.")
-    debug: bool = Field(default=False, description="Enable Django debug mode (never in production).")
-    hosts: List[str] = Field(default_factory=lambda: ["*"], description="ALLOWED_HOSTS entries.")
-    use_x_forwarded_host: bool = Field(default=True, description="Trust the X-Forwarded-Host header behind a reverse proxy.")
     secure_proxy_ssl_header: bool = Field(default=True, description="Trust X-Forwarded-Proto to detect HTTPS behind a reverse proxy (SECURE_PROXY_SSL_HEADER). Disable when not behind a TLS-terminating proxy.")
     allow_insecure_transport: bool = Field(
         default=False,
@@ -98,34 +79,13 @@ class DjangoSettings(BaseModel):
         ),
     )
     admin: AdminSettings = Field(description="Superuser provisioned on first boot.")
-    csrf_trusted_origins: List[str] = Field(default_factory=lambda: ["http://localhost", "https://localhost"], description="CSRF_TRUSTED_ORIGINS for unsafe (POST) requests.")
-    force_script_name: str = Field(default="", description="URL path prefix (FORCE_SCRIPT_NAME) this service is served under.")
     language_code: str = Field(default="en-us", description="Django LANGUAGE_CODE.")
     time_zone: str = Field(default="UTC", description="Django TIME_ZONE.")
-    log_level: str = Field(default="INFO", description="Root logger level (e.g. DEBUG, INFO, WARNING). The LOG_LEVEL env var overrides it.")
-    enable_rich_logging: bool = Field(default=False, description="Render console logs with rich (colours, boxed tracebacks). A dev convenience; off by default, as plain one-line records suit container logs.")
 
 
-class PostgresSettings(BaseModel):
-    """PostgreSQL database connection (Django ``DATABASES['default']``)."""
-
-    model_config = ConfigDict(extra="allow")
-
-    engine: str = Field(default="django.db.backends.postgresql", description="Django database backend (PostgreSQL).")
-    db_name: str = Field(description="Database name.")
-    username: str = Field(description="Database user.")
-    password: str = Field(description="Database password. Secret — must be set.")
-    host: str = Field(description="Database host.")
-    port: int = Field(default=5432, description="Database port.")
-
-
-class RedisSettings(BaseModel):
+class RedisSettings(shared.RedisSettings):
     """Redis connection (channel layer / cache)."""
 
-    model_config = ConfigDict(extra="allow")
-
-    host: str = Field(description="Redis host.")
-    port: int = Field(default=6379, description="Redis port.")
     channel_prefix: str = Field(default="lok", description="Key prefix for the channels_redis channel layer.")
 
 
@@ -523,10 +483,8 @@ class SocialProviderConfig(BaseModel):
     EMAIL_AUTHENTICATION: Optional[bool] = Field(default=None, description="Match logins to existing accounts by email.")
 
 
-class Settings(BaseSettings):
+class Settings(ServiceSettings):
     """Top-level, validated configuration for the lok service."""
-
-    model_config = SettingsConfigDict(env_nested_delimiter="__", extra="ignore")
 
     django: DjangoSettings = Field(description="Core Django settings.")
     postgres: PostgresSettings = Field(description="PostgreSQL connection.")
@@ -540,6 +498,18 @@ class Settings(BaseSettings):
     ionscale: Optional[IonscaleSettings] = Field(default=None, description="Optional ionscale coordinator connection.")
     private_key: str = Field(description="OIDC/OAuth2 RSA private signing key (PEM). Secret — must be set.")
     oidc_issuer: str = Field(default="http://lok", description="OIDC issuer URL advertised by lok.")
+    discovery_follows_request: bool = Field(
+        default=False,
+        description="Build the endpoints the discovery documents advertise (token, "
+        "authorization, JWKS, the fakts base and configure URLs) from the address each "
+        "request arrived at, instead of from oidc_issuer. oidc_issuer is then only the "
+        "`iss` of issued tokens: a name, which need not be an address. For a deployment "
+        "that is reached at several addresses and owns all of them — a self-contained hub "
+        "on a laptop, a lab network, inside its own docker network. NEVER on a public "
+        "coordination server: the address is whatever Host / X-Forwarded-Host the caller "
+        "sent, so anyone can make the discovery document advertise their own token "
+        "endpoint and JWKS, and a client bootstrapping from it hands its credentials over.",
+    )
     kontrol_frontend_url: str = Field(
         default="/",
         description="Base URL of the kontrol SPA. All account email links (verify-email, "
@@ -572,8 +542,8 @@ class Settings(BaseSettings):
     def _refuse_committed_key_material_in_production(self) -> "Settings":
         """Refuse to boot on the key material committed to this repository.
 
-        The repo's `config.yaml` is the *default* config source (see
-        `_DEFAULT_CONFIG`), and it is tracked in git despite being listed in
+        The repo's `config.yaml` is the *default* config source (it is the
+        `config.yaml` where the service runs), and it is tracked in git despite being listed in
         `.gitignore`, so it also ships inside the Docker image. It contains a real
         RSA private key and a real `SECRET_KEY`, not placeholders. A deployment
         that forgets to mount its own config therefore signs OIDC id_tokens with a
@@ -782,21 +752,3 @@ class Settings(BaseSettings):
             )
 
         return self
-
-    @classmethod
-    def settings_customise_sources(
-        cls,
-        settings_cls: type[BaseSettings],
-        init_settings: PydanticBaseSettingsSource,
-        env_settings: PydanticBaseSettingsSource,
-        dotenv_settings: PydanticBaseSettingsSource,
-        file_secret_settings: PydanticBaseSettingsSource,
-    ) -> tuple[PydanticBaseSettingsSource, ...]:
-        # Precedence: explicit init kwargs > environment variables > YAML file.
-        path = os.environ.get("ARKITEKT_CONFIG_FILE", _DEFAULT_CONFIG)
-        return (
-            init_settings,
-            env_settings,
-            YamlConfigSettingsSource(settings_cls, yaml_file=path),
-            file_secret_settings,
-        )

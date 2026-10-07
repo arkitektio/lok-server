@@ -190,8 +190,10 @@ def _hub_keys_base(request: HttpRequest) -> str:
 
     from django.urls import reverse
 
+    from authapp.views import discovery_anchor
+
     path = reverse("hub_keys", kwargs={"hub_id": 0})[: -len("0")]
-    issuer = (settings.OIDC_ISSUER or "").rstrip("/")
+    issuer = discovery_anchor()
     return request.build_absolute_uri(path) if not issuer else urljoin(issuer + "/", path.lstrip("/"))
 
 

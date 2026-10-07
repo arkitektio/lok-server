@@ -16,6 +16,10 @@ import os
 from .configuration import Settings
 from .logs import build_logging
 
+# Where this service's contract is: what the image's environment says, and the same here for a
+# checkout, so that `manage.py validate_settings` and the configuration check work in both.
+os.environ.setdefault("ARKITEKT_SERVICE", "lok_server.contract")
+
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 conf = Settings()
@@ -60,6 +64,9 @@ REDEEM_TOKENS = conf.redeem_tokens
 KOMMUNITY_PARTNERS = conf.kommunity_partners
 
 OIDC_ISSUER = conf.oidc_issuer
+# Whether advertised endpoints are anchored to the request rather than to OIDC_ISSUER.
+# See `authapp.views.discovery_anchor`.
+DISCOVERY_FOLLOWS_REQUEST = conf.discovery_follows_request
 
 
 if conf.ionscale is not None:
@@ -114,6 +121,10 @@ INSTALLED_APPS = [
     "karakter",
     "ionscale",
     "health_check",
+    # What every service is as a Django server: `ensureadmin`, `validate_settings`, and the
+    # check that warns about config keys this release does not read. Last, so that a command
+    # of the service's own with the same name is the one that runs.
+    "arkitekt_service.server",
 ]
 
 INSTALLED_APPS += [

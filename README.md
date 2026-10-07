@@ -37,10 +37,10 @@ and [social login](docs/social_accounts/README.md).
 
 ## Running
 
-The image is `jhnnsrs/lok`. It has no default command; start it with `bash run.sh`. Unlike
+The image is `jhnnsrs/lok`. It has no default command; start it with `arkitekt-service serve`. Unlike
 the other services, lok prepares itself on every start: it waits for the database, migrates,
 then ensures what the configuration declares (partners, OpenID apps, users, organizations,
-memberships, redeem tokens) before it serves on :80 with daphne. `run-debug.sh` does the same
+memberships, redeem tokens) before it serves on :80 with daphne. `arkitekt-service debug` does the same
 with Django's autoreloading server.
 
 It needs Postgres, Redis and an S3 store (RustFS) for avatars and banners. An ionskale

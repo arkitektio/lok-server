@@ -11,3 +11,6 @@ __pycache__/
 *.sqlite3
 .env
 config.yaml
+# Not part of what the image runs.
+tests/
+conftest.py
