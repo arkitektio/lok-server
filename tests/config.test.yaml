@@ -71,6 +71,7 @@ openid_apps:
 organizations:
 - identifier: default
   name: Default
+  owner: demo
 postgres:
   db_name: testdb
   dependency: db
@@ -137,10 +138,7 @@ private_key: '-----BEGIN PRIVATE KEY-----
   -----END PRIVATE KEY-----
 
   '
-redeem_tokens:
-- organization: demo
-  token: example-redeem-token
-  user: demo
+redeem_tokens: []
 redis:
   channel_prefix: lok
   dependency: redis

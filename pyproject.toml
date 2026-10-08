@@ -20,7 +20,7 @@ dependencies = [
     "jsonpatch~=1.33",
     "django-probes>=1.7.0,<2",
     # The contract an installer talks to this image through (`arkitekt-service run migrate`).
-    "arkitekt-service>=1.11.0",
+    "arkitekt-service>=3.0.0",
     "rich>=14.0.0",
     "koherent>=0.2.0",
     "django-redis>=5.4.0",

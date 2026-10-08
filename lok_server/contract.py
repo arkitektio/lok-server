@@ -55,6 +55,7 @@ contract = Contract(
         "ensureorganizations": Job(("ensureorganizations",), "Create the organizations the config names, with the hubs their partners bring"),
         "ensurememberships": Job(("ensurememberships",), "Put the accounts into their organizations"),
         "ensuretokens": Job(("ensuretokens",), "Provision the redeem tokens the config names"),
+        "reconcile_meshes": Job(("reconcile_meshes",), "Repair drift between the meshes and ionscale: --dry-run, --organization, --revoke-orphans, --sidecars"),
     },
     setup=("ensurepartners", "ensureopenid", "ensureusers", "ensureorganizations", "ensurememberships", "ensuretokens"),
 )
