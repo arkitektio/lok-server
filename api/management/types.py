@@ -231,6 +231,7 @@ class ManagementProfile:
     name: str | None = strawberry.field(description="The name of the user")
     avatar: ManagementMediaStore | None = strawberry.field(description="The avatar of the user")
     banner: ManagementMediaStore | None = strawberry.field(description="The banner of the user")
+    public_link_preview: bool = strawberry.field(description="Whether the user opted in to being shown, by name and picture, on link pages for links they shared.")
 
 
 @strawberry_django.type(
@@ -560,6 +561,57 @@ class ManagementRoleRequest:
         ).distinct()
 
 
+@strawberry_django.type(
+    models.MembershipRequest,
+    description="""A request of a user who is not a member of an organization to become one. Its owner or an admin approves or declines it.""",
+)
+class ManagementMembershipRequest:
+    id: strawberry.ID
+    reason: Optional[str] = strawberry.field(description="An optional note from the user explaining the request.")
+    status: str = strawberry.field(description="The status of the request: pending, approved, or declined.")
+    created_at: datetime.datetime
+
+    @strawberry_django.field(description="The user who asks to join. Not a member yet, so they are visible here and nowhere else.")
+    def user(self) -> ManagementUser:
+        # Fetched as a row, not a queryset: the requester is not a member, and by
+        # asking they chose to be seen by the people who can answer.
+        return models.User.objects.get(pk=self.user_id)
+
+    @classmethod
+    def get_queryset(cls, queryset, info: Info):
+        # Who asked to join is nobody else's business, and only the owner and
+        # admins can answer — the same bar the approve/decline mutations enforce.
+        return queryset.filter(owner_or_admin_q(info.context.request.user, "organization")).distinct()
+
+
+@strawberry.type(description="What a link page may show about the organization a link belongs to. Only for organizations that opted in.")
+class ManagementLinkPreviewOrganization:
+    slug: str
+    name: Optional[str]
+    description: Optional[str]
+    avatar: Optional[ManagementMediaStore]
+
+
+@strawberry.type(description="What a link page may show about the person who shared a link. Only for users who opted in.")
+class ManagementLinkPreviewUser:
+    name: str
+    avatar: Optional[ManagementMediaStore]
+
+
+@strawberry.type(description="The public face of a shared link: which organization it leads into and who shared it. Each part is null unless its subject opted in.")
+class ManagementLinkPreview:
+    organization: Optional[ManagementLinkPreviewOrganization]
+    inviter: Optional[ManagementLinkPreviewUser]
+
+
+@strawberry.type(description="An app an organization's deep links may open.")
+class ManagementDeeplinkApp:
+    protocol: str = strawberry.field(description="The app's URL scheme, e.g. 'orkestrator'.")
+    name: str = strawberry.field(description="The app's display name.")
+    install_url: Optional[str] = strawberry.field(description="An https page where the app can be installed, if the organization set one.")
+    mobile: bool = strawberry.field(description="Whether the app also exists on phones and tablets.")
+
+
 @strawberry_django.type(models.Organization, filters=karakter_filters.OrganizationFilter, pagination=True, description="""An Organization is a group of users that can work together on a project.""", ordering=filters.ManagementOrganizationOrdering)
 class ManagementOrganization:
     id: strawberry.ID
@@ -588,6 +640,31 @@ class ManagementOrganization:
     @strawberry_django.field(description="The role sets (named bundles of roles) defined in the organization")
     def role_sets(self) -> List["ManagementRoleSet"]:
         return self.role_sets.all()
+
+    public_link_preview: bool = strawberry.field(description="Whether the organization opted in to showing its name, description and logo on link pages to visitors who are not members.")
+
+    @strawberry_django.field(description="The apps kontrol may forward this organization's deep links to. The first entry is the default (on a mobile device, the first with `mobile`); an empty list switches forwarding off.")
+    def deeplink_apps(self) -> List["ManagementDeeplinkApp"]:
+        return [
+            ManagementDeeplinkApp(
+                protocol=app["protocol"],
+                name=app.get("name") or app["protocol"].capitalize(),
+                install_url=app.get("install_url"),
+                mobile=bool(app.get("mobile")),
+            )
+            for app in self.deeplink_apps or []
+        ]
+
+    @strawberry_django.field(description="Pending requests of outsiders to join this organization, oldest first. Empty for anyone but its owner and admins.")
+    def membership_requests(self, info: Info) -> List["ManagementMembershipRequest"]:
+        user = info.context.request.user
+        if not user.is_authenticated or not is_owner_or_admin(user, self):
+            return []
+        return list(
+            models.MembershipRequest.objects.filter(
+                organization=self, status=models.MembershipRequest.Status.PENDING
+            ).order_by("created_at")
+        )
 
     @strawberry_django.field(description="Whether the currently authenticated user is the owner of this organization.")
     def am_i_owner(self, info: Info) -> bool:

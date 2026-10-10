@@ -10,6 +10,7 @@ import api.management.types as types
 import kante
 from karakter import models as karakter_models
 from karakter.hashers import hash_device_id
+from karakter import link_previews
 from fakts import models as fakts_models
 from .datalayer import DatalayerExtension
 from .extensions import RequireAuthenticationExtension
@@ -197,6 +198,14 @@ class Query:
         # The code itself is the capability (it is what the device displayed).
         return get_or_denied(fakts_models.DeviceCode.objects, code=device_code, kind="app")
 
+    @kante.django_field(
+        description="What a link page may show to anyone holding a link: the organization it leads into and who shared it. Public, and strictly opt-in: a part is null unless its subject chose to be shown."
+    )
+    def link_preview(
+        self, info: Info, organization: str, user: strawberry.ID | None = None
+    ) -> types.ManagementLinkPreview:
+        return link_previews.build_link_preview(organization, user)
+
     @kante.django_field()
     def invite_by_code(self, info: Info, invite_code: str) -> types.ManagementInvite:
         # `Invite.token` is a UUIDField: a non-UUID code used to raise a
@@ -354,6 +363,18 @@ class Mutation:
     )
     delete_organization = strawberry_django.mutation(
         resolver=mutations.delete_organization,
+    )
+    request_membership = strawberry_django.mutation(
+        resolver=mutations.request_membership,
+        description="Ask to become a member of an organization (named by its handle) that the caller is not in. Always answers true.",
+    )
+    approve_membership_request = strawberry_django.mutation(
+        resolver=mutations.approve_membership_request,
+        description="Approve a pending request to join an organization. Owner or admins only.",
+    )
+    decline_membership_request = strawberry_django.mutation(
+        resolver=mutations.decline_membership_request,
+        description="Decline a pending request to join an organization. Owner or admins only.",
     )
 
     create_invite = strawberry_django.mutation(

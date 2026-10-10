@@ -23,7 +23,9 @@ from strawberry.extensions import SchemaExtension
 # GraphQL field names (camelCase) that may be resolved without authentication.
 # `inviteByCode` powers the public invite-preview page (`/invite/:code`); the
 # resolver itself still hides private invites from anonymous visitors.
-PUBLIC_ROOT_FIELDS = frozenset({"inviteByCode"})
+# `linkPreview` powers the link pages (`/deeplink/...`, `/smartlink/...`); it only
+# ever returns what an organization and a user explicitly opted in to showing.
+PUBLIC_ROOT_FIELDS = frozenset({"inviteByCode", "linkPreview"})
 
 
 def _request_from_context(context: object):

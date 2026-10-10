@@ -6,7 +6,7 @@ from kante.types import Info
 
 from karakter import models
 from api.management import types
-from api.management.authz import get_or_denied, is_owner, is_owner_or_admin
+from api.management.authz import DENIED, get_or_denied, is_owner, is_owner_or_admin
 
 logger = logging.getLogger(__name__)
 
@@ -111,3 +111,95 @@ def set_membership_brand_hue(
     if updated:
         membership.save(update_fields=updated)
     return membership
+
+
+@strawberry.input
+class RequestMembershipInput:
+    """Input for asking to become a member of an organization, named by its handle"""
+
+    organization: str = strawberry.field(description="The organization's handle (slug).")
+    reason: str | None = None
+
+
+def request_membership(info: Info, input: RequestMembershipInput) -> bool:
+    """Ask to become a member of an organization the caller is not in.
+
+    The management-side door to the same request the main schema's
+    `requestMembership` stores (its owner and admins are notified, and approve or
+    decline it). It takes the handle rather than the id because that is what
+    someone holding a shared link has; an outsider cannot look the id up.
+
+    Always answers `true`, for the same reason as there: a foreign organization
+    must look exactly like a missing one, so the answer does not depend on
+    whether the handle exists, the caller already belongs, already asked, or was
+    recently declined.
+    """
+    # Imported here: karakter.graphql pulls in the main schema's types, which
+    # this module must not need at import time.
+    from karakter.graphql.mutations.membership_request import _store_request
+
+    try:
+        organization_id = (
+            models.Organization.objects.filter(slug=(input.organization or "").strip().lower())
+            .values_list("pk", flat=True)
+            .first()
+        )
+        if organization_id is not None:
+            _store_request(info.context.request.user, organization_id, input.reason)
+    except Exception:
+        logger.exception("Could not store a membership request")
+    return True
+
+
+@strawberry.input
+class ApproveMembershipRequestInput:
+    id: strawberry.ID
+    roles: list[str] | None = strawberry.field(
+        default=None,
+        description="Identifiers of the roles the new member gets. Defaults to `guest`.",
+    )
+
+
+@strawberry.input
+class DeclineMembershipRequestInput:
+    id: strawberry.ID
+
+
+def _pending_membership_request(info: Info, id) -> models.MembershipRequest:
+    """A pending request the caller may answer: they own or administer its
+    organization. Anyone else gets the same denial as a missing id."""
+    membership_request = get_or_denied(models.MembershipRequest.objects.select_related("organization"), pk=id)
+    if not is_owner_or_admin(info.context.request.user, membership_request.organization):
+        raise GraphQLError(DENIED)
+    if membership_request.status != models.MembershipRequest.Status.PENDING:
+        raise GraphQLError(f"This request has already been {membership_request.status}")
+    return membership_request
+
+
+def approve_membership_request(info: Info, input: ApproveMembershipRequestInput) -> types.ManagementMembership:
+    """Approve a pending request to join. Only the organization's owner or admins
+    may do this.
+
+    Creates the membership with the given roles, or `guest` when none are named,
+    and tells the requester.
+    """
+    from karakter.graphql.mutations.membership_request import _notify
+
+    membership_request = _pending_membership_request(info, input.id)
+    organization = membership_request.organization
+    roles = list(models.Role.objects.filter(identifier__in=input.roles or [], organization=organization))
+    membership = membership_request.approve(info.context.request.user, roles)
+
+    requester = models.User.objects.prefetch_related("com_channels").get(pk=membership_request.user_id)
+    _notify([requester], "You were added", f"You are now a member of {organization.name or organization.slug}.")
+    return membership
+
+
+def decline_membership_request(
+    info: Info, input: DeclineMembershipRequestInput
+) -> types.ManagementMembershipRequest:
+    """Decline a pending request to join. Only the organization's owner or admins
+    may do this."""
+    membership_request = _pending_membership_request(info, input.id)
+    membership_request.decline(info.context.request.user)
+    return membership_request

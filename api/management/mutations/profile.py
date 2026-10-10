@@ -39,6 +39,7 @@ class UpdateProfileInput:
     bio: str | None = None
     banner: strawberry.ID | None = None
     avatar: strawberry.ID | None = None
+    public_link_preview: bool | None = None
 
 
 def update_profile(info: Info, input: UpdateProfileInput) -> types.ManagementProfile:
@@ -56,6 +57,8 @@ def update_profile(info: Info, input: UpdateProfileInput) -> types.ManagementPro
         profile.avatar = resolve_own_media_store(info, input.avatar, models.MediaStore)
     if input.banner:
         profile.banner = resolve_own_media_store(info, input.banner, models.MediaStore)
+    if input.public_link_preview is not None:
+        profile.public_link_preview = input.public_link_preview
     profile.save()
     return profile
 

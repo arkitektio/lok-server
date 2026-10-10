@@ -9,6 +9,7 @@ from django.db import models
 from django.utils import timezone
 import uuid
 from karakter import fields, datalayer
+from karakter.deeplinks import default_deeplink_apps
 
 logger = logging.getLogger(__name__)
 
@@ -113,6 +114,20 @@ class Organization(models.Model):
         "clients. None means the server default (authapp.server.ACCESS_TOKEN_EXPIRES_IN, one "
         "hour). Clamped into [MIN_ACCESS_TOKEN_EXPIRES_IN, MAX_ACCESS_TOKEN_EXPIRES_IN] at "
         "token generation, so a stale or oversized value can never outlive the cap.",
+    )
+    deeplink_apps = models.JSONField(
+        default=default_deeplink_apps,
+        blank=True,
+        help_text="The apps kontrol may forward this organization's deep links to: a list of "
+        "{protocol, name, install_url, mobile}. The first entry is the default (on a mobile "
+        "device, the first with `mobile`). Empty switches forwarding off. See "
+        "karakter.deeplinks for the rules.",
+    )
+    public_link_preview = models.BooleanField(
+        default=False,
+        help_text="Opt-in: show this organization's name, description and logo on kontrol's "
+        "link pages to visitors who are not members (or not signed in). Off, a link reveals "
+        "nothing about the organization it belongs to.",
     )
     # Server-only secret. Combined with SECRET_KEY to hash device ids so the same
     # device hashes differently across organizations and is never stored in the clear.
@@ -406,6 +421,12 @@ class Profile(models.Model):
     user = models.OneToOneField(User, on_delete=models.CASCADE, related_name="profile")
     avatar = models.ForeignKey(MediaStore, on_delete=models.CASCADE, null=True)
     banner = models.ForeignKey(MediaStore, on_delete=models.CASCADE, null=True, related_name="profile_banners")
+    public_link_preview = models.BooleanField(
+        default=False,
+        help_text="Opt-in: show this user's name and picture on kontrol's link pages when a "
+        "link they shared names them (`?user_id=`), to visitors who may not be signed in. "
+        "Only ever shown together with an organization that opted in as well.",
+    )
 
 
 class OrganizationProfile(models.Model):

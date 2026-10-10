@@ -3,6 +3,7 @@ import strawberry
 from api.management import types
 from karakter import models, managers
 from karakter import slugs
+from karakter import deeplinks
 import logging
 from django.db import IntegrityError
 from fakts import models as fakts_models
@@ -12,6 +13,14 @@ from api.management.authz import HUB_ADMIN_REQUIRED, get_or_denied, is_owner, is
 from karakter.authz import resolve_own_media_store
 
 logger = logging.getLogger(__name__)
+
+
+@strawberry.input(description="An app this organization's deep links may open.")
+class DeeplinkAppInput:
+    protocol: str = strawberry.field(description="The app's URL scheme, e.g. 'orkestrator'.")
+    name: str | None = strawberry.field(default=None, description="Display name. Defaults to the capitalised protocol.")
+    install_url: str | None = strawberry.field(default=None, description="An https page where the app can be installed.")
+    mobile: bool = strawberry.field(default=False, description="Whether the app also exists on phones and tablets.")
 
 
 @strawberry.input
@@ -25,6 +34,8 @@ class UpdateOrganizationInput:
     brand_chroma: float | None = None
     require_device_auth: bool | None = None
     access_token_lifetime: int | None = None
+    deeplink_apps: list[DeeplinkAppInput] | None = None
+    public_link_preview: bool | None = None
     sync_mine: bool = False
 
 
@@ -85,6 +96,14 @@ def update_organization(info: Info, input: UpdateOrganizationInput) -> types.Man
                 f"{server.MAX_ACCESS_TOKEN_EXPIRES_IN} seconds."
             )
         organization.access_token_lifetime = input.access_token_lifetime
+
+    if input.public_link_preview is not None:
+        organization.public_link_preview = input.public_link_preview
+
+    if input.deeplink_apps is not None:
+        organization.deeplink_apps = deeplinks.normalize_deeplink_apps(
+            [strawberry.asdict(app) for app in input.deeplink_apps]
+        )
 
     try:
         organization.save()
