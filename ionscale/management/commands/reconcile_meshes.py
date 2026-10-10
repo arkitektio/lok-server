@@ -1,14 +1,17 @@
 from django.core.management.base import BaseCommand, CommandError
 
 from fakts.models import IonscaleLayer
-from ionscale.manager import ionscale_configured
+from django.conf import settings
+
+from ionscale.manager import ensure_org_mesh, ionscale_configured
 from ionscale.reconcile import orphaned_tailnets, reconcile_layer, reconcile_sidecars
 from karakter.models import Organization
 
 
 class Command(BaseCommand):
     help = (
-        "Repair drift between lok's meshes and ionscale: create missing tailnets, "
+        "Repair drift between lok's meshes and ionscale: give organizations without a "
+        "mesh one (unless ionscale.auto_create_mesh is off), create missing tailnets, "
         "follow organization renames, re-push members and DNS, and optionally revoke "
         "ionscale users that are no longer members."
     )
@@ -42,6 +45,7 @@ class Command(BaseCommand):
             raise CommandError("ionscale is not configured on this deployment")
 
         layers = IonscaleLayer.objects.select_related("organization").order_by("organization_id")
+        organizations = Organization.objects.order_by("pk")
         if options["organization"]:
             selector = options["organization"]
             org = Organization.objects.filter(slug=selector).first()
@@ -50,9 +54,26 @@ class Command(BaseCommand):
             if org is None:
                 raise CommandError(f"organization {selector!r} not found")
             layers = layers.filter(organization=org)
+            organizations = organizations.filter(pk=org.pk)
 
         failed = 0
         changed = 0
+
+        # Every organization has a mesh by default; one created while ionscale was
+        # down, or before that was the rule, gets it here.
+        if not options["sidecars_only"] and getattr(settings, "IONSCALE_AUTO_CREATE_MESH", False):
+            for org in organizations.exclude(pk__in=IonscaleLayer.objects.values("organization_id")):
+                if options["dry_run"]:
+                    self.stdout.write(self.style.WARNING(f"[{org.slug}] has no mesh; would provision one"))
+                    changed += 1
+                elif ensure_org_mesh(org) is not None:
+                    self.stdout.write(self.style.SUCCESS(f"[{org.slug}] mesh provisioned"))
+                    changed += 1
+                else:
+                    failed += 1
+                    self.stderr.write(self.style.ERROR(f"[{org.slug}] could not provision a mesh (see the log)"))
+            # The loop below works on the meshes that exist now.
+            layers = layers.all()
         sidecars = options["sidecars"] or options["sidecars_only"]
         for layer in layers:
             try:

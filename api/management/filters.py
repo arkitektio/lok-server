@@ -1,6 +1,6 @@
 import strawberry
 import strawberry_django
-from django.db.models import Q
+from django.db.models import Exists, F, OuterRef, Q
 from kante.types import Info
 from fakts import models as fakts_models
 from fakts import enums as fakts_enums
@@ -215,6 +215,29 @@ class ManagementClientFilter:
         not yet triaged — the dashboard's action list.
         """
         return Q(**{f"{prefix}latest_report_resolved": value})
+
+    @strawberry_django.filter_field
+    def needs_attention(self, value: bool, prefix: str) -> Q:
+        """Whether a service the client was granted is unreachable for it.
+
+        Stricter than `functional: false`, which is the client's own verdict and
+        is also false for a client that merely asks for a service nobody deployed
+        or mapped — that is an ordinary state, not a fault. Here a client only
+        counts when it reported a requirement as not reachable (`UsedAlias.valid`
+        false) *and* that requirement is mapped to a service instance of the
+        platform (`ServiceInstanceMapping`): the service exists, the client is
+        entitled to it, and still cannot get there.
+
+        Combine with `latestReportResolved: false` for the dashboard's action list.
+        """
+        unreachable_granted = Exists(
+            fakts_models.UsedAlias.objects.filter(
+                client=OuterRef(f"{prefix}pk"),
+                valid=False,
+                client__mappings__key=F("key"),
+            )
+        )
+        return Q(unreachable_granted) if value else ~Q(unreachable_granted)
 
     @strawberry_django.filter_field
     def role(self, value: fakts_enums.ClientRole, prefix: str) -> Q:

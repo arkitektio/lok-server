@@ -141,6 +141,39 @@ def teardown_tailnet(tailnet_name: str) -> None:
         logger.exception("Could not delete tailnet %s; delete it manually", tailnet_name)
 
 
+def provision_organization_mesh(organization_pk) -> None:
+    """Give an organization its mesh if it has none yet. Never raises.
+
+    Every organization gets a mesh by default, however it came to be (signup,
+    kontrol, the API, the setup commands); clients still opt in to *join* it.
+    `ionscale.auto_create_mesh: false` turns this off for a deployment, leaving
+    only the explicit opt-in (`createIonscaleLayer`). `ensure_org_mesh` is an
+    idempotent singleton and logs its own failures; `reconcile_meshes` provisions
+    whatever was missed.
+    """
+    from django.conf import settings
+
+    if not _configured() or not getattr(settings, "IONSCALE_AUTO_CREATE_MESH", False):
+        return
+    from karakter.models import Organization
+
+    from .manager import ensure_org_mesh
+
+    try:
+        organization = Organization.objects.filter(pk=organization_pk).first()
+        if organization is not None:
+            ensure_org_mesh(organization)
+    except Exception:
+        logger.exception("Could not provision the mesh of organization %s", organization_pk)
+
+
+def schedule_mesh_provisioning(organization_pk) -> None:
+    """After commit, so ionscale only ever learns about an organization that exists."""
+    if not _configured():
+        return
+    transaction.on_commit(lambda: provision_organization_mesh(organization_pk))
+
+
 def schedule_resync(organization_pk) -> None:
     if not _configured():
         return

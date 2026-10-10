@@ -20,6 +20,12 @@ def ensure_default_roles_for_org(sender, instance, created, **kwargs):
     managers.create_default_scopes_for_org(instance)
     if created:
         OrganizationProfile.objects.create(organization=instance)
+        # Every organization has a mesh by default — including the personal one a
+        # signup creates, which no mutation ever touches. On commit and never
+        # raising, like the other mesh side effects below.
+        from ionscale.sync import schedule_mesh_provisioning
+
+        schedule_mesh_provisioning(instance.pk)
 
 
 @receiver(post_save, sender=User)

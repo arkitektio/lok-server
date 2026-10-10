@@ -15,7 +15,10 @@ from fakts import models as fakts_models
 from fakts import enums as fakts_enums
 from fakts.services.hubs import enroll_hub_on_mesh
 from ionscale.manager import ensure_org_mesh, get_org_mesh
+from django.contrib.auth import get_user_model
 from tests import factories
+
+User = get_user_model()
 
 
 def _linking(host="go.example", port=443, is_secure=True):
@@ -833,3 +836,58 @@ def test_parse_machine_list_maps_columns_by_header():
     assert pixel.ipv4 == "100.76.19.36"
     assert pixel.tags == []                          # empty TAGS column
     assert pixel.connected is False                 # "4 days ago" -> not live
+
+
+# --------------------------------------------------------------------------- #
+# every organization has a mesh by default
+# --------------------------------------------------------------------------- #
+
+
+@pytest.mark.django_db(transaction=True)
+def test_signup_gives_the_personal_organization_a_mesh(ionscale_repo, settings):
+    """The personal organization is created by a signal, not a mutation, so it
+    used to be the one kind of organization that never got a mesh."""
+    from karakter.models import Organization
+
+    # What a deployment with ionscale configured runs with (the test settings
+    # have no ionscale section, which leaves it off).
+    settings.IONSCALE_AUTO_CREATE_MESH = True
+    user = User.objects.create(username="meshy-newcomer", email="meshy@example.com")
+
+    organization = Organization.objects.get(owner=user)
+    mesh = get_org_mesh(organization)
+    assert mesh is not None
+    assert mesh.tailnet_name == organization.slug
+
+
+@pytest.mark.django_db(transaction=True)
+def test_no_mesh_is_provisioned_when_auto_create_is_off(ionscale_repo, settings):
+    from karakter.models import Organization
+
+    settings.IONSCALE_AUTO_CREATE_MESH = False
+    user = User.objects.create(username="meshless-newcomer", email="meshless@example.com")
+
+    assert get_org_mesh(Organization.objects.get(owner=user)) is None
+
+
+@pytest.mark.django_db(transaction=True)
+def test_reconcile_meshes_provisions_organizations_without_a_mesh(ionscale_repo, settings):
+    from io import StringIO
+
+    from django.core.management import call_command
+    from karakter.models import Organization
+
+    # Created while auto-provisioning was off: no mesh.
+    settings.IONSCALE_AUTO_CREATE_MESH = False
+    user = User.objects.create(username="late-mesh", email="late@example.com")
+    organization = Organization.objects.get(owner=user)
+    assert get_org_mesh(organization) is None
+
+    settings.IONSCALE_AUTO_CREATE_MESH = True
+    out = StringIO()
+    call_command("reconcile_meshes", "--dry-run", stdout=out)
+    assert "would provision" in out.getvalue()
+    assert get_org_mesh(organization) is None
+
+    call_command("reconcile_meshes", stdout=StringIO())
+    assert get_org_mesh(organization) is not None
