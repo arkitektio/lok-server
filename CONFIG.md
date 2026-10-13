@@ -408,6 +408,13 @@ the tailnet down. Whatever a control-plane outage made lok miss is repaired by
 `manage.py reconcile_meshes` (`--dry-run`, `--organization <slug|pk>`,
 `--revoke-orphans`).
 
+App and hub mesh sidecars live only while a client session backs them. A
+revocation removes the node at once, but an *expired* session raises no event:
+`manage.py reconcile_meshes --sidecars-only` has to run periodically (every 15
+minutes is a good interval; lok has no scheduler of its own). It cuts expired
+apps off the hub, deletes sidecars whose session expired more than 14 days ago
+and removes orphaned sidecar nodes.
+
 | Key | Env var | Type | Default | Description |
 |---|---|---|---|---|
 | `server_url` | `IONSCALE__SERVER_URL` | str | **required** | ionskale server URL (the HTTP API; usually the same as `coord_url`). |

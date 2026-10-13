@@ -1558,6 +1558,15 @@ class ManagementClient:
     def please_report(self, info: Info) -> bool:
         return self.report_requested_at is not None
 
+    @strawberry_django.field(
+        description="Whether this client can still refresh its tokens. ACTIVE: it has a live session. EXPIRED: its refresh chain ran out, or it never collected a token. REVOKED: it was rejected (by its approver or an admin) or revoked by reuse detection; it has to be approved again.",
+        only=["client_id"],
+    )
+    def access_state(self, info: Info) -> "PriorAccessState":
+        from fakts.services import clients as client_services
+
+        return PriorAccessState(client_services.client_access_state(self))
+
     @strawberry_django.field(description="The app manifest this client was registered with, if it parses.")
     def manifest(self, info: Info) -> Optional[ManagementStagingManifest]:
         if not self.manifest:
@@ -1608,7 +1617,7 @@ class ManagementOAuth2Client:
     kind: str
 
 
-@strawberry.enum(description="Whether a previously approved client can still refresh its tokens.")
+@strawberry.enum(description="Whether an approved client can still refresh its tokens.")
 class PriorAccessState(str, Enum):
     ACTIVE = "active"
     EXPIRED = "expired"

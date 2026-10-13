@@ -157,6 +157,70 @@ def create_ionscale_auth_key(info: Info, input: CreateIonscaleAuthKeyInput) -> t
 
 
 @kante.input
+class DeleteIonscaleAuthKeyInput:
+    """Input for revoking a mesh auth key."""
+
+    id: strawberry.ID = strawberry.field(description="The auth key to revoke.")
+
+
+def delete_ionscale_auth_key(info: Info, input: DeleteIonscaleAuthKeyInput) -> strawberry.ID:
+    """Revoke a mesh auth key: no further machine can join with it. Machines that
+    already joined stay (ionscale does not tie a machine to its key); remove them
+    with `deleteMachine`. Owner/admin only.
+
+    The key of an app or hub sidecar is not revoked here: rejecting the client
+    (`revokeClientSessions`) or deleting the hub removes it together with its node."""
+    key = get_or_denied(fakts_models.IonscaleAuthKey.objects.select_related("layer__organization"), id=input.id)
+
+    assert_owner_or_admin(info, key.layer.organization)
+    if reserved_tags(key.tags):
+        raise GraphQLError("This key belongs to an app or hub. Reject the client, or delete the hub, to revoke it.")
+
+    try:
+        get_ionscale_repo().delete_auth_key(key.layer.tailnet_name, key.key)
+    except Exception as exc:
+        raise GraphQLError(f"Could not revoke the auth key: {exc}")
+    key.delete()
+    return input.id
+
+
+@kante.input
+class DeleteMachineInput:
+    """Input for removing a machine from a mesh."""
+
+    layer_id: strawberry.ID = strawberry.field(description="The mesh the machine is on.")
+    machine_id: strawberry.ID = strawberry.field(description="The machine to remove.")
+
+
+def delete_machine(info: Info, input: DeleteMachineInput) -> strawberry.ID:
+    """Remove a machine from an organization's mesh. It is disconnected within
+    seconds and has to join again with a new key. Owner/admin only.
+
+    An app or hub sidecar is not removed here: rejecting the client
+    (`revokeClientSessions`) or deleting the hub removes its node."""
+    layer = get_or_denied(fakts_models.IonscaleLayer.objects, id=input.layer_id)
+
+    assert_owner_or_admin(info, layer.organization)
+
+    repo = get_ionscale_repo()
+    try:
+        # Looked up in this mesh, so an id from another organization is never deleted.
+        machine = next((m for m in repo.list_machines(layer.tailnet_name) if str(m.id) == str(input.machine_id)), None)
+    except Exception as exc:
+        raise GraphQLError(f"Could not reach the mesh: {exc}")
+    if machine is None:
+        raise GraphQLError(DENIED)
+    if reserved_tags(machine.tags):
+        raise GraphQLError("This machine is the node of an app or hub. Reject the client, or delete the hub, to remove it.")
+
+    try:
+        repo.delete_machine(machine.id)
+    except Exception as exc:
+        raise GraphQLError(f"Could not remove the machine: {exc}")
+    return input.machine_id
+
+
+@kante.input
 class TailnetLockInput:
     """Input for changing a mesh's tailnet-lock capability."""
 

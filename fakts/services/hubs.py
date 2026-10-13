@@ -426,6 +426,69 @@ def _prune_stale_machines(repo, tailnet: str, tag: str) -> None:
         repo.delete_machine(machine.id)
 
 
+MESH_KEY_RENEWAL_INTERVAL_SECONDS = 60
+"""A sidecar may fetch a new key this often (each one rotates the previous)."""
+
+
+class MeshKeyRefused(Exception):
+    """A client may not renew its mesh key; ``reason`` says why."""
+
+    def __init__(self, reason: str, message: str) -> None:
+        super().__init__(message)
+        self.reason = reason
+
+
+def renew_mesh_key(client: models.Client) -> models.IonscaleAuthKey:
+    """Mint a fresh mesh key for the sidecar ``client`` already has.
+
+    For an app or hub that lost its mesh state (a recreated container, a wiped
+    volume) and would otherwise need a human to approve it again. It never
+    grants mesh access that was not granted at an approval:
+
+    - ``not_live``: the client's session is revoked or expired;
+    - ``not_enrolled``: no sidecar was granted to it (or it was reaped), or it
+      is an app without a device, whose nodes cannot be pruned;
+    - ``throttled``: its current key is younger than the renewal interval;
+    - ``connected``: a node of the sidecar is online. Whoever asks is by
+      definition off the mesh, so this is a second party holding the token.
+    """
+    from fakts.services.mesh import live_clients
+
+    if client.membership_id is None or not live_clients(models.Client.objects.filter(pk=client.pk)).exists():
+        raise MeshKeyRefused("not_live", "The client has no live session")
+
+    hub = models.Hub.objects.filter(client=client).first()
+    if hub is not None:
+        enrollment = hub if hub.auth_key_id else None
+    elif client.release_id is not None and client.node_id is not None:
+        enrollment = models.AppMeshEnrollment.objects.filter(
+            membership_id=client.membership_id, app_id=client.release.app_id, device_id=client.node_id
+        ).first()
+    else:
+        enrollment = None
+    organization = client.organization
+    layer = get_org_mesh(organization) if enrollment is not None and organization is not None else None
+    if layer is None:
+        raise MeshKeyRefused("not_enrolled", "No mesh access was granted to this client")
+
+    current = enrollment.auth_key
+    if current is not None and (timezone.now() - current.created_at).total_seconds() < MESH_KEY_RENEWAL_INTERVAL_SECONDS:
+        raise MeshKeyRefused("throttled", "A mesh key was issued to this client a moment ago")
+
+    tag = hub.mesh_tag if hub is not None else enrollment.tag
+    if any(tag in m.tags and m.connected for m in get_ionscale_repo().list_machines(layer.tailnet_name)):
+        raise MeshKeyRefused("connected", "This client's mesh node is online")
+
+    user = client.membership.user
+    if hub is not None:
+        key = enroll_hub_on_mesh(user, hub)
+    else:
+        key = enroll_app_on_mesh(user, organization, client.membership, client.release.app, client.node)
+    if key is None:
+        raise MeshKeyRefused("not_enrolled", "No mesh access was granted to this client")
+    return key
+
+
 def report_hub_health(hub: models.Hub, report: base_models.HubHealthReport) -> models.Hub:
     """Record a hub's health callback: liveness, version and mesh state on the hub,
     plus a snapshot (only the latest ``settings.HUB_HEALTH_RETENTION`` are kept).

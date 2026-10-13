@@ -178,18 +178,19 @@ def reconcile_sidecars(
 ) -> SidecarReport:
     """Bring an organization's app and hub sidecars in line with their clients.
 
-    - reaps enrollments no live client backs any more, and the mesh keys of hubs
-      whose identity has no live session (catches refresh chains that simply
-      expired, and anything a signal missed);
+    - reaps enrollments no client backs any more, and the mesh keys of hubs
+      whose identity has no session (catches refresh chains that expired longer
+      ago than ``MESH_SIDECAR_GRACE_SECONDS``, and anything a signal missed);
     - deletes nodes tagged ``tag:app-<n>`` / ``tag:hub-<m>`` with no enrollment,
-      or no hub with a live identity, behind them;
+      or no hub with such an identity, behind them;
     - with ``migrate_tags``, deletes sidecar nodes that still carry
       ``tag:mesh-<org>`` from before sidecars were isolated (ionscale cannot
       re-tag a node; they re-enroll on their next grant);
-    - re-applies the ACL policy.
+    - re-applies the ACL policy, which is what cuts an expired app off: inside
+      the grace its sidecar is kept, but only live clients get a rule.
     """
     from fakts.models import AppMeshEnrollment, Hub
-    from fakts.services.mesh import enrollment_is_live, hub_identity_is_live, reap_enrollment, reap_hub_sidecar
+    from fakts.services.mesh import enrollment_is_retained, hub_identity_is_retained, reap_enrollment, reap_hub_sidecar
 
     from .acl import APP_TAG_PREFIX, HUB_TAG_PREFIX, apply_acl_policy, mesh_tag
 
@@ -202,19 +203,19 @@ def reconcile_sidecars(
             out.write(message + "\n")
 
     for enrollment in AppMeshEnrollment.objects.filter(organization=org):
-        if enrollment_is_live(enrollment.membership_id, enrollment.app_id, enrollment.device_id):
+        if enrollment_is_retained(enrollment.membership_id, enrollment.app_id, enrollment.device_id):
             continue
-        say(f"[{org.slug}] reaping {enrollment.tag}: no live client")
+        say(f"[{org.slug}] reaping {enrollment.tag}: no client with a session")
         report.reaped_enrollments.append(enrollment.tag)
         if not dry_run:
             reap_enrollment(enrollment.membership_id, enrollment.app_id, enrollment.device_id)
 
     live_hubs = set()
     for hub in Hub.objects.filter(organization=org):
-        if hub_identity_is_live(hub):
+        if hub_identity_is_retained(hub):
             live_hubs.add(hub.mesh_tag)
         elif hub.auth_key_id:
-            say(f"[{org.slug}] reaping {hub.mesh_tag}: the hub identity has no live session")
+            say(f"[{org.slug}] reaping {hub.mesh_tag}: the hub identity has no session")
             report.reaped_hubs.append(hub.mesh_tag)
             if not dry_run:
                 reap_hub_sidecar(hub)

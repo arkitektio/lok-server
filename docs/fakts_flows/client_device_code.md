@@ -130,3 +130,42 @@ The Bearer JWT is the client's universal credential: services verify it via
 JWKS, and lok's own [`/f/report/`](./report.md) telemetry endpoint
 authenticates the reporting client from the JWT's `client_id` claim. There is
 no other client credential — no client secret, no opaque client token.
+
+## 6. Mesh access (optional)
+
+An app that wants a node on the organization's mesh sends top-level
+`"request_auth_key": true` in step 1. If the approver allows it, the step 3
+response carries, **once**:
+
+```json
+"mesh": {"ionscale_auth_key": "…", "ionscale_coord_url": "https://…"}
+```
+
+The key is valid for 15 minutes and registers the app's node (a *sidecar*,
+which can reach only the hub the client is bound to). The node itself does not
+expire: persist the tailscale state, keyed by `self.sub`, `self.organization`
+and `self.hub`, and only ask for a key when not logged in. A refresh response
+never carries `mesh`.
+
+**Lost the mesh state** (recreated container, wiped volume)? `POST` to the
+discovery document's `mesh_key_endpoint` with `Authorization: Bearer <access
+token>` and no body:
+
+```json
+{"status": "granted", "mesh": {"ionscale_auth_key": "…", "ionscale_coord_url": "https://…"}}
+```
+
+| Status | `reason` | Meaning |
+|---|---|---|
+| 401 | `not_live` | The session is revoked or expired: re-authorize (step 1). |
+| 403 | `not_enrolled` | No mesh access was granted at approval, or the app sent no `device_id`: re-authorize with `request_auth_key`. |
+| 409 | `connected` | The sidecar's node counts as online; a key is only for a node that is not. Retry with backoff: a node that went away uncleanly (crash, reboot) can still count as online for a few minutes. |
+| 429 | `throttled` | A key was issued less than a minute ago. |
+
+**How long the node lives.** As long as a session of the installation (the same
+app, member and device) does. When the session expires (the 30-day / 180-day
+limits above) the node loses its access to the hub but is kept for 14 days, so
+re-approving the app resumes the same node. When the app is rejected (by the
+member who approved it or an organization admin, or by the app itself through
+`/o/revoke/` if it is the installation's last session) the node and its key are
+deleted at once.

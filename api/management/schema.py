@@ -555,6 +555,12 @@ class Mutation:
     create_ionscale_auth_key = strawberry_django.mutation(
         resolver=mutations.create_ionscale_auth_key,
     )
+    delete_ionscale_auth_key = strawberry_django.mutation(
+        resolver=mutations.delete_ionscale_auth_key,
+    )
+    delete_machine = strawberry_django.mutation(
+        resolver=mutations.delete_machine,
+    )
 
     enable_tailnet_lock = strawberry_django.mutation(
         resolver=mutations.enable_tailnet_lock,

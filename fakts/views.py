@@ -162,6 +162,7 @@ class WellKnownFakts(View):
                 mesh_coord_url=settings.IONSCALE_COORD_URL,
                 mesh_device_code_start=issuer_absolute_uri(request, "fakts:meshstart"),
                 mesh_challenge_url=issuer_absolute_uri(request, "fakts:meshchallenge"),
+                mesh_key_endpoint=issuer_absolute_uri(request, "fakts:meshkey"),
                 mesh_configure=_absolute_configure_url(settings.DEPLOYMENT_MESH_CONFIGURE_URL, base_domain),
                 hub_authorization_endpoint=issuer_absolute_uri(request, "hub_authorization"),
                 hub_deletion_endpoint=issuer_absolute_uri(request, "fakts:hubdelete"),
@@ -476,6 +477,66 @@ class HubHealthView(View):
                 "status": "reported",
                 "message": "Health report processed successfully",
                 "next_report_in": getattr(settings, "HUB_HEALTH_INTERVAL", 60),
+            }
+        )
+
+
+@method_decorator(csrf_exempt, name="dispatch")
+class MeshKeyView(View):
+    """A client asking for a fresh key to the mesh sidecar it was already granted.
+
+    For an app or hub that lost its mesh state and must register its node again:
+    it authenticates with its own Bearer access token and gets the ``mesh``
+    member the initial device-code response carried. Nothing is granted here
+    that an approval did not grant before (see ``hubs.renew_mesh_key``)."""
+
+    # reason -> (http status, error code)
+    REFUSALS = {
+        "not_live": (401, ERROR_INVALID_GRANT),
+        "not_enrolled": (403, ERROR_ACCESS_DENIED),
+        "throttled": (429, ERROR_SLOW_DOWN),
+        "connected": (409, ERROR_ACCESS_DENIED),
+    }
+
+    def post(self, request, *args, **kwargs):
+        try:
+            claims = decode_bearer_token(request)
+        except InvalidBearerToken as e:
+            return _error(ERROR_INVALID_GRANT, str(e), http_status=401, message=str(e))
+
+        client = (
+            models.Client.objects.select_related("organization", "membership__user", "release__app", "node")
+            .filter(client_id=claims.get("client_id"))
+            .first()
+        )
+        if client is None:
+            return _error(
+                ERROR_INVALID_GRANT,
+                "No client found for this token",
+                http_status=401,
+                message="No client found for this token",
+            )
+
+        try:
+            key = hubs.renew_mesh_key(client)
+        except hubs.MeshKeyRefused as e:
+            http_status, code = self.REFUSALS[e.reason]
+            return _error(code, str(e), http_status=http_status, message=str(e), reason=e.reason)
+        except Exception:
+            logger.exception("Renewing the mesh key of client %s failed", client.client_id)
+            return _error(
+                ERROR_SERVER_ERROR,
+                "Error issuing a mesh key",
+                http_status=500,
+                message="Error issuing a mesh key",
+            )
+        return JsonResponse(
+            {
+                "status": "granted",
+                "mesh": base_models.MeshClaim(
+                    ionscale_auth_key=key.key,
+                    ionscale_coord_url=settings.IONSCALE_COORD_URL,
+                ).model_dump(),
             }
         )
 

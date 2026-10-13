@@ -67,6 +67,8 @@ from .ionscale import (
     delete_ionscale_layer,
     update_ionscale_layer,
     create_ionscale_auth_key,
+    delete_ionscale_auth_key,
+    delete_machine,
     enable_tailnet_lock,
     disable_tailnet_lock,
 )

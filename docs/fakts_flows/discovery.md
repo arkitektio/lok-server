@@ -53,6 +53,7 @@ image works across dev/staging/prod without reconfiguration.
 | `mesh_coord_url` | str? | Public ionscale [mesh](./mesh_device_code.md) coordination URL, or `null` when no mesh is configured. |
 | `mesh_device_code_start` | str? | Absolute URL of the [mesh start](./mesh_device_code.md) endpoint. |
 | `mesh_challenge_url` | str? | Absolute URL of the [mesh challenge](./mesh_device_code.md) endpoint. |
+| `mesh_key_endpoint` | str? | Absolute URL where an app or hub fetches a fresh key for the mesh sidecar it was granted (see [client flow, §6](./client_device_code.md)). |
 | `mesh_configure` | str? | Absolute [mesh-configure](./mesh_device_code.md) page template; `{code}` is substituted by the machine. |
 | `hub_authorization_endpoint` | str? | Absolute URL of the [hub authorization](./hub_device_code.md) endpoint (`/o/hub-authorization/`). |
 | `hub_claim` | str? | *Deprecated.* Absolute URL of the hub claim endpoint (`/f/claimhub/`) — only the partner-webhook path still uses it. |

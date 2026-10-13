@@ -43,6 +43,10 @@ CLIENT_REPORT_RETENTION = 5
 HUB_HEALTH_INTERVAL = 60
 # How many of a hub's most recent health reports to retain.
 HUB_HEALTH_RETENTION = 20
+# How long an app or hub mesh sidecar is kept after its client's session
+# *expired* (a revoked one goes at once). An expired app loses its ACL rule
+# on the next sweep; re-approving it within the grace resumes the same node.
+MESH_SIDECAR_GRACE_SECONDS = 14 * 24 * 60 * 60
 DEPLOYMENT_NAME = conf.deployment.name
 DEPLOYMENT_DESCRIPTION = conf.deployment.description
 # URL template advertised as the fakts well-known `configure` endpoint (see the

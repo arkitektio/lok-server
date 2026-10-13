@@ -1,8 +1,8 @@
 """Session revocation mutations.
 
 Complement the RFC 7009 ``/o/revoke/`` endpoint (which a client uses on its own
-tokens) with the operator side: revoke everything issued to one client, or to
-every client and hub of an organization. Revoking sets ``OAuth2Token.revoked``,
+tokens) with the human side: reject one app installation, or revoke every
+client and hub of an organization. Revoking sets ``OAuth2Token.revoked``,
 which kills the refresh chains immediately (the refresh grant is DB-backed);
 outstanding JWT access tokens age out within an hour.
 """
@@ -12,10 +12,12 @@ from kante import Info
 
 import kante
 from api.management import types
-from api.management.authz import assert_owner_or_admin, get_or_denied
+from graphql import GraphQLError
+
+from api.management.authz import DENIED, assert_owner_or_admin, get_or_denied, get_user, is_owner_or_admin
 from authapp.models import OAuth2Token
 from fakts import models as fakts_models
-from fakts.services.mesh import schedule_reap_for_clients
+from fakts.services.mesh import reject_app_installation, schedule_reap_for_clients
 from karakter import models
 
 
@@ -27,15 +29,18 @@ class RevokeClientSessionsInput:
 
 
 def revoke_client_sessions(info: Info, input: RevokeClientSessionsInput) -> types.ManagementClient:
-    """Revoke all tokens issued to a client. The client re-authorizes through a
-    fresh device-code approval (its refresh chain is dead). Owner/admin only."""
-    client = get_or_denied(fakts_models.Client.objects.select_related("organization"), id=input.client)
+    """Reject a client: revoke all tokens of its installation (the same app of the
+    same member on the same device) and remove its mesh sidecar. The app
+    re-authorizes through a fresh device-code approval. Allowed to the member
+    who approved the client, and to the organization's owner/admins."""
+    client = get_or_denied(fakts_models.Client.objects.select_related("organization", "membership", "release"), id=input.client)
 
-    assert_owner_or_admin(info, client.organization)
+    user = get_user(info)
+    granted_it = client.membership_id is not None and client.membership.user_id == user.id
+    if not granted_it and not is_owner_or_admin(user, client.organization):
+        raise GraphQLError(DENIED)
 
-    OAuth2Token.objects.filter(client_id=client.client_id).update(revoked=True)
-    # A revoked client's mesh sidecar goes with its sessions.
-    schedule_reap_for_clients(fakts_models.Client.objects.filter(pk=client.pk))
+    reject_app_installation(client)
 
     return client
 

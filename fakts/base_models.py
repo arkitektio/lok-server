@@ -67,6 +67,12 @@ class WellKnownFakts(BaseModel):
     mesh_challenge_url: str | None = None
     """Absolute URL of the *mesh* device-code challenge endpoint — the machine polls it
     with its `challenge` code to receive the minted mesh pre-auth key once granted."""
+    mesh_key_endpoint: str | None = None
+    """Absolute URL an app or hub POSTs to, with its Bearer access token, for a fresh
+    key to the mesh sidecar it was granted at approval (`{"mesh": {...}}`, the member
+    the initial token response carried). For a client that lost its mesh state; it
+    answers 403 when no sidecar was granted and 409 while the sidecar's node counts as
+    online (retry with backoff: an uncleanly stopped node stays "online" for minutes)."""
     mesh_configure: str | None = None
     """Absolute URL template for the mesh configure page. The literal `{code}`
     placeholder is substituted by the machine with the mesh device code."""
@@ -208,8 +214,9 @@ class DeviceCodeStartRequest(BaseModel):
     supported_layers: List[str] = Field(default_factory=lambda: ["web"])
     request_auth_key: bool = False
     """Ask for a pre-authorized key to the organization's mesh. If the approver allows
-    it, the device-code token response carries it once, as ``auth.ionscale_auth_key``
-    (+ ``auth.ionscale_coord_url``). Lives on the request, not the manifest: it is a
+    it, the device-code token response carries it once, as ``mesh.ionscale_auth_key``
+    (+ ``mesh.ionscale_coord_url``); a client that later loses its mesh state asks
+    the well-known ``mesh_key_endpoint`` for a new one. Lives on the request, not the manifest: it is a
     property of this grant, and the manifest is hashed for redeem-change detection."""
 
 
@@ -423,8 +430,9 @@ class SelfClaim(BaseModel):
 
 class MeshClaim(BaseModel):
     """Mesh access, identical for apps and hubs: the ``mesh`` member of the
-    *initial* device-code token response when a key was requested and granted.
-    Never part of a (refresh-rendered) envelope; the identity it belongs to is
+    *initial* device-code token response when a key was requested and granted,
+    and of the ``mesh_key_endpoint`` answer. Never part of a (refresh-rendered)
+    envelope; the identity it belongs to is
     in ``self``."""
 
     ionscale_auth_key: str
