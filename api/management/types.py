@@ -1127,20 +1127,102 @@ class ManagementApp:
         return _membership_scoped(queryset, info, "organization")
 
 
+@strawberry.enum(description="What a machine on a mesh is.")
+class MachineKind(str, Enum):
+    DEVICE = "device"
+    APP = "app"
+    HUB = "hub"
+
+
+def mesh_sidecar_owners(layer) -> dict:
+    """Sidecar tag -> what owns it, for every app enrollment and hub of the
+    layer's organization: `tag:app-<n>` -> AppMeshEnrollment, `tag:hub-<m>` -> Hub.
+    Two queries for a whole machine list."""
+    owners: dict = {}
+    enrollments = fakts_models.AppMeshEnrollment.objects.filter(organization_id=layer.organization_id).select_related(
+        "app", "device", "membership__user"
+    )
+    for enrollment in enrollments:
+        owners[enrollment.tag] = enrollment
+    for hub in fakts_models.Hub.objects.filter(organization_id=layer.organization_id):
+        owners[hub.mesh_tag] = hub
+    return owners
+
+
+_UNRESOLVED = object()
+
+
 @strawberry.type
 class ManagementMachine:
     instance: strawberry.Private[Machine]
     tailnet: strawberry.Private[str]
     layer_id: strawberry.Private[strawberry.ID]
     magic_dns_enabled: strawberry.Private[bool]
+    sidecar_owners: strawberry.Private[object]
 
-    def __init__(self, instance: Machine, tailnet: str, layer_id: strawberry.ID, magic_dns_enabled: bool = False):
+    def __init__(self, instance: Machine, tailnet: str, layer_id: strawberry.ID, magic_dns_enabled: bool = False, sidecar_owners=None):
          self.instance = instance
          self.tailnet = tailnet
          self.layer_id = layer_id
          # Whether the owning layer has MagicDNS on. Threaded in at construction so the
          # `magic_dns_name` field doesn't hit the DB per machine (avoids N+1 on the list page).
          self.magic_dns_enabled = magic_dns_enabled
+         # `mesh_sidecar_owners(layer)`, loaded once by whoever builds the machine:
+         # the fields below are plain resolvers and must not touch the database.
+         self.sidecar_owners = sidecar_owners or {}
+         self._owner = _UNRESOLVED
+
+    def _sidecar_owner(self):
+        """The AppMeshEnrollment or Hub whose sidecar this machine is, or None for
+        a machine that joined on its own (an auth key or a login)."""
+        if self._owner is _UNRESOLVED:
+            owners = self.sidecar_owners
+            self._owner = next((owners[t] for t in self.instance.tags or [] if t in owners), None)
+        return self._owner
+
+    @strawberry.field(description="DEVICE: a machine that joined on its own (an auth key or a login). APP: the node an app runs as (its sidecar). HUB: the node of a hub server.")
+    def kind(self) -> MachineKind:
+        owner = self._sidecar_owner()
+        if isinstance(owner, fakts_models.Hub):
+            return MachineKind.HUB
+        if owner is not None:
+            return MachineKind.APP
+        # A sidecar whose owner is gone (about to be swept) is still not a device.
+        for tag in self.instance.tags or []:
+            if tag.startswith("tag:app-"):
+                return MachineKind.APP
+            if tag.startswith("tag:hub-"):
+                return MachineKind.HUB
+        return MachineKind.DEVICE
+
+    @strawberry.field(description="For an app node: the app it runs.")
+    def app(self) -> Optional["ManagementApp"]:
+        owner = self._sidecar_owner()
+        return owner.app if isinstance(owner, fakts_models.AppMeshEnrollment) else None
+
+    @strawberry.field(description="For an app node: the member who approved the app.")
+    def user(self) -> Optional["ManagementUser"]:
+        owner = self._sidecar_owner()
+        return owner.membership.user if isinstance(owner, fakts_models.AppMeshEnrollment) else None
+
+    @strawberry.field(description="For an app node: the registered device the app runs on, if it named one.")
+    def device(self) -> Optional["ManagementDevice"]:
+        owner = self._sidecar_owner()
+        return owner.device if isinstance(owner, fakts_models.AppMeshEnrollment) else None
+
+    @strawberry_django.field(description="For an app node: the app's most recently approved client (the page to reject it from).")
+    def client(self) -> Optional["ManagementClient"]:
+        owner = self._sidecar_owner()
+        if not isinstance(owner, fakts_models.AppMeshEnrollment):
+            return None
+        from fakts.services.mesh import enrollment_clients
+
+        return enrollment_clients(owner.membership_id, owner.app_id, owner.device_id).order_by("-created_at").first()
+
+    @strawberry.field(description="For a hub node: the hub.")
+    def hub(self) -> Optional["ManagementHub"]:
+        owner = self._sidecar_owner()
+        return owner if isinstance(owner, fakts_models.Hub) else None
 
     @strawberry.field
     def id(self) -> strawberry.ID:
@@ -1281,14 +1363,15 @@ class ManagementLayer:
             ],
         )
 
-    @strawberry.field(description="The machines associated with this layer (only works for IonscaleLayers)")
+    @strawberry_django.field(description="The machines associated with this layer (only works for IonscaleLayers)")
     def machines(self, info: Info) -> List[ManagementMachine]:
         if self.tailnet_name:
              machines = get_ionscale_repo().list_machines(self.tailnet_name)
-             return [ManagementMachine(instance=m, tailnet=self.tailnet_name, layer_id=self.id, magic_dns_enabled=self.magic_dns_enabled) for m in machines]
+             owners = mesh_sidecar_owners(self)
+             return [ManagementMachine(instance=m, tailnet=self.tailnet_name, layer_id=self.id, magic_dns_enabled=self.magic_dns_enabled, sidecar_owners=owners) for m in machines]
         return []
 
-    @strawberry.field(description="A specific machine associated with this layer (only works for IonscaleLayers)")
+    @strawberry_django.field(description="A specific machine associated with this layer (only works for IonscaleLayers)")
     def machine(self, info: Info, id: str) -> Optional[ManagementMachine]:
         """Look one machine up *within this layer's tailnet*.
 
@@ -1309,7 +1392,7 @@ class ManagementLayer:
         match = next((m for m in machines if str(m.id) == str(id)), None)
         if match is None:
             return None
-        return ManagementMachine(instance=match, tailnet=self.tailnet_name, layer_id=self.id, magic_dns_enabled=self.magic_dns_enabled)
+        return ManagementMachine(instance=match, tailnet=self.tailnet_name, layer_id=self.id, magic_dns_enabled=self.magic_dns_enabled, sidecar_owners=mesh_sidecar_owners(self))
 
     @classmethod
     def get_queryset(cls, queryset, info: Info):

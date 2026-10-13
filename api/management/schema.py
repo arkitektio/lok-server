@@ -298,6 +298,7 @@ class Query:
                 tailnet=layer.tailnet_name,
                 layer_id=layer.id,
                 magic_dns_enabled=layer.magic_dns_enabled,
+                sidecar_owners=types.mesh_sidecar_owners(layer),
             )
 
         # Not found in any of the caller's layers -> null (the frontend renders "not found").
