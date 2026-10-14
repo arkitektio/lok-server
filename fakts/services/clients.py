@@ -76,8 +76,8 @@ def hash_manifest(manifest: Manifest) -> str:
 def check_pinned_manifest(pinned: dict, manifest: Manifest) -> None:
     """Refuse a redeem whose manifest is not covered by the token's pinned manifest.
 
-    Identity (``identifier``, ``version``) and placement (``device_id``, when pinned) must
-    match exactly. ``scopes`` and ``requirements`` are a *ceiling*: the presented manifest
+    Identity (``identifier``, and ``version`` when pinned) and placement (``device_id``,
+    when pinned) must match exactly. ``scopes`` and ``requirements`` are a *ceiling*: the presented manifest
     may request a subset, never more — extra scopes would widen what the issued token can
     do, extra requirements would render extra service instances into the envelope.
     Cosmetic fields (title, description, logo, authors, keywords, public sources) are not
@@ -89,7 +89,9 @@ def check_pinned_manifest(pinned: dict, manifest: Manifest) -> None:
             f"This redeem token is pinned to app '{pinned.get('identifier')}', "
             f"not '{manifest.identifier}'."
         )
-    if manifest.version != pinned.get("version"):
+    # A pin without a version covers every release of the app: a hub's client requests
+    # are pinned so, and the hub runs the next release on the same token.
+    if pinned.get("version") is not None and manifest.version != pinned.get("version"):
         raise RedeemTokenManifestMismatch(
             f"This redeem token is pinned to version '{pinned.get('version')}' of "
             f"'{manifest.identifier}', not '{manifest.version}'."

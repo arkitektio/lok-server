@@ -14,8 +14,8 @@ server polls the standard token endpoint.
 Request body (JSON — `HubStartRequest` in `fakts/base_models.py`): a
 `hub` manifest `{identifier, description?, logo?, instances[], clients[],
 request_auth_key}` (instances are [`InstanceRequest`](./README.md#servicemanifest)s
-with aliases, clients are `ClientRequest`s with [`Manifest`](./README.md#manifest)s),
-plus `expiration_time_seconds`.
+with aliases, clients are `ClientRequest`s `{identifier, manifest, description?,
+redeem_token?}`, see [§5](#5-the-hubs-own-clients)), plus `expiration_time_seconds`.
 
 Response (RFC 8628 shaped, like app authorization):
 
@@ -42,7 +42,7 @@ public OAuth2 client the hub server will poll as.
 `acceptHubDeviceCode` (management GraphQL) takes `deviceCode`, `organization`
 and `allowIonscale`; the caller must be a member. It materializes the whole
 manifest atomically inside the organization — the hub, its service instances
-(+ roles/scopes/aliases they declare), its clients, and (when requested and
+(+ roles/scopes/aliases they declare), a redeem token for each client request, and (when requested and
 allowed) a hub-scoped mesh pre-auth key — and binds the registered OAuth2
 client to the hub and to the approving user's membership.
 
@@ -76,7 +76,8 @@ unresolved; on success the standard token response **plus the hub envelope**:
     "ionscale_coord_url": "https://mesh.…"
   },
   "instances": {"<instance token>": {"identifier": "…", "private_key": "…"}},
-  "clients": {"<client_id>": {"client_id": "…"}}
+  "clients": {"<client_id>": {"client_id": "…"}},
+  "client_requests": {"<request identifier>": {"redeem_token": "…", "client_id": null}}
 }
 ```
 
@@ -96,3 +97,29 @@ claimhub (auto-configured partner hubs have no device-code approval). The token
 is a full-entropy random secret (it was previously *derivable* from the hub
 identifier + org slug). Follow-up: move partners onto a redeem-style grant and
 delete `Hub.token` entirely.
+
+## 5. The hub's own clients
+
+A hub can run apps of its own beside its services: a plugin engine, for example, that
+starts the apps the organization installs. Approving the hub approves them too. Each
+`ClientRequest` in the manifest gets **one redeem token of the hub's**
+(`RedeemToken.hub_client` = the request's identifier). The token is minted as the approver,
+or, for a preconfigured partner hub, as the organization's owner. It is:
+
+- **pinned** to the request manifest's `identifier`, `scopes` (a ceiling), `requirements`
+  (a ceiling) and `device_id` (when set), but **not to a version**, so the hub's next
+  release of the app redeems on the same token;
+- **re-redeemable** (`allow_reredeem`): a changed manifest (a new version) provisions that
+  version's client, while the same manifest gets its client back after a lost session;
+- **without expiry or redemption limit**. It is a credential of the hub's, as long-lived
+  as the hub's own refresh chain, and goes when the hub goes.
+
+The token's value is the request's `redeem_token` when the hub proposes one (at least 32
+characters). A hub that writes the app's environment before it is approved, like
+konstruktor does, brings its own. Otherwise Lok mints one. Either way, every hub envelope
+renders it under `client_requests`, with the `client_id` it produced once redeemed.
+
+Approving the hub again re-pins every token and takes a newly proposed secret, after
+which the old secret stops working. A request the manifest no longer makes loses its
+token. Clients that were already redeemed live on their own refresh chains and are left
+alone.

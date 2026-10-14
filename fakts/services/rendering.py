@@ -18,6 +18,7 @@ from fakts.base_models import (
     FaktsEnvelope,
     HubClaimAnswer,
     HubClientClaim,
+    HubClientRequestClaim,
     HubInstanceClaim,
     InstanceClaim,
     SelfClaim,
@@ -60,10 +61,18 @@ def render_server_fakts(hub: models.Hub, context: base_models.ServerLinkingConte
             client_id=client.client_id,
         )
 
+    request_claims: Dict[str, HubClientRequestClaim] = {}
+    for token in hub.issued_tokens.filter(hub_client__isnull=False).select_related("client"):
+        request_claims[token.hub_client] = HubClientRequestClaim(
+            redeem_token=token.token,
+            client_id=token.client.client_id if token.client else None,
+        )
+
     claim = HubClaimAnswer(
         self=self_claim,
         instances=instance_claims,
         clients=client_claims,
+        client_requests=request_claims,
     )
 
     return claim

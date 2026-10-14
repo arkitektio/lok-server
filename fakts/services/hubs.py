@@ -111,6 +111,54 @@ def run_partner_pre_authorize_hook(
 
 
 @transaction.atomic
+def ensure_client_requests(hub: models.Hub, manifest: HubManifest, user) -> list[models.RedeemToken]:
+    """Give every client the hub's manifest requests a redeem token, as ``user``.
+
+    This is how approving a hub also approves the apps the hub runs itself (a plugin
+    engine beside its services): each request gets one token of the hub's, pinned to
+    the request's identifier, scopes, requirements and device but not to a version, and
+    redeemable again with a changed manifest, so the next release of the app logs in on
+    it too. The client a redeem produces acts as ``user``, the one who approved the hub.
+
+    Approving again re-pins the tokens (and takes a newly proposed secret); a request
+    the manifest no longer makes loses its token. The clients already redeemed are left
+    alone: they live on their own refresh chains.
+    """
+    tokens = []
+    for request in manifest.clients:
+        pinned = {
+            "identifier": request.manifest.identifier,
+            "scopes": list(request.manifest.scopes or []),
+            "requirements": [
+                {"key": r.key, "service": r.service} for r in request.manifest.requirements
+            ],
+        }
+        if request.manifest.device_id:
+            pinned["device_id"] = request.manifest.device_id
+
+        token = models.RedeemToken.objects.filter(hub=hub, hub_client=request.identifier).first()
+        if token is None:
+            token = models.RedeemToken(
+                hub=hub,
+                hub_client=request.identifier,
+                token=request.redeem_token or secrets.token_urlsafe(32),
+            )
+        elif request.redeem_token:
+            token.token = request.redeem_token
+        token.user = user
+        token.pinned_manifest = pinned
+        token.allow_reredeem = True
+        token.expires_at = None
+        token.max_redemptions = None
+        token.save()
+        tokens.append(token)
+
+    models.RedeemToken.objects.filter(hub=hub, hub_client__isnull=False).exclude(
+        hub_client__in=[request.identifier for request in manifest.clients]
+    ).delete()
+    return tokens
+
+
 def create_hub_from_manifest(
     manifest: HubManifest,
     organization: karakter_models.Organization,
@@ -185,6 +233,8 @@ def create_hub_from_manifest(
             alias_obj, alias_created = aliases.upsert_instance_alias(instance, alias)
             counts["aliases"] += 1
             logger.debug("%s alias %s", "Created" if alias_created else "Updated", alias_obj.name)
+
+    counts["clients"] = len(ensure_client_requests(hub, manifest, organization.owner))
 
     logger.info(
         "%s hub '%s' for org '%s' (%s)",

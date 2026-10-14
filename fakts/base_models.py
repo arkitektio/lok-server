@@ -286,9 +286,18 @@ class ClientRequest(BaseModel):
     """
 
     identifier: str
+    """How the hub knows this client: unique within the hub. The hub's envelope
+    answers under it (``client_requests``)."""
     description: Optional[str] = None
     """A human readable description of the request."""
     manifest: Manifest
+    """What the client may be. Approving the hub mints a redeem token pinned to the
+    manifest's identifier, scopes, requirements and (when set) device; its version is
+    left open, so the hub can run the next release of the app on the same token."""
+    redeem_token: Optional[str] = Field(default=None, min_length=32, max_length=1000)
+    """The redeem token the hub proposes. A hub that has to configure the app before
+    Lok answers (a container written before the hub is approved) brings its own
+    secret; without one, Lok mints it and the envelope hands it over."""
 
 
 class HubManifest(BaseModel):
@@ -475,6 +484,16 @@ class HubClientClaim(BaseModel):
     client_id: str | None = None
 
 
+class HubClientRequestClaim(BaseModel):
+    """A client the hub asked for when it was approved, and how it logs in.
+
+    The redeem token is the credential: whoever runs the client hands it over as
+    ``FAKTS_REDEEM_TOKEN``. ``client_id`` is set once it has been redeemed."""
+
+    redeem_token: str
+    client_id: str | None = None
+
+
 class HubClaimAnswer(BaseModel):
     """A hub's envelope, appended to its token responses like an app's
     :class:`FaktsEnvelope` (and with the same one-shot ``auth`` rule: mesh keys
@@ -483,6 +502,8 @@ class HubClaimAnswer(BaseModel):
     self: SelfClaim
     instances: Dict[str, HubInstanceClaim] = Field(default_factory=dict)
     clients: Dict[str, HubClientClaim] = Field(default_factory=dict)
+    client_requests: Dict[str, HubClientRequestClaim] = Field(default_factory=dict)
+    """The clients the hub's manifest requested, by the request's identifier."""
 
 
 class InstanceHealth(BaseModel):

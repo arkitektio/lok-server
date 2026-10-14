@@ -547,6 +547,25 @@ class RedeemToken(models.Model):
         on_delete=models.CASCADE,
         related_name="issued_tokens",
     )
+    hub_client = models.CharField(
+        max_length=1000,
+        null=True,
+        blank=True,
+        help_text=(
+            "The identifier of the hub manifest's client request this token was minted for. "
+            "Such a token belongs to the hub: it is re-pinned whenever the hub is approved again, "
+            "and removed when the hub stops asking for the client."
+        ),
+    )
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["hub", "hub_client"],
+                condition=models.Q(hub_client__isnull=False),
+                name="One token per client request of a hub",
+            )
+        ]
 
 
 class Hub(models.Model):
