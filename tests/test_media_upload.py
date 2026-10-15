@@ -186,6 +186,9 @@ def test_media_store_presigned_url_downloads_the_object(s3_client):
     response = requests.get(settings.AWS_S3_ENDPOINT_URL + relative, timeout=30)
     assert response.status_code == 200, response.text
     assert response.content == body
+    # The same URL on the next resolve, so clients and browsers keep what they have.
+    assert store.get_presigned_url(None, datalayer=get_current_datalayer()) == relative
+    assert "max-age=" in response.headers.get("Cache-Control", "")
 
 
 @pytest.mark.django_db(transaction=True)

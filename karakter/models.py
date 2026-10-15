@@ -4,6 +4,7 @@ from typing import Optional, List, Tuple
 
 import requests
 from django.conf import settings
+from django.core.cache import cache
 from django.contrib.auth.models import AbstractUser, Group, Permission
 from django.db import models
 from django.utils import timezone
@@ -12,6 +13,11 @@ from karakter import fields, datalayer
 from karakter.deeplinks import default_deeplink_apps
 
 logger = logging.getLogger(__name__)
+
+
+# A presigned media URL is handed out unchanged for this long, and is valid for twice as long.
+PRESIGNED_KEPT_SECONDS = 3600
+PRESIGNED_VALID_SECONDS = 2 * PRESIGNED_KEPT_SECONDS
 
 
 class S3Store(models.Model):
@@ -37,20 +43,31 @@ class MediaStore(S3Store):
     def get_presigned_url(self, info, datalayer: datalayer.Datalayer, host: Optional[str] = None) -> str:
         """Return a presigned URL for the stored S3 object.
 
+        The same URL for an hour: a fresh signature on every resolve made every answer carry a
+        new URL for every avatar and logo, so a client re-rendered and the browser downloaded
+        each image again on each refetch. Minted valid for two hours and kept for one (in
+        Django's cache: per process by default, shared when a deployment configures one), so a
+        URL handed out is always good for at least an hour, and it asks the store to let the
+        browser keep the image for that hour.
+
         Args:
             info: GraphQL resolver info (passed through to datalayer if used).
             datalayer: object exposing ``s3`` boto3 session/client.
             host: optional host to replace the endpoint with when returning.
         """
-        s3 = datalayer.s3
-        url: str = s3.generate_presigned_url(
-            ClientMethod="get_object",
-            Params={
-                "Bucket": self.bucket,
-                "Key": self.key,
-            },
-            ExpiresIn=3600,
-        )
+        cache_key = f"lok:presigned:{self.bucket}:{self.key}"
+        url = cache.get(cache_key)
+        if url is None:
+            url = datalayer.s3.generate_presigned_url(
+                ClientMethod="get_object",
+                Params={
+                    "Bucket": self.bucket,
+                    "Key": self.key,
+                    "ResponseCacheControl": f"private, max-age={PRESIGNED_KEPT_SECONDS}",
+                },
+                ExpiresIn=PRESIGNED_VALID_SECONDS,
+            )
+            cache.set(cache_key, url, PRESIGNED_KEPT_SECONDS)
         return url.replace(getattr(settings, "AWS_S3_ENDPOINT_URL", ""), host or "")
 
     def fill_info(self) -> None:
