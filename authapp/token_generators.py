@@ -122,6 +122,9 @@ class MyJWTBearerTokenGenerator(JWTBearerTokenGenerator):
         - sub: the user's id (subject)
         - scope: the resolved scope string
         - org: the client's organization pk (identity; the slug is a mutable handle)
+
+        For a scoped member (only objects shared with them) ``roles`` is empty and
+        ``objects`` lists their live grants keyed by hub id, ``{"3": ["@mikro/image:42"]}``.
         """
         membership = self._get_membership(client, user)
 
@@ -132,19 +135,29 @@ class MyJWTBearerTokenGenerator(JWTBearerTokenGenerator):
         fakts_client = self._get_app_client(client)
         hub = self._get_hub(client)
 
+        # The organization *pk*, not its slug. A slug is a user-chosen, mutable
+        # handle; keying the tenancy boundary on it meant the boundary moved
+        # whenever someone renamed their organization. Matches what `sub` already
+        # does for users (`str(user.id)`).
+        scope_claims: dict[str, Any] = {"org": str(membership.organization_id)}
+        if membership.is_scoped:
+            # A scoped member (karakter.object_grants): no roles, and the objects
+            # shared with them, keyed by hub. Services narrow to those (authentikate).
+            from karakter.object_grants import live_grants_by_hub
+
+            scope_claims["roles"] = []
+            scope_claims["objects"] = live_grants_by_hub(membership)
+        else:
+            scope_claims["roles"] = [role.identifier for role in membership.roles.all()]
+
         # TODO: Implement correct scoping rules; for now expose roles and
         # some basic user identifiers used by resource servers.
         return {
-            "roles": [role.identifier for role in membership.roles.all()],
+            **scope_claims,
             "nickname": membership.user.username,
             "preferred_username": membership.user.username,
             "sub": str(membership.user.id),
             "scope": scope,
-            # The organization *pk*, not its slug. A slug is a user-chosen,
-            # mutable handle; keying the tenancy boundary on it meant the
-            # boundary moved whenever someone renamed their organization.
-            # Matches what `sub` already does for users (`str(user.id)`).
-            "org": str(membership.organization_id),
             "client_app": fakts_client.release.app.identifier if fakts_client and fakts_client.release and fakts_client.release.app else None,
             "client_release": fakts_client.release.version if fakts_client and fakts_client.release else None,
             "client_device": fakts_client.node.node_id if fakts_client and fakts_client.node else None,

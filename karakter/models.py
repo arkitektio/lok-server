@@ -226,6 +226,18 @@ class Membership(models.Model):
     class Meta:
         unique_together = ("user", "organization")
 
+    @property
+    def is_scoped(self) -> bool:
+        """Whether this membership only reaches the objects shared with it.
+
+        There is no flag for it: a membership with object grants (live or
+        expired) is scoped, one without is a full member. ``karakter.object_grants``
+        keeps the two from mixing: a scoped membership never holds roles, and
+        removing its last grant removes the membership instead of leaving a
+        full member behind.
+        """
+        return self.object_grants.exists()
+
     def get_user_id(self):
         return str(self.user.pk)
 
@@ -342,6 +354,11 @@ class MembershipRequest(models.Model):
         """Let the requester in. `roles` are Role rows of this organization;
         without any the member gets `guest`, as an invite without roles does."""
         membership, _ = Membership.objects.get_or_create(user=self.user, organization=self.organization)
+        if membership.is_scoped:
+            from karakter.object_grants import upgrade_to_full
+
+            # They had objects shared with them; now they are in.
+            upgrade_to_full(membership)
         if not roles:
             roles = list(Role.objects.filter(identifier="guest", organization=self.organization))
         membership.roles.add(*roles)
@@ -550,6 +567,27 @@ class Invite(models.Model):
     # Roles to assign when invite is accepted
     roles = models.ManyToManyField("Role", related_name="invites", blank=True)
 
+    # An object invite shares these objects (``karakter.object_grants`` strings,
+    # ``3/@mikro/image:42#rois``) instead of making its holder a member. Null for an
+    # ordinary invite.
+    shared_objects = models.JSONField(
+        null=True,
+        blank=True,
+        help_text="The objects this invite shares, as `<hub>/<structure>:<id>[#<reach>]` strings. "
+        "Null for an invite that grants full membership.",
+    )
+    max_uses = models.PositiveIntegerField(
+        null=True,
+        blank=True,
+        help_text="How many people may accept an object invite. Null: anyone with the link "
+        "until it expires. Ordinary invites are always single-use.",
+    )
+    uses = models.PositiveIntegerField(default=0, db_default=0, help_text="How many people accepted it so far.")
+
+    @property
+    def is_object_invite(self) -> bool:
+        return self.shared_objects is not None
+
     def is_valid(self):
         if self.status != self.Status.PENDING:
             return False
@@ -564,6 +602,10 @@ class Invite(models.Model):
         self.save(update_fields=["status", "accepted_by", "responded_at"])
 
     def decline(self, user):
+        if self.is_object_invite:
+            # An object invite may be meant for many people: one of them saying
+            # no must not close it for the rest.
+            return
         self.status = self.Status.DECLINED
         self.declined_by = user
         self.responded_at = timezone.now()
@@ -572,6 +614,40 @@ class Invite(models.Model):
     def cancel(self):
         self.status = self.Status.CANCELLED
         self.save(update_fields=["status"])
+
+
+class ObjectGrant(models.Model):
+    """One object shared with a scoped membership.
+
+    An object is unique by its hub, its structure (``@mikro/image``, unique
+    within a hub) and its id there — the same three a smartlink names. ``reach`` says, in the hosting
+    service's own words, how much related data comes with it (``self`` — the
+    object and what is needed to show it — unless the service declares more).
+    lok neither checks that the object exists nor interprets the reach: it lists
+    the grants in the member's tokens, and the service enforces them.
+    """
+
+    membership = models.ForeignKey(Membership, on_delete=models.CASCADE, related_name="object_grants")
+    hub = models.ForeignKey("fakts.Hub", on_delete=models.CASCADE, related_name="object_grants", help_text="The hub the object lives on")
+    structure = models.CharField(max_length=200, help_text="The structure identifier, e.g. @mikro/image")
+    object_id = models.CharField(max_length=200, help_text="The object's id in its service")
+    reach = models.CharField(max_length=64, default="self", help_text="How much related data the grant reaches, in the hosting service's vocabulary")
+    granted_through = models.ForeignKey(Invite, on_delete=models.SET_NULL, null=True, blank=True, related_name="object_grants")
+    granted_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name="object_grants_given")
+    created_at = models.DateTimeField(auto_now_add=True)
+    expires_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["membership", "hub", "structure", "object_id"], name="one_grant_per_object_and_membership"),
+        ]
+
+    def is_live(self) -> bool:
+        return self.expires_at is None or self.expires_at > timezone.now()
+
+    def __str__(self) -> str:
+        base = f"{self.hub_id}/{self.structure}:{self.object_id}"
+        return base if self.reach == "self" else f"{base}#{self.reach}"
 
 
 from .signals import *

@@ -127,7 +127,10 @@ def reconcile_layer(
 
     if revoke_orphans:
         member_pks = {
-            str(pk) for pk in Membership.objects.filter(organization=org).values_list("user_id", flat=True)
+            # Full members, as `sync` lists them: a scoped member never has an
+            # account of their own on the tailnet.
+            str(pk)
+            for pk in Membership.objects.filter(organization=org, object_grants__isnull=True).values_list("user_id", flat=True)
         }
         for user in repo.list_users(layer.tailnet_name):
             if user.external_id is None:

@@ -226,9 +226,29 @@ def access_token_expires_in(client, grant_type) -> int:
     """
     organization = getattr(client, "organization", None)
     lifetime = getattr(organization, "access_token_lifetime", None) if organization else None
-    if not lifetime:
-        return ACCESS_TOKEN_EXPIRES_IN
-    return max(MIN_ACCESS_TOKEN_EXPIRES_IN, min(int(lifetime), MAX_ACCESS_TOKEN_EXPIRES_IN))
+    lifetime = (
+        max(MIN_ACCESS_TOKEN_EXPIRES_IN, min(int(lifetime), MAX_ACCESS_TOKEN_EXPIRES_IN))
+        if lifetime
+        else ACCESS_TOKEN_EXPIRES_IN
+    )
+    if _is_scoped_client(client):
+        return min(lifetime, SCOPED_ACCESS_TOKEN_EXPIRES_IN)
+    return lifetime
+
+
+# A scoped member's token lists the objects shared with them; once one is taken
+# back, the services only learn of it when the token runs out (they verify by
+# JWT alone). So those tokens are kept short, whatever the organization set.
+SCOPED_ACCESS_TOKEN_EXPIRES_IN = 900
+
+
+def _is_scoped_client(client) -> bool:
+    membership_id = getattr(client, "membership_id", None)
+    if not membership_id:
+        return False
+    from karakter.models import ObjectGrant
+
+    return ObjectGrant.objects.filter(membership_id=membership_id).exists()
 
 
 server.register_token_generator(

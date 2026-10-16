@@ -11,6 +11,7 @@ from .invite import (
     decline_invite,
     cancel_invite,
 )
+from .object_grant import revoke_object_grant
 from .membership import update_membership, delete_membership, set_membership_brand_hue, request_membership, approve_membership_request, decline_membership_request
 from .notification import set_membership_notifications, notify_member
 from .role_request import (

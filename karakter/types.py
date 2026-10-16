@@ -424,6 +424,12 @@ class Invite:
     responded_at: datetime.datetime | None
     roles: list["Role"]
     created_memberships: list["Membership"]
+    max_uses: int | None = strawberry.field(description="For an object invite: how many people may accept it. Null: anyone with the link until it expires.")
+    uses: int = strawberry.field(description="How many people accepted it so far.")
+
+    @strawberry_django.field(description="The objects this invite shares, as `<hub>/<structure>:<id>[#<reach>]` strings. Null for an invite that makes its holder a member.")
+    def objects(self) -> list[str] | None:
+        return self.shared_objects
 
     @strawberry_django.field(description="Check if the invite is still valid and pending")
     def valid(self) -> bool:

@@ -6,6 +6,7 @@ import kante
 from graphql import GraphQLError
 
 from api.management.authz import DENIED, assert_owner_or_admin
+from karakter.object_grants import upgrade_to_full
 
 logger = logging.getLogger(__name__)
 
@@ -76,6 +77,8 @@ def add_user_to_organization(info: Info, input: AddUserToOrganizationInput) -> t
         unknown = sorted(set(input.roles) - known)
         raise GraphQLError(f"Unknown role(s) for this organization: {', '.join(unknown)}")
 
+    if membership.is_scoped:
+        upgrade_to_full(membership)
     membership.roles.set(roles)
     logger.info(
         "Set roles %s for user %s in organization %s",

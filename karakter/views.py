@@ -79,7 +79,7 @@ def change_org(request):
 @login_required
 def accept_invite(request, token):
     """View for accepting an organization invite - redirects to frontend with token."""
-    from karakter.models import Invite, Membership, Role
+    from karakter.models import Invite
 
     try:
         invite = Invite.objects.get(token=token)
@@ -106,39 +106,13 @@ def accept_invite(request, token):
             return redirect(frontend_url)
 
         # Default action is accept
-        # Check if already a member
-        existing_membership = Membership.objects.filter(
-            user=request.user,
-            organization=invite.created_for,
-        ).first()
+        from karakter.invites import InviteError, redeem_invite
 
-        if existing_membership:
-            invite.accept(request.user)
-            request.user.active_organization = invite.created_for
-            request.user.save()
+        try:
+            redeem_invite(invite, request.user)
+        except InviteError:
             frontend_url = get_frontend_url()
-            return redirect(frontend_url)
-
-        # Create new membership
-        membership = Membership.objects.create(
-            user=request.user,
-            organization=invite.created_for,
-        )
-
-        # Assign roles from the invite
-        invite_roles = invite.roles.all()
-        if invite_roles.exists():
-            membership.roles.set(invite_roles)
-        else:
-            # Fallback to guest role if invite has no roles
-            try:
-                guest_role = Role.objects.get(identifier="guest", organization=invite.created_for)
-                membership.roles.add(guest_role)
-            except Role.DoesNotExist:
-                pass
-
-        # Mark invite as accepted
-        invite.accept(request.user)
+            return redirect(f"{frontend_url}/invite/error?reason=already_processed")
 
         # Set as active organization and redirect
         request.user.active_organization = invite.created_for

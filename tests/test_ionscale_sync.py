@@ -304,3 +304,33 @@ def test_machine_list_reads_connected_as_live():
     )
     (machine,) = _repo()._parse_machine_list_output(out)
     assert machine.connected is True
+
+
+@pytest.mark.django_db
+def test_scoped_members_cannot_log_devices_in_until_they_are_full_members(ionscale_repo, commit_callbacks):
+    """Someone with only shared objects is on the tailnet through their apps'
+    sidecars alone (which reach only the hub); their own devices stay out of
+    `autogroup:member` until they become a full member."""
+    from fakts.models import Hub
+    from karakter import models as karakter_models, object_grants
+    from karakter.invites import redeem_invite
+
+    owner = User.objects.create(username="scoped-owner")
+    organization, _ = _org_with_mesh("ionscale-scoped", owner, ionscale_repo, commit_callbacks)
+    hub = Hub.objects.create(organization=organization, name="hub", identifier="scoped-hub", creator=owner)
+    invite = karakter_models.Invite.objects.create(
+        created_by=owner, created_for=organization, shared_objects=[f"{hub.pk}/@mikro/image:1"]
+    )
+    visitor = User.objects.create(username="scoped-visitor")
+
+    with commit_callbacks():
+        membership = redeem_invite(invite, visitor)
+
+    assert ionscale_repo.updated_policies
+    assert set(ionscale_repo.updated_policies[-1][1]["subs"]) == {str(owner.pk)}
+
+    ionscale_repo.updated_policies.clear()
+    with commit_callbacks():
+        object_grants.upgrade_to_full(membership)
+
+    assert set(ionscale_repo.updated_policies[-1][1]["subs"]) == {str(owner.pk), str(visitor.pk)}

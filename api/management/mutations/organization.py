@@ -214,7 +214,7 @@ def change_organization_owner(info: Info, input: ChangeOrganizationOwnerInput) -
         new_owner = models.User.objects.get(id=input.new_owner)
     except (models.User.DoesNotExist, ValueError, TypeError):
         raise GraphQLError("The new owner must be a member of the organization.")
-    if not organization.memberships.filter(user=new_owner).exists():
+    if not organization.memberships.filter(user=new_owner, object_grants__isnull=True).exists():
         raise GraphQLError("The new owner must be a member of the organization.")
 
     organization.owner = new_owner

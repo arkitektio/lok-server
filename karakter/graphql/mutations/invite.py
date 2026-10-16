@@ -7,7 +7,11 @@ from django.utils import timezone
 from datetime import timedelta
 import kante
 
+from django.core.exceptions import ValidationError
 from api.management.authz import assert_owner
+from api.management.mutations.invite import _may_share
+from karakter import object_grants
+from karakter.invites import InviteError, redeem_invite
 
 
 @kante.input
@@ -17,6 +21,15 @@ class CreateInviteInput:
     organization: strawberry.ID | None
     expires_in_days: int | None = 7
     roles: list[str] | None = None  # Role identifiers to assign
+    objects: list[str] | None = strawberry.field(
+        default=None,
+        description="Share only these objects, as `<hub>/<structure>:<id>[#<reach>]` strings (e.g. `3/@mikro/image:42#rois`), "
+        "instead of making the holder a member.",
+    )
+    max_uses: int | None = strawberry.field(
+        default=None,
+        description="For an object invite: how many people may accept it. Null: anyone with the link until it expires.",
+    )
 
 
 def create_invite(info: Info, input: CreateInviteInput) -> types.Invite:
@@ -37,7 +50,21 @@ def create_invite(info: Info, input: CreateInviteInput) -> types.Invite:
     else:
         organization = info.context.request.organization
 
-    assert_owner(info, organization)
+    shared_objects = None
+    if input.objects is not None:
+        # An object invite: any member but a guest may share what they can read.
+        if organization is None or not _may_share(get_user(info), organization):
+            raise GraphQLError("Only members of the organization can share its objects.")
+        try:
+            shared_objects = object_grants.normalize_grants(input.objects, organization)
+        except ValidationError as e:
+            raise GraphQLError(" ".join(e.messages))
+        if input.roles:
+            raise GraphQLError("An invite that shares objects grants no roles.")
+        if input.max_uses is not None and input.max_uses < 1:
+            raise GraphQLError("max_uses must be at least 1.")
+    else:
+        assert_owner(info, organization)
 
     # Calculate expiration date if specified
     expires_at = None
@@ -48,7 +75,11 @@ def create_invite(info: Info, input: CreateInviteInput) -> types.Invite:
         created_by=info.context.request.user,
         created_for=organization,
         expires_at=expires_at,
+        shared_objects=shared_objects,
+        max_uses=input.max_uses if shared_objects is not None else None,
     )
+    if shared_objects is not None:
+        return invite
 
     # Assign roles
     if input.roles:
@@ -88,52 +119,10 @@ def accept_invite(info: Info, input: AcceptInviteInput) -> types.Membership:
     # (a 500) here rather than a clean denial. `get_or_denied` folds that, and a
     # genuinely unknown token, into the uniform denied error.
     invite = get_or_denied(models.Invite.objects, token=input.token)
-
-    # Check if invite is still valid
-    if not invite.is_valid():
-        if invite.status == models.Invite.Status.ACCEPTED:
-            raise GraphQLError("This invite has already been accepted")
-        elif invite.status == models.Invite.Status.DECLINED:
-            raise GraphQLError("This invite has been declined")
-        elif invite.status == models.Invite.Status.CANCELLED:
-            raise GraphQLError("This invite has been cancelled")
-        else:
-            raise GraphQLError("This invite has expired")
-
-    user = get_user(info)
-    organization = invite.created_for
-
-    # Check if user is already a member
-    existing_membership = models.Membership.objects.filter(
-        user=user,
-        organization=organization,
-    ).first()
-
-    if existing_membership:
-        # Mark invite as accepted but don't create duplicate membership
-        invite.accept(user)
-        return existing_membership
-
-    # Create membership
-    membership = models.Membership.objects.create(user=user, organization=organization, created_through=invite)
-
-    # Assign roles from the invite
-    invite_roles = invite.roles.all()
-    if invite_roles.exists():
-        membership.roles.set(invite_roles)
-    else:
-        # Fallback to guest role if invite has no roles
-        try:
-            guest_role = models.Role.objects.get(identifier="guest", organization=organization)
-            membership.roles.add(guest_role)
-        except models.Role.DoesNotExist:
-            # No guest role exists, that's okay
-            pass
-
-    # Mark invite as accepted
-    invite.accept(user)
-
-    return membership
+    try:
+        return redeem_invite(invite, get_user(info))
+    except InviteError as e:
+        raise GraphQLError(str(e))
 
 
 @kante.input
@@ -166,6 +155,10 @@ class CancelInviteInput:
     """Input for cancelling an organization invite"""
 
     id: strawberry.ID
+    revoke_shared: bool = strawberry.field(
+        default=False,
+        description="For an object invite: also take back what it shared from everyone who accepted it.",
+    )
 
 
 def cancel_invite(info: Info, input: CancelInviteInput) -> types.Invite:
@@ -178,10 +171,12 @@ def cancel_invite(info: Info, input: CancelInviteInput) -> types.Invite:
     # exist" read identically and the id cannot be used as an existence oracle.
     invite = get_or_denied(models.Invite.objects, id=input.id, created_by=get_user(info))
 
-    # Check if invite is still pending
-    if invite.status != models.Invite.Status.PENDING:
+    if input.revoke_shared and invite.is_object_invite:
+        object_grants.revoke_invite_grants(invite)
+    elif invite.status != models.Invite.Status.PENDING:
         raise GraphQLError(f"Cannot cancel an invite that has been {invite.status}")
 
-    invite.cancel()
+    if invite.status == models.Invite.Status.PENDING:
+        invite.cancel()
 
     return invite

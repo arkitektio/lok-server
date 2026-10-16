@@ -18,6 +18,7 @@ from fakts import base_models
 from fakts import enums as fakts_enums
 from api.management import filters, enums, scalars
 from api.management.authz import is_owner_or_admin, owner_or_admin_q
+from karakter.object_grants import full_member_q, is_full_member
 from pydantic import ValidationError as PydanticValidationError
 from karakter import filters as karakter_filters
 from strawberry.experimental import pydantic
@@ -80,8 +81,10 @@ def _can_see_user_details(info: Info, target) -> bool:
             pass
     key = (caller.id, target.id)
     if key not in cache:
+        # Only a full member sees their colleagues; someone with just shared
+        # objects (a scoped membership) sees nobody through it.
         cache[key] = models.User.objects.filter(
-            id=target.id, memberships__organization__memberships__user=caller
+            Q(id=target.id) & full_member_q("memberships__organization", caller)
         ).exists()
     return cache[key]
 
@@ -90,7 +93,7 @@ def _membership_scoped(queryset, info: Info, path: str):
     """Filter ``queryset`` to rows whose organization (reached via ``path``) the
     caller belongs to. ``path`` is the ORM lookup from the row to its
     organization, e.g. ``"organization"`` or ``"instance__organization"``."""
-    return queryset.filter(**{f"{path}__memberships__user": info.context.request.user}).distinct()
+    return queryset.filter(full_member_q(path, info.context.request.user)).distinct()
 
 
 @strawberry_django.type(
@@ -211,9 +214,7 @@ class ManagementUser:
         in several organizations still sees all their colleagues.
         """
         user = info.context.request.user
-        return queryset.filter(
-            memberships__organization__memberships__user=user
-        ).distinct()
+        return queryset.filter(full_member_q("memberships__organization", user)).distinct()
 
 
 @strawberry_django.type(
@@ -458,7 +459,7 @@ class ManagementRole:
 
     @classmethod
     def get_queryset(cls, queryset, info: Info):
-        return queryset.filter(organization__memberships__user=info.context.request.user).distinct()
+        return queryset.filter(full_member_q("organization", info.context.request.user)).distinct()
 
 
 @strawberry_django.type(models.RoleSet, pagination=True, description="""A RoleSet is a named bundle of roles within an organization that can be applied together — to seed an invite or to grant to a member in one action.""")
@@ -470,7 +471,7 @@ class ManagementRoleSet:
 
     @classmethod
     def get_queryset(cls, queryset, info: Info):
-        return queryset.filter(organization__memberships__user=info.context.request.user).distinct()
+        return queryset.filter(full_member_q("organization", info.context.request.user)).distinct()
 
 
 @strawberry_django.type(models.Scope, filters=filters.ManagementScopeFilter, ordering=filters.ManagementScopeOrdering, pagination=True, description="""A Scope represents a permission or capability that can be granted to clients and users. It is used to define what access level a user or client has in the system.""")
@@ -488,7 +489,7 @@ class ManagementScope:
 
     @classmethod
     def get_queryset(cls, queryset, info: Info):
-        return queryset.filter(organization__memberships__user=info.context.request.user).distinct()
+        return queryset.filter(full_member_q("organization", info.context.request.user)).distinct()
 
 
 @strawberry_django.type(
@@ -510,6 +511,11 @@ class ManagementMembership:
     brand_chroma: Optional[float] = strawberry.field(description="The member's personal brand chroma (0–1) for this organization, if set.")
     allow_notifications: bool = strawberry.field(description="Whether this organization is allowed to push notifications to the member's registered devices.")
     role_requests: List["ManagementRoleRequest"] = strawberry_django.field(description="The role requests this member has made in the organization")
+    object_grants: List["ManagementObjectGrant"] = strawberry_django.field(description="The objects shared with this person. Empty for a full member.")
+
+    @strawberry_django.field(description="Whether this person only has objects shared with them, rather than being a full member.")
+    def is_scoped(self) -> bool:
+        return self.object_grants.exists()
 
     @strawberry_django.field(
         description="Whether the member has at least one device registered for notifications (e.g. through the companion app). Opting in does nothing until they do."
@@ -526,8 +532,10 @@ class ManagementMembership:
 
     @classmethod
     def get_queryset(cls, queryset, info: Info):
-        # A caller may only see memberships of organizations they themselves belong to.
-        return queryset.filter(organization__memberships__user=info.context.request.user).distinct()
+        # A full member sees the memberships of their organization; someone with
+        # only shared objects sees just their own.
+        user = info.context.request.user
+        return queryset.filter(full_member_q("organization", user) | Q(user=user)).distinct()
 
 
 @strawberry_django.type(
@@ -629,8 +637,10 @@ class ManagementOrganization:
     clients: List["ManagementClient"] = strawberry_django.field(description="The clients that belong to this organization")
     service_instances: List["ManagementServiceInstance"] = strawberry_django.field(description="The service instances that belong to this organization")
 
-    @strawberry_django.field(description="The users that are part of the organization")
-    def users(self) -> List[ManagementUser]:
+    @strawberry_django.field(description="The users that are part of the organization. Empty for someone who only has objects shared with them.")
+    def users(self, info: Info) -> List[ManagementUser]:
+        if not is_full_member(info.context.request.user, self):
+            return []
         return get_user_model().objects.filter(memberships__organization=self).distinct()
 
     @strawberry_django.field(description="The roles that are available in the organization")
@@ -682,6 +692,10 @@ class ManagementOrganization:
 
     @classmethod
     def get_queryset(cls, queryset, info: Info):
+        # Any membership, scoped ones included: someone with shared objects sees
+        # the organization's name, logo and link apps. Everything that reaches
+        # further (members, invites, hubs, clients…) is gated on full membership
+        # by its own type.
         return queryset.filter(memberships__user=info.context.request.user).distinct()
 
 
@@ -713,6 +727,13 @@ class ManagementInvite:
     responded_at: datetime.datetime | None
     roles: list["ManagementRole"]
     created_memberships: list["ManagementMembership"]
+    max_uses: int | None = strawberry.field(description="For an object invite: how many people may accept it. Null: anyone with the link until it expires.")
+    uses: int = strawberry.field(description="How many people accepted it so far.")
+    object_grants: list["ManagementObjectGrant"] = strawberry_django.field(description="What this invite has shared, with whom. Only for the people who may see the grants.")
+
+    @strawberry_django.field(description="The objects this invite shares, as `<hub>/<structure>:<id>[#<reach>]` strings. Null for an invite that makes its holder a member.")
+    def objects(self) -> list[str] | None:
+        return self.shared_objects
 
     @strawberry_django.field(
         description="The e-mail address this invite was addressed to, if any. Only visible to the organization's owner and admins.",
@@ -759,7 +780,38 @@ class ManagementInvite:
                 created_for__memberships__user=user,
                 created_for__memberships__roles__identifier="admin",
             )
+            # Whoever shared objects sees the invites they shared them with.
+            | Q(created_by=user, shared_objects__isnull=False, created_for__memberships__user=user, created_for__memberships__object_grants__isnull=True)
         ).distinct()
+
+
+@strawberry_django.type(
+    models.ObjectGrant,
+    pagination=True,
+    description="""One object shared with someone who is not a full member of the organization (a scoped membership). The object is named by its hub, its structure and its id, plus how much related data comes with it (`reach`, in the hosting service's words).""",
+)
+class ManagementObjectGrant:
+    id: strawberry.ID
+    membership: ManagementMembership
+    hub: "ManagementHub" = strawberry.field(description="The hub the object lives on. With the structure and the id it names the object uniquely.")
+    structure: str = strawberry.field(description="The structure identifier, e.g. @mikro/image (unique within a hub).")
+    object_id: str = strawberry.field(description="The object's id in its service.")
+    reach: str = strawberry.field(description="How much related data the grant reaches; `self` unless the service declares more.")
+    granted_by: Optional[ManagementUser] = strawberry.field(description="Who shared it.")
+    granted_through: Optional[ManagementInvite] = strawberry.field(description="The invite it was shared through.")
+    created_at: datetime.datetime
+    expires_at: Optional[datetime.datetime]
+
+    @strawberry_django.field(description="The grant as one string, `<hub>/<structure>:<id>[#<reach>]`.")
+    def grant(self) -> str:
+        return str(self)
+
+    @classmethod
+    def get_queryset(cls, queryset, info: Info, **kwargs):
+        # Full members see who their organization's objects are shared with; the
+        # person they are shared with sees their own.
+        user = info.context.request.user
+        return queryset.filter(full_member_q("membership__organization", user) | Q(membership__user=user)).distinct()
 
 
 @pydantic.type(base_models.Requirement)
@@ -1025,7 +1077,7 @@ class ManagementHub:
 
     @classmethod
     def get_queryset(cls, queryset, info: Info):
-        return queryset.filter(organization__memberships__user=info.context.request.user).distinct()
+        return queryset.filter(full_member_q("organization", info.context.request.user)).distinct()
 
 
 @strawberry.type(description="The health one instance reported in a hub health report.")
@@ -1397,7 +1449,7 @@ class ManagementLayer:
 
     @classmethod
     def get_queryset(cls, queryset, info: Info):
-        return queryset.filter(organization__memberships__user=info.context.request.user).distinct()
+        return queryset.filter(full_member_q("organization", info.context.request.user)).distinct()
 
 
 @strawberry_django.type(
@@ -1429,7 +1481,7 @@ class ManagementIonscaleAuthKey:
 
     @classmethod
     def get_queryset(cls, queryset, info: Info):
-        return queryset.filter(layer__organization__memberships__user=info.context.request.user).distinct()
+        return queryset.filter(full_member_q("layer__organization", info.context.request.user)).distinct()
 
 
 @strawberry_django.type(
@@ -1485,7 +1537,7 @@ class ManagementDeviceGroup:
 
     @classmethod
     def get_queryset(cls, queryset, info: Info):
-        return queryset.filter(organization__memberships__user=info.context.request.user).distinct()
+        return queryset.filter(full_member_q("organization", info.context.request.user)).distinct()
 
 
 @strawberry_django.type(fakts_models.Device, filters=filters.ManagementDeviceFilter, ordering=filters.ManagementDeviceOrdering, pagination=True)
@@ -1508,7 +1560,7 @@ class ManagementDevice:
         # ManagementDeviceGroup / ManagementClient). Callers narrow to a single org via
         # the `organization` filter (e.g. the /organization/:orgId/devices page); scoping
         # to only the active org would hide devices of orgs the user is legitimately in.
-        return queryset.filter(organization__memberships__user=info.context.request.user).distinct()
+        return queryset.filter(full_member_q("organization", info.context.request.user)).distinct()
 
 
 @strawberry.type(description="A Public Source is a source of information about a client that is publicly available. E.g. a GitHub repository or a website.")
@@ -1577,7 +1629,7 @@ class ManagementReport:
 
     @classmethod
     def get_queryset(cls, queryset, info: Info):
-        return queryset.filter(client__organization__memberships__user=info.context.request.user).distinct()
+        return queryset.filter(full_member_q("client__organization", info.context.request.user)).distinct()
 
 
 @strawberry_django.type(
@@ -1691,7 +1743,7 @@ class ManagementClient:
 
     @classmethod
     def get_queryset(cls, queryset, info: Info):
-        return queryset.filter(organization__memberships__user=info.context.request.user).distinct()
+        return queryset.filter(full_member_q("organization", info.context.request.user)).distinct()
 
 
 @strawberry_django.type(fakts_models.Client, filters=filters.ManagementOAuth2ClientFilter, pagination=True, description="""The OAuth2 identity view of a (unified) client — what the consent page needs to display.""")
@@ -1824,7 +1876,7 @@ class ManagementHubDeviceCode:
         caller = _caller(info)
         if caller is None:
             return None
-        if not hub.organization.memberships.filter(user=caller).exists():
+        if not is_full_member(caller, hub.organization):
             return None
         return hub
 
@@ -1863,7 +1915,7 @@ class ManagementMeshDeviceCode:
         who requested it. Pending codes are reachable only via ``meshDeviceCodeByCode``."""
         user = info.context.request.user
         return queryset.filter(
-            Q(user=user) | Q(auth_key__layer__organization__memberships__user=user)
+            Q(user=user) | full_member_q("auth_key__layer__organization", user)
         ).distinct()
     # NB: the minted pre-auth key is deliberately NOT exposed here. The by-code lookup is
     # unauthenticated-preview-friendly, so surfacing the secret would leak a live mesh-join

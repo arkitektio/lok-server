@@ -95,7 +95,9 @@ def assert_member(info, organization) -> None:
     if organization is None:
         raise GraphQLError(DENIED)
     user = get_user(info)
-    if not organization.memberships.filter(user=user).exists():
+    # A full member: someone with only shared objects (a scoped membership) does
+    # not act for the organization.
+    if not organization.memberships.filter(user=user, object_grants__isnull=True).exists():
         raise GraphQLError(DENIED)
 
 
