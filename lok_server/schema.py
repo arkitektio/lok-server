@@ -10,7 +10,7 @@ from fakts import models as fakts_models
 from karakter import types as karakter_types
 from karakter import models as karakter_models
 from karakter.hashers import hash_device_id
-from karakter.authz import DENIED, get_organization, get_scoped_or_denied, get_user
+from karakter.authz import DENIED, get_organization, get_scoped_or_denied
 from graphql import GraphQLError
 from karakter.graphql import mutations as karakter_mutations
 from karakter.graphql import queries as karakter_queries
@@ -57,10 +57,8 @@ class Query:
 
     scopes = strawberry_django.field(resolver=fakts_queries.scopes)
 
-    redeem_tokens: list[fakts_types.RedeemToken] = strawberry_django.field()
-    mandates: list[fakts_types.Mandate] = strawberry_django.field(description="Mandates you granted, or (as an agent app) may provision under. Org admins see all.")
+    mandates: list[fakts_types.Mandate] = strawberry_django.field(description="Mandates you granted, your app issued, or (as an agent app) you may issue under or did. Org admins see all.")
     mandate = strawberry_django.field(resolver=fakts_mutations.mandate)
-    mandate_token = strawberry_django.field(resolver=fakts_mutations.mandate_token)
 
     my_active_messages = strawberry_django.field(resolver=karakter_queries.my_active_messages)
     message = strawberry_django.field(resolver=karakter_queries.message)
@@ -118,22 +116,6 @@ class Query:
         return organization
 
     @kante.django_field()
-    def redeem_token(self, info: Info, id: strawberry.ID) -> fakts_types.RedeemToken:
-        # A redeem token is a bearer credential: it is visible only to the user
-        # it was issued to, and only within their active organization.
-        return get_scoped_or_denied(
-            fakts_models.RedeemToken.objects,
-            info,
-            field="hub__organization",
-            id=id,
-            user=get_user(info),
-        )
-
-    @kante.django_field()
-    def my_redeem_tokens(self, info: Info) -> list[fakts_types.RedeemToken]:
-        return fakts_models.RedeemToken.objects.filter(user=get_user(info), hub__organization=get_organization(info))
-
-    @kante.django_field()
     def layer(self, info: Info, id: strawberry.ID) -> fakts_types.Layer:
         return get_scoped_or_denied(fakts_models.Layer.objects, info, id=id)
 
@@ -167,21 +149,11 @@ class Mutation:
         resolver=karakter_mutations.notify_user,
     )
 
-    create_redeem_token = strawberry_django.mutation(
-        resolver=fakts_mutations.create_redeem_token,
-    )
-    delete_redeem_token = strawberry_django.mutation(
-        resolver=fakts_mutations.delete_redeem_token,
-    )
-
     create_mandate = strawberry_django.mutation(resolver=fakts_mutations.create_mandate)
-    provision = strawberry_django.mutation(resolver=fakts_mutations.provision)
-    release_mandate_client = strawberry_django.mutation(resolver=fakts_mutations.release_mandate_client)
+    issue_mandate_key = strawberry_django.mutation(resolver=fakts_mutations.issue_mandate_key)
+    issue_child_mandate_key = strawberry_django.mutation(resolver=fakts_mutations.issue_child_mandate_key)
     revoke_mandate = strawberry_django.mutation(resolver=fakts_mutations.revoke_mandate)
 
-    create_developmental_client = strawberry_django.mutation(
-        resolver=fakts_mutations.create_developmental_client,
-    )
     render = strawberry_django.mutation(
         resolver=fakts_mutations.render_hub,
     )

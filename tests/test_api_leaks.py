@@ -2,7 +2,7 @@
 
 Covers the device-code capability model (by-id access is tenant-scoped, accepting
 requires proof of possession of the user code), the secret-bearing fields that
-are now gated or gone (hub claim token, redeem token, mesh auth key, invite
+are now gated or gone (hub claim token, mandate key, mesh auth key, invite
 e-mail, personal user details), and the tenant scoping of the service/app
 catalog.
 
@@ -360,46 +360,60 @@ async def test_invite_email_is_hidden_from_anonymous_preview_but_visible_to_owne
     assert result.data["invite"]["email"] == "invitee@example.com"
 
 
+def test_a_mandate_never_exposes_its_key():
+    block = _sdl_block("ManagementMandate")
+    assert "keyHash" not in block
+    assert "\n  key:" not in block
+
+
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_redeem_token_secret_only_for_creator_or_owner_admin():
+async def test_members_see_their_own_mandates_and_admins_see_all():
     def _setup():
         org = factories.make_organization()
         hub = factories.make_hub(organization=org)
-        token = factories.make_redeem_token(hub=hub, user=org.owner)
-        return token, _owner_context(org), _member_context(org)
+        owner_context = _owner_context(org)
+        mandate, _ = factories.make_mandate_key(hub=hub)
+        return mandate, owner_context, _member_context(org)
 
-    token, owner_context, member_context = await sync_to_async(_setup)()
-    query = "{ redeemTokens { id token } }"
+    mandate, owner_context, member_context = await sync_to_async(_setup)()
+    query = "{ mandates { id keyPrefix } }"
 
     result = await management_schema.execute(query, context_value=owner_context)
     assert not result.errors, result.errors
-    assert result.data["redeemTokens"][0]["token"] == token.token
+    assert [m["id"] for m in result.data["mandates"]] == [str(mandate.id)]
 
-    # A plain member of the same organization can list it but not read the secret.
     result = await management_schema.execute(query, context_value=member_context)
     assert not result.errors, result.errors
-    assert result.data["redeemTokens"][0]["id"] == str(token.id)
-    assert result.data["redeemTokens"][0]["token"] is None
+    assert result.data["mandates"] == []
 
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_create_redeem_token_is_owner_admin_only():
+async def test_issuing_a_key_for_any_app_is_owner_admin_only():
     def _setup():
         org = factories.make_organization()
         hub = factories.make_hub(organization=org)
-        return hub, _owner_context(org), _member_context(org)
+        outsider = _member_context(factories.make_organization())
+        return hub, _owner_context(org), _member_context(org), outsider
 
-    hub, owner_context, guest_context = await sync_to_async(_setup)()
-    mutation = "mutation ($hub: ID!) { createRedeemToken(input: {hub: $hub}) { id token } }"
+    hub, owner_context, member_context, outsider_context = await sync_to_async(_setup)()
+    open_key = "mutation ($hub: ID!) { issueMandateKey(input: {hub: $hub}) { key mandate { id } } }"
+    named_key = 'mutation ($hub: ID!) { issueMandateKey(input: {hub: $hub, app: {identifier: "com.example.app"}}) { key } }'
 
-    _assert_denied(await management_schema.execute(mutation, context_value=guest_context, variable_values={"hub": str(hub.id)}))
+    _assert_denied(await management_schema.execute(open_key, context_value=outsider_context, variable_values={"hub": str(hub.id)}))
 
-    result = await management_schema.execute(mutation, context_value=owner_context, variable_values={"hub": str(hub.id)})
+    member_open = await management_schema.execute(open_key, context_value=member_context, variable_values={"hub": str(hub.id)})
+    assert member_open.errors and "owner or admin" in member_open.errors[0].message
+
+    member_named = await management_schema.execute(named_key, context_value=member_context, variable_values={"hub": str(hub.id)})
+    assert not member_named.errors, member_named.errors
+    assert member_named.data["issueMandateKey"]["key"]
+
+    result = await management_schema.execute(open_key, context_value=owner_context, variable_values={"hub": str(hub.id)})
     assert not result.errors, result.errors
-    # The creator sees the secret they just minted.
-    assert result.data["createRedeemToken"]["token"]
+    # The issuer sees the key once, in the answer.
+    assert len(result.data["issueMandateKey"]["key"]) >= 32
 
 
 @pytest.mark.django_db(transaction=True)

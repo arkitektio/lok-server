@@ -7,12 +7,13 @@ then the YAML file (``config.yaml`` where the service runs by default; override 
 with a ``ValidationError`` if they are not supplied via config or environment.
 """
 
+import datetime
 import hashlib
 import warnings
 import os
 from typing import Any, Dict, List, Literal, Optional
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, SecretStr, field_validator, model_validator
 
 from arkitekt_service.server import settings as shared
 from arkitekt_service.server.settings import AdminSettings, PostgresSettings, ServiceSettings
@@ -390,6 +391,25 @@ class AccountSettings(BaseModel):
         return self
 
 
+class MandateKeySettings(BaseModel):
+    """A mandate key the deployment hands out (see the ``ensuremandates`` command).
+
+    Whoever holds ``key`` logs an app into ``hub`` as ``user``. The key works for as
+    long as the entry stays in the config, the user stays in the organization, and
+    nobody revokes it; a revoked key is never revived."""
+
+    name: str = Field(description="A stable name for the entry: how the setup job recognises it across runs.")
+    key: SecretStr = Field(min_length=32, max_length=1000, description="The mandate key (at least 32 characters). Hand it to the app as FAKTS_MANDATE_KEY.")
+    user: str = Field(description="The username the app acts as.")
+    organization: str = Field(description="The organization slug.")
+    hub: str = Field(description="The identifier of the hub (in the organization) the app composes against.")
+    app: Optional[str] = Field(default=None, description="Pin the key to this app identifier. Unset: the first app that logs in with it.")
+    scopes: Optional[List[str]] = Field(default=None, description="The most scopes the app may ask for. Unset: the organization's.")
+    expires_at: Optional[datetime.datetime] = Field(default=None, description="When the key stops working. Unset: as long as the entry stays.")
+    max_clients: Optional[int] = Field(default=None, ge=1, description="On how many devices the key may log in. Unset: unlimited.")
+    allow_mesh: bool = Field(default=False, description="Whether a client logging in with the key may ask for a mesh key.")
+
+
 class OpenIDAppSettings(BaseModel):
     """An OIDC/OAuth2 client provisioned on boot (see the ``ensureopenid`` command)."""
 
@@ -533,7 +553,7 @@ class Settings(ServiceSettings):
     organizations: List[Dict[str, Any]] = Field(default_factory=list, description="Organizations ensured on boot.")
     users: List[Dict[str, Any]] = Field(default_factory=list, description="Users ensured on boot.")
     memberships: List[Dict[str, Any]] = Field(default_factory=list, description="User/organization memberships ensured on boot.")
-    redeem_tokens: List[Dict[str, Any]] = Field(default_factory=list, description="Redeem tokens provisioned on boot.")
+    mandate_keys: List[MandateKeySettings] = Field(default_factory=list, description="Mandate keys the setup job (ensuremandates) keeps in place.")
     kommunity_partners: List[Dict[str, Any]] = Field(default_factory=list, description="Pre-authorized kommunity partner apps.")
     system_messages: List[Dict[str, Any]] = Field(default_factory=list, description="System messages shown to users.")
     openid_apps: List[OpenIDAppSettings] = Field(default_factory=list, description="OIDC/OAuth2 clients provisioned on boot. Provided per deployment.")

@@ -64,7 +64,7 @@ ENSURED_OPENID_APPS = [a.model_dump() for a in conf.openid_apps]
 ENSURE_ORGANIZATIONS = conf.organizations
 ENSURED_USERS = conf.users
 ENSURED_MEMBERSHIPS = conf.memberships
-REDEEM_TOKENS = conf.redeem_tokens
+MANDATE_KEYS = conf.mandate_keys
 KOMMUNITY_PARTNERS = conf.kommunity_partners
 
 OIDC_ISSUER = conf.oidc_issuer

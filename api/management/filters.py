@@ -330,31 +330,48 @@ class ManagementServiceInstanceFilter:
         return Q(**{f"{prefix}hub__id": value})
 
 
-@strawberry_django.order_type(fakts_models.RedeemToken)
-class ManagementRedeemTokenOrdering:
+@strawberry_django.order_type(fakts_models.Mandate)
+class ManagementMandateOrdering:
     id: strawberry.auto
     created_at: strawberry.auto
+    last_used_at: strawberry.auto
 
 
-@strawberry_django.filter_type(fakts_models.RedeemToken)
-class ManagementRedeemTokenFilter:
+@strawberry_django.filter_type(fakts_models.Mandate)
+class ManagementMandateFilter:
     @strawberry_django.filter_field
     def ids(self, value: list[strawberry.ID], prefix: str) -> Q:
         return Q(**{f"{prefix}id__in": value})
 
     @strawberry_django.filter_field
     def search(self, value: str, prefix: str) -> Q:
-        # Never search on the token itself: a substring match on a bearer
-        # credential is a character-by-character oracle for it.
-        return Q(**{f"{prefix}hub__name__icontains": value})
-
-    @strawberry_django.filter_field
-    def organization(self, value: strawberry.ID, prefix: str) -> Q:
-        return Q(**{f"{prefix}hub__organization__id": value})
+        # Never on the key hash or prefix: matching on a credential is an oracle for it.
+        return Q(**{f"{prefix}label__icontains": value}) | Q(**{f"{prefix}subject_manifest__identifier__icontains": value})
 
     @strawberry_django.filter_field
     def hub(self, value: strawberry.ID, prefix: str) -> Q:
         return Q(**{f"{prefix}hub__id": value})
+
+    @strawberry_django.filter_field
+    def claimant(self, value: fakts_enums.MandateClaimant, prefix: str) -> Q:
+        return Q(**{f"{prefix}claimant": value.value})
+
+    @strawberry_django.filter_field
+    def origin(self, value: fakts_enums.MandateOrigin, prefix: str) -> Q:
+        return Q(**{f"{prefix}origin": value.value})
+
+    @strawberry_django.filter_field
+    def live(self, value: bool, prefix: str) -> Q:
+        from django.utils import timezone
+
+        live = Q(**{f"{prefix}revoked_at__isnull": True}) & (
+            Q(**{f"{prefix}expires_at__isnull": True}) | Q(**{f"{prefix}expires_at__gt": timezone.now()})
+        )
+        return live if value else ~live
+
+    @strawberry_django.filter_field
+    def organization(self, value: strawberry.ID, prefix: str) -> Q:
+        return Q(**{f"{prefix}organization__id": value})
 
 
 @strawberry_django.order_type(karakter_models.Role)

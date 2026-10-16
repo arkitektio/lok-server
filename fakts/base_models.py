@@ -1,4 +1,4 @@
-from pydantic import AliasChoices, BaseModel, Field, model_validator
+from pydantic import AliasChoices, BaseModel, Field, SecretStr, field_validator, model_validator
 from typing import Dict, List, Optional, Literal, Union
 from django.conf import settings
 from fakts import enums
@@ -53,8 +53,9 @@ class WellKnownFakts(BaseModel):
     """Absolute URL of the JWKS used to verify issued access tokens."""
     grant_types_supported: List[str] = Field(default_factory=list)
     """Grant types the token endpoint accepts. Fakts clients use the device-code
-    URN (interactive) and urn:fakts:grant-type:redeem (headless: form fields
-    `redeem_token` + JSON `manifest`), then refresh_token for continuity."""
+    URN (interactive, then refresh_token for continuity) or
+    urn:fakts:grant-type:mandate-key (headless: form fields `key` + JSON `manifest`;
+    access tokens only, the client runs the grant again when one expires)."""
     token_endpoint_auth_methods_supported: List[str] = Field(default_factory=list)
     """Client authentication methods at the token endpoint. Fakts-provisioned
     clients are public and authenticate with `none` (client_id only)."""
@@ -147,6 +148,119 @@ class Manifest(BaseModel):
     """ The repo_url is the url to track issues and get more information about the client. """
     public_sources: Optional[List[PublicSource]] = None
     """ The public_sources are a list of public sources where the client can be found. """
+
+
+class MandatePinMismatch(ValueError):
+    """A manifest is not covered by a mandate's pin."""
+
+
+class RequirementPin(BaseModel):
+    """A requirement as a mandate pins it: which key, served by which service."""
+
+    key: str
+    service: str
+
+
+class MandatePin(BaseModel):
+    """The ceiling a mandate puts on the apps that log in under it.
+
+    Identity (``identifier``, and ``version`` and ``device_id`` when set) must match
+    exactly; ``scopes`` and ``requirements`` are ceilings: a manifest may ask for a
+    subset, never more. A field left ``None`` is open: an open identifier is fixed by
+    the first app that logs in, open scopes are bounded by the organization's,
+    open requirements by the hub's instances. Cosmetic manifest fields are never
+    compared: a running app assembles them from its image.
+    """
+
+    identifier: str | None = None
+    version: str | None = None
+    scopes: list[str] | None = None
+    requirements: list[RequirementPin] | None = None
+    device_id: str | None = Field(default=None, validation_alias=AliasChoices("device_id", "node_id"))
+
+    @classmethod
+    def from_manifest(cls, manifest: "Manifest", *, version: bool = True, device: bool = False) -> "MandatePin":
+        return cls(
+            identifier=manifest.identifier,
+            version=manifest.version if version else None,
+            scopes=sorted(set(manifest.scopes or [])),
+            requirements=[RequirementPin(key=r.key, service=r.service) for r in manifest.requirements or []],
+            device_id=manifest.device_id if device else None,
+        )
+
+    @property
+    def is_open(self) -> bool:
+        return self.identifier is None
+
+    def _requirement_pairs(self) -> set[tuple[str, str]] | None:
+        if self.requirements is None:
+            return None
+        return {(r.key, r.service) for r in self.requirements}
+
+    def check(self, manifest: "Manifest") -> None:
+        """Raise :class:`MandatePinMismatch` unless the pin covers ``manifest``."""
+        if self.identifier is not None and manifest.identifier != self.identifier:
+            raise MandatePinMismatch(f"This mandate is pinned to app '{self.identifier}', not '{manifest.identifier}'.")
+        if self.version is not None and manifest.version != self.version:
+            raise MandatePinMismatch(
+                f"This mandate is pinned to version '{self.version}' of '{manifest.identifier}', not '{manifest.version}'."
+            )
+        if self.device_id is not None and manifest.device_id != self.device_id:
+            raise MandatePinMismatch("This mandate is pinned to a different device than the one the manifest names.")
+        if self.scopes is not None:
+            extra_scopes = sorted(set(manifest.scopes or []) - set(self.scopes))
+            if extra_scopes:
+                raise MandatePinMismatch(f"This mandate does not authorize the scope(s) {', '.join(extra_scopes)}.")
+        pairs = self._requirement_pairs()
+        if pairs is not None:
+            extra = sorted(f"{r.key}={r.service}" for r in manifest.requirements or [] if (r.key, r.service) not in pairs)
+            if extra:
+                raise MandatePinMismatch(f"This mandate does not authorize the requirement(s) {', '.join(extra)}.")
+
+    def assert_within(self, ceiling: "MandatePin") -> None:
+        """Raise :class:`MandatePinMismatch` unless every app this pin admits is admitted by ``ceiling``."""
+        for name in ("identifier", "version", "device_id"):
+            fixed = getattr(ceiling, name)
+            if fixed is not None and getattr(self, name) != fixed:
+                raise MandatePinMismatch(f"The {name.replace('_', ' ')} must be '{fixed}', as the issuing mandate pins it.")
+        if ceiling.scopes is not None:
+            if self.scopes is None:
+                raise MandatePinMismatch("Scopes must be pinned, as the issuing mandate pins them.")
+            extra_scopes = sorted(set(self.scopes) - set(ceiling.scopes))
+            if extra_scopes:
+                raise MandatePinMismatch(f"The scope(s) {', '.join(extra_scopes)} exceed the issuer's.")
+        ceiling_pairs = ceiling._requirement_pairs()
+        if ceiling_pairs is not None:
+            own = self._requirement_pairs()
+            if own is None:
+                raise MandatePinMismatch("Requirements must be pinned, as the issuing mandate pins them.")
+            extra = sorted(f"{key}={service}" for key, service in own - ceiling_pairs)
+            if extra:
+                raise MandatePinMismatch(f"The requirement(s) {', '.join(extra)} exceed the issuer's.")
+
+    def narrowed_to_device(self, device_id: str) -> "MandatePin":
+        return self.model_copy(update={"device_id": device_id})
+
+    def fixed_to(self, identifier: str) -> "MandatePin":
+        return self.model_copy(update={"identifier": identifier})
+
+
+class MandateKeyGrantRequest(BaseModel):
+    """The form fields of the ``urn:fakts:grant-type:mandate-key`` grant."""
+
+    key: SecretStr = Field(min_length=32, max_length=1000)
+    manifest: Manifest
+    requested_client_kind: enums.ClientKindVanilla = enums.ClientKindVanilla.DEVELOPMENT
+    requested_client_role: enums.ClientRoleVanilla = enums.ClientRoleVanilla.INTERFACE
+    request_auth_key: bool = False
+
+    @field_validator("requested_client_kind")
+    @classmethod
+    def _headless_kind(cls, kind: enums.ClientKindVanilla) -> enums.ClientKindVanilla:
+        allowed = (enums.ClientKindVanilla.DEVELOPMENT, enums.ClientKindVanilla.DESKTOP, enums.ClientKindVanilla.MOBILE)
+        if kind not in allowed:
+            raise ValueError(f"A mandate key logs in a {', '.join(k.value for k in allowed)} client, not a {kind.value} one.")
+        return kind
 
 
 class Role(BaseModel):
@@ -291,13 +405,12 @@ class ClientRequest(BaseModel):
     description: Optional[str] = None
     """A human readable description of the request."""
     manifest: Manifest
-    """What the client may be. Approving the hub mints a redeem token pinned to the
+    """What the client may be. Approving the hub issues a mandate pinned to the
     manifest's identifier, scopes, requirements and (when set) device; its version is
-    left open, so the hub can run the next release of the app on the same token."""
-    redeem_token: Optional[str] = Field(default=None, min_length=32, max_length=1000)
-    """The redeem token the hub proposes. A hub that has to configure the app before
-    Lok answers (a container written before the hub is approved) brings its own
-    secret; without one, Lok mints it and the envelope hands it over."""
+    left open, so the hub can run the next release of the app on the same key."""
+    mandate_key: str = Field(min_length=32, max_length=1000)
+    """The mandate key the hub proposes, already written into the client's
+    environment. Lok keeps only its hash and never hands it back."""
 
 
 class HubManifest(BaseModel):
@@ -485,13 +598,16 @@ class HubClientClaim(BaseModel):
 
 
 class HubClientRequestClaim(BaseModel):
-    """A client the hub asked for when it was approved, and how it logs in.
+    """A client the hub asked for when it was approved.
 
-    The redeem token is the credential: whoever runs the client hands it over as
-    ``FAKTS_REDEEM_TOKEN``. ``client_id`` is set once it has been redeemed."""
+    The hub proposed the mandate key and hands it to the client as
+    ``FAKTS_MANDATE_KEY``; lok answers with the key's SHA-256 only, so the hub can
+    see which of its keys is approved without lok ever sending a secret back."""
 
-    redeem_token: str
-    client_id: str | None = None
+    mandate: str
+    key_sha256: str
+    client_ids: List[str] = Field(default_factory=list)
+    """The clients that have logged in with the key, one per device."""
 
 
 class HubClaimAnswer(BaseModel):

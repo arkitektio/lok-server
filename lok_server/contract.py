@@ -47,15 +47,15 @@ contract = Contract(
     debug=Start(("python", "manage.py", "runserver", "0.0.0.0:80"), {"DJANGO__ALLOW_INSECURE_TRANSPORT": "true"}),
     # What a deployment starts out with, from its config. Each is safe to run again, and
     # the order is theirs: partners before the organizations that are configured from them,
-    # users before the memberships and tokens that name them.
+    # users before the memberships and mandate keys that name them.
     jobs={
         "ensurepartners": Job(("ensurepartners",), "Register the partners the config names"),
         "ensureopenid": Job(("ensureopenid",), "Register the OpenID providers the config names"),
         "ensureusers": Job(("ensureusers",), "Create the accounts the config names"),
         "ensureorganizations": Job(("ensureorganizations",), "Create the organizations the config names, with the hubs their partners bring"),
         "ensurememberships": Job(("ensurememberships",), "Put the accounts into their organizations"),
-        "ensuretokens": Job(("ensuretokens",), "Provision the redeem tokens the config names"),
+        "ensuremandates": Job(("ensuremandates",), "Keep the mandate keys the config names, and revoke the ones it dropped"),
         "reconcile_meshes": Job(("reconcile_meshes",), "Repair drift between the meshes and ionscale: --dry-run, --organization, --revoke-orphans, --sidecars"),
     },
-    setup=("ensurepartners", "ensureopenid", "ensureusers", "ensureorganizations", "ensurememberships", "ensuretokens"),
+    setup=("ensurepartners", "ensureopenid", "ensureusers", "ensureorganizations", "ensurememberships", "ensuremandates"),
 )

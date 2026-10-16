@@ -68,16 +68,24 @@ class AppFilter:
         return Q(**{f"{prefix}name__contains": value})
 
 
-@strawberry_django.filter_type(fakts_models.RedeemToken)
-class RedeemTokenFilter:
+@strawberry_django.filter_type(fakts_models.Mandate)
+class MandateFilter:
     @strawberry_django.filter_field
     def ids(self, value: list[strawberry.ID], prefix: str) -> Q:
         return Q(**{f"{prefix}id__in": value})
 
     @strawberry_django.filter_field
     def search(self, value: str, prefix: str) -> Q:
-        # RedeemToken has no `name`; search by the hub it was issued for.
-        return Q(**{f"{prefix}hub__name__icontains": value})
+        return Q(**{f"{prefix}label__icontains": value}) | Q(**{f"{prefix}subject_manifest__identifier__icontains": value})
+
+    @strawberry_django.filter_field
+    def live(self, value: bool, prefix: str) -> Q:
+        from django.utils import timezone
+
+        live = Q(**{f"{prefix}revoked_at__isnull": True}) & (
+            Q(**{f"{prefix}expires_at__isnull": True}) | Q(**{f"{prefix}expires_at__gt": timezone.now()})
+        )
+        return live if value else ~live
 
 
 @strawberry_django.filter_type(fakts_models.Service)
@@ -228,7 +236,8 @@ class HubOrdering:
     name: strawberry.auto
 
 
-@strawberry_django.order_type(fakts_models.RedeemToken)
-class RedeemTokenOrdering:
+@strawberry_django.order_type(fakts_models.Mandate)
+class MandateOrdering:
     id: strawberry.auto
     created_at: strawberry.auto
+    last_used_at: strawberry.auto

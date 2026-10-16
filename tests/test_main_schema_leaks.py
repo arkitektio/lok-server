@@ -34,79 +34,66 @@ def _assert_denied(result):
     assert "not authorized" in result.errors[0].message, result.errors[0].message
 
 
-REDEEM_TOKEN = """
-    query ($id: ID!) { redeemToken(id: $id) { id token } }
+MANDATE = """
+    query ($id: ID!) { mandate(id: $id) { id keyPrefix } }
 """
+
+
+def _mandates(mine, theirs):
+    """A mandate in their organization, one of mine, and one of a colleague's in mine."""
+    their_hub = factories.make_hub(organization=theirs.organization)
+    their_mandate, _ = factories.make_mandate_key(hub=their_hub, membership=theirs, pin={"identifier": "com.example.app"})
+    my_hub = factories.make_hub(organization=mine.organization)
+    my_mandate, _ = factories.make_mandate_key(hub=my_hub, membership=mine, pin={"identifier": "com.example.app"})
+    # Same tenant, different user: still not mine.
+    colleague = factories.make_membership(organization=mine.organization)
+    colleague_mandate, _ = factories.make_mandate_key(hub=my_hub, membership=colleague, pin={"identifier": "com.example.app"})
+    return their_mandate, my_mandate, colleague_mandate
 
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_redeem_token_is_not_readable_by_another_user():
-    """`redeemToken(id)` returns the bearer `token`; it used to fetch by bare pk."""
+async def test_a_mandate_is_not_readable_by_another_user():
     my_context, mine, _my_client, _their_context, theirs, _their_client = await sync_to_async(_two_principals)()
+    their_mandate, my_mandate, colleague_mandate = await sync_to_async(_mandates)(mine, theirs)
 
-    def _tokens():
-        their_hub = factories.make_hub(organization=theirs.organization)
-        their_token = factories.make_redeem_token(hub=their_hub, user=theirs.user)
-        my_hub = factories.make_hub(organization=mine.organization)
-        my_token = factories.make_redeem_token(hub=my_hub, user=mine.user)
-        # Same tenant, different user: still not mine.
-        colleague = factories.make_membership(organization=mine.organization)
-        colleague_token = factories.make_redeem_token(hub=my_hub, user=colleague.user)
-        return their_token, my_token, colleague_token
-
-    their_token, my_token, colleague_token = await sync_to_async(_tokens)()
-
-    result = await schema.execute(REDEEM_TOKEN, context_value=my_context, variable_values={"id": str(their_token.id)})
-    _assert_denied(result)
-
-    result = await schema.execute(REDEEM_TOKEN, context_value=my_context, variable_values={"id": str(colleague_token.id)})
-    _assert_denied(result)
-
-    result = await schema.execute(REDEEM_TOKEN, context_value=my_context, variable_values={"id": str(my_token.id)})
-    assert not result.errors, result.errors
-    assert result.data["redeemToken"]["token"] == my_token.token
-
-
-DELETE_REDEEM_TOKEN = """
-    mutation ($id: ID!) { deleteRedeemToken(input: {id: $id}) }
-"""
-
-
-@pytest.mark.django_db(transaction=True)
-@pytest.mark.asyncio
-async def test_redeem_token_is_only_revocable_by_its_issuer():
-    """`deleteRedeemToken` has the same scoping as `redeemToken(id)`: another tenant's
-    token and a colleague's token are 'not found', only the issuer's own goes."""
-    my_context, mine, _my_client, _their_context, theirs, _their_client = await sync_to_async(_two_principals)()
-
-    def _tokens():
-        their_hub = factories.make_hub(organization=theirs.organization)
-        their_token = factories.make_redeem_token(hub=their_hub, user=theirs.user)
-        my_hub = factories.make_hub(organization=mine.organization)
-        my_token = factories.make_redeem_token(hub=my_hub, user=mine.user)
-        colleague = factories.make_membership(organization=mine.organization)
-        colleague_token = factories.make_redeem_token(hub=my_hub, user=colleague.user)
-        return their_token, my_token, colleague_token
-
-    their_token, my_token, colleague_token = await sync_to_async(_tokens)()
-
-    for foreign in (their_token, colleague_token):
-        result = await schema.execute(DELETE_REDEEM_TOKEN, context_value=my_context, variable_values={"id": str(foreign.id)})
+    for foreign in (their_mandate, colleague_mandate):
+        result = await schema.execute(MANDATE, context_value=my_context, variable_values={"id": str(foreign.id)})
         _assert_denied(result)
 
-    result = await schema.execute(DELETE_REDEEM_TOKEN, context_value=my_context, variable_values={"id": str(my_token.id)})
+    result = await schema.execute(MANDATE, context_value=my_context, variable_values={"id": str(my_mandate.id)})
     assert not result.errors, result.errors
-    assert result.data["deleteRedeemToken"] == str(my_token.id)
+    assert result.data["mandate"]["keyPrefix"] == my_mandate.key_prefix
 
-    def _remaining():
+
+REVOKE_MANDATE = """
+    mutation ($id: ID!) { revokeMandate(input: {id: $id}) { id isLive } }
+"""
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_a_mandate_is_only_revocable_by_its_grantor():
+    """Another tenant's mandate and a colleague's are 'not found'; only my own goes."""
+    my_context, mine, _my_client, _their_context, theirs, _their_client = await sync_to_async(_two_principals)()
+    their_mandate, my_mandate, colleague_mandate = await sync_to_async(_mandates)(mine, theirs)
+
+    for foreign in (their_mandate, colleague_mandate):
+        result = await schema.execute(REVOKE_MANDATE, context_value=my_context, variable_values={"id": str(foreign.id)})
+        _assert_denied(result)
+
+    result = await schema.execute(REVOKE_MANDATE, context_value=my_context, variable_values={"id": str(my_mandate.id)})
+    assert not result.errors, result.errors
+    assert result.data["revokeMandate"]["isLive"] is False
+
+    def _live():
         from fakts import models
 
-        return set(models.RedeemToken.objects.values_list("id", flat=True))
+        return set(models.Mandate.objects.live().values_list("id", flat=True))
 
-    remaining = await sync_to_async(_remaining)()
-    assert my_token.id not in remaining
-    assert {their_token.id, colleague_token.id} <= remaining
+    live = await sync_to_async(_live)()
+    assert my_mandate.id not in live
+    assert {their_mandate.id, colleague_mandate.id} <= live
 
 
 @pytest.mark.django_db(transaction=True)

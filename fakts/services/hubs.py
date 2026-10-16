@@ -12,7 +12,7 @@ from django.conf import settings
 from django.db import transaction
 from django.utils import timezone
 
-from fakts import base_models, models
+from fakts import base_models, enums, models
 from fakts.base_models import HubManifest
 from fakts.services import aliases
 from fakts.services.instance_keys import validate_challenge_key
@@ -111,52 +111,60 @@ def run_partner_pre_authorize_hook(
 
 
 @transaction.atomic
-def ensure_client_requests(hub: models.Hub, manifest: HubManifest, user) -> list[models.RedeemToken]:
-    """Give every client the hub's manifest requests a redeem token, as ``user``.
+def ensure_hub_mandates(hub: models.Hub, manifest: HubManifest, grantor: karakter_models.Membership) -> list[models.Mandate]:
+    """Give every client the hub's manifest asks for a mandate, granted by ``grantor``.
 
     This is how approving a hub also approves the apps the hub runs itself (a plugin
-    engine beside its services): each request gets one token of the hub's, pinned to
-    the request's identifier, scopes, requirements and device but not to a version, and
-    redeemable again with a changed manifest, so the next release of the app logs in on
-    it too. The client a redeem produces acts as ``user``, the one who approved the hub.
+    engine beside its services): each request gets a keyed mandate under the key the
+    hub proposed, pinned to the request's identifier, scopes, requirements and device
+    but not to a version, so the next release of the app logs in on the same key.
 
-    Approving again re-pins the tokens (and takes a newly proposed secret); a request
-    the manifest no longer makes loses its token. The clients already redeemed are left
-    alone: they live on their own refresh chains.
+    Approving again keeps a mandate whose key is unchanged (re-pinning it, and moving
+    it to the new grantor, whose clients are then logged in afresh), supersedes one
+    whose key changed, and revokes the mandates of requests the manifest no longer
+    makes. Deleting the hub deletes its mandates.
     """
-    tokens = []
+    from fakts.base_models import MandatePin
+    from fakts.services import mandates
+
+    issued = []
     for request in manifest.clients:
-        pinned = {
-            "identifier": request.manifest.identifier,
-            "scopes": list(request.manifest.scopes or []),
-            "requirements": [
-                {"key": r.key, "service": r.service} for r in request.manifest.requirements
-            ],
-        }
-        if request.manifest.device_id:
-            pinned["device_id"] = request.manifest.device_id
+        pin = MandatePin.from_manifest(request.manifest, version=False, device=True)
+        current = hub.mandates.filter(
+            origin=enums.MandateOriginChoices.HUB, hub_request=request.identifier, revoked_at__isnull=True
+        ).first()
 
-        token = models.RedeemToken.objects.filter(hub=hub, hub_client=request.identifier).first()
-        if token is None:
-            token = models.RedeemToken(
+        if current is not None and current.key_hash == mandates.hash_key(request.mandate_key):
+            if current.membership_id != grantor.pk:
+                # Its clients act as the previous grantor: they log in again as the new one.
+                models.Client.objects.filter(mandate=current).delete()
+            current.membership = grantor
+            current.subject_manifest = pin.model_dump(mode="json")
+            current.allow_mesh = manifest.request_auth_key
+            current.save(update_fields=["membership", "subject_manifest", "allow_mesh"])
+            issued.append(current)
+            continue
+
+        if current is not None:
+            mandates.revoke_mandate(current, enums.MandateRevocationChoices.SUPERSEDED)
+        issued.append(
+            mandates.issue_mandate(
+                issuer=mandates.HubIssuer(hub=hub, request=request.identifier),
+                grantor=grantor,
                 hub=hub,
-                hub_client=request.identifier,
-                token=request.redeem_token or secrets.token_urlsafe(32),
-            )
-        elif request.redeem_token:
-            token.token = request.redeem_token
-        token.user = user
-        token.pinned_manifest = pinned
-        token.allow_reredeem = True
-        token.expires_at = None
-        token.max_redemptions = None
-        token.save()
-        tokens.append(token)
+                pin=pin,
+                claimant=mandates.KeyClaimant(key=request.mandate_key),
+                allow_mesh=manifest.request_auth_key,
+                label=request.description or request.identifier,
+            ).mandate
+        )
 
-    models.RedeemToken.objects.filter(hub=hub, hub_client__isnull=False).exclude(
-        hub_client__in=[request.identifier for request in manifest.clients]
-    ).delete()
-    return tokens
+    dropped = hub.mandates.filter(origin=enums.MandateOriginChoices.HUB, revoked_at__isnull=True).exclude(
+        hub_request__in=[request.identifier for request in manifest.clients]
+    )
+    for mandate in dropped:
+        mandates.revoke_mandate(mandate, enums.MandateRevocationChoices.SUPERSEDED)
+    return issued
 
 
 def create_hub_from_manifest(
@@ -234,7 +242,9 @@ def create_hub_from_manifest(
             counts["aliases"] += 1
             logger.debug("%s alias %s", "Created" if alias_created else "Updated", alias_obj.name)
 
-    counts["clients"] = len(ensure_client_requests(hub, manifest, organization.owner))
+    # No one approves a partner-configured hub: its clients act as the organization's owner.
+    owner = karakter_models.Membership.objects.get(user=organization.owner, organization=organization)
+    counts["clients"] = len(ensure_hub_mandates(hub, manifest, owner))
 
     logger.info(
         "%s hub '%s' for org '%s' (%s)",

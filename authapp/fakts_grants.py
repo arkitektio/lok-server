@@ -6,17 +6,18 @@ registered (fakts-provisioned) clients.
 
 Two grants live here, plus a mixin shared with the standard grants:
 
-- ``FaktsDeviceCodeGrant`` — the RFC 8628 device-code grant. ``/f/start/``
-  dynamically registers a *public* ``OAuth2Client`` and stages a
-  ``fakts.DeviceCode``; a human approves it in the kontrol frontend (choosing a
+- ``FaktsDeviceCodeGrant`` — the RFC 8628 device-code grant.
+  ``/o/app-authorization/`` dynamically registers a *public* ``Client`` and stages
+  a ``fakts.DeviceCode``; a human approves it in the kontrol frontend (choosing a
   hub, and thereby an organization); the device polls ``/o/token/`` with its
   ``device_code`` + ``client_id`` and receives the access token, a refresh
   token, and the rendered service instances in one response.
 
-- ``FaktsRedeemGrant`` — the headless counterpart. A pre-issued
-  ``fakts.RedeemToken`` (always bound to a hub, and through it an organization)
-  plus a client manifest is exchanged directly for the same combined response;
-  the fakts client is provisioned on first redeem.
+- ``FaktsMandateKeyGrant`` — the headless counterpart. A mandate key (see
+  ``fakts.models.Mandate``) plus a client manifest is exchanged for an access
+  token and the same envelope — but never a refresh token: the client runs the
+  grant again when its access token expires, so every token it holds is backed
+  by a fresh check of the mandate and its issuers.
 
 - ``FaktsEnvelopeMixin`` — appends the fakts envelope (``self``, ``instances``,
   ``statuses``, ``client_id``) to any token response whose OAuth2 client is
@@ -25,7 +26,7 @@ Two grants live here, plus a mixin shared with the standard grants:
   website-kind clients receive them through the standard code flow. It also
   carries ``please_report`` — the operator's standing request for a client to
   re-report its configuration, which the client therefore picks up on its next
-  refresh.
+  refresh — and hands out a mesh key once (``append_mesh_key``).
 
 Org scoping: every token minted here has a ``karakter.Membership`` as its
 subject (``OAuth2Token.user`` is a FK to Membership), so the issuing
@@ -53,7 +54,7 @@ from authlib.oauth2.rfc8628 import DeviceCodeGrant
 
 logger = logging.getLogger(__name__)
 
-FAKTS_REDEEM_GRANT_TYPE = "urn:fakts:grant-type:redeem"
+FAKTS_MANDATE_KEY_GRANT_TYPE = "urn:fakts:grant-type:mandate-key"
 
 
 class FaktsEnvelopeMixin:
@@ -112,6 +113,26 @@ class FaktsEnvelopeMixin:
 
         token.update(envelope)
         token["client_id"] = client.client_id
+        return token
+
+
+    @staticmethod
+    def append_mesh_key(token: dict, key) -> dict:
+        """Hand an app or hub its mesh key (``request_auth_key``), exactly once.
+
+        The device-code grant hands out the key minted at accept (the code is
+        burned right after); the mandate-key grant one minted for this grant. A
+        refresh never carries one. Apps and hubs get the same ``mesh`` shape
+        (``MeshClaim``); the identity it belongs to (sub, organization, hub) is in
+        the envelope's ``self``.
+        """
+        from fakts.base_models import MeshClaim
+
+        if key is not None:
+            token["mesh"] = MeshClaim(
+                ionscale_auth_key=key.key,
+                ionscale_coord_url=settings.IONSCALE_COORD_URL,
+            ).model_dump()
         return token
 
 
@@ -187,114 +208,92 @@ class FaktsDeviceCodeGrant(FaktsEnvelopeMixin, DeviceCodeGrant):
             logger.exception("Device-code grant failed to mint tokens for client %s", client.client_id)
             raise InvalidGrantError(description=str(e))
         self.append_fakts_envelope(token)
-        self.append_mesh_key(token, credential)
+        self.append_mesh_key(token, credential.auth_key)
         # Single-use: burn the code once it has yielded its tokens. Continuity
         # from here on is the refresh-token chain, not the device code.
         credential.delete()
         return 200, token, self.TOKEN_RESPONSE_HEADER
 
 
-    @staticmethod
-    def append_mesh_key(token: dict, credential) -> dict:
-        """Hand an app or hub its mesh key, minted at accept (``request_auth_key``).
 
-        Only here, on the initial device-code response: the code is burned right
-        after, so the key goes out exactly once and never rides along a refresh.
-        Apps and hubs get the same ``mesh`` shape (``MeshClaim``); the identity
-        it belongs to (sub, organization, hub) is in the envelope's ``self``.
-        """
-        from fakts.base_models import MeshClaim
+class FaktsMandateKeyGrant(FaktsEnvelopeMixin, BaseGrant, TokenEndpointMixin):
+    """Headless fakts grant: a mandate key + manifest → an access token + instances.
 
-        key = getattr(credential, "auth_key", None)
-        if key is not None:
-            token["mesh"] = MeshClaim(
-                ionscale_auth_key=key.key,
-                ionscale_coord_url=settings.IONSCALE_COORD_URL,
-            ).model_dump()
-        return token
-
-
-class FaktsRedeemGrant(FaktsEnvelopeMixin, BaseGrant, TokenEndpointMixin):
-    """Headless fakts grant: a pre-issued redeem token + manifest → tokens + instances.
-
-    There is no pre-registered client to authenticate — the redeem token *is*
-    the credential, and the fakts client (with its public OAuth2 client) is
-    provisioned or reused during validation. The token's subject is the
-    membership of the redeem token's user in its hub's organization.
+    There is no pre-registered client to authenticate: the key is the credential,
+    and the client it logs in as (one per mandate and device) is created or reused
+    while validating. The token's subject is the mandate's grantor membership. No
+    refresh token is issued; see the module docstring.
     """
 
-    GRANT_TYPE = FAKTS_REDEEM_GRANT_TYPE
+    GRANT_TYPE = FAKTS_MANDATE_KEY_GRANT_TYPE
     TOKEN_ENDPOINT_AUTH_METHODS = ["none"]
 
     def validate_token_request(self):
-        from fakts import base_models, enums
-        from fakts import models as fakts_models
+        from pydantic import ValidationError
+
+        from fakts.base_models import MandateKeyGrantRequest, MandatePinMismatch
         from fakts.services import clients as client_services
-        from fakts.services.mandates import MandateNotLive
+        from fakts.services import mandates
 
         data = self.request.payload.data
-
-        redeem_token = data.get("redeem_token")
-        if not redeem_token:
-            raise InvalidRequestError("Missing 'redeem_token' in request.")
-
         raw_manifest = data.get("manifest")
+        if not data.get("key"):
+            raise InvalidRequestError("Missing 'key' in request.")
         if not raw_manifest:
             raise InvalidRequestError("Missing 'manifest' in request.")
-
         try:
-            manifest = base_models.Manifest(**json.loads(raw_manifest))
-        except Exception as e:
+            request = MandateKeyGrantRequest(
+                key=data.get("key"),
+                manifest=json.loads(raw_manifest),
+                **{
+                    field: data[field]
+                    for field in ("requested_client_kind", "requested_client_role", "request_auth_key")
+                    if data.get(field) is not None
+                },
+            )
+        except ValidationError as e:
+            # One line: an OAuth error description may not carry newlines.
+            problems = "; ".join(f"{'.'.join(str(p) for p in err['loc']) or 'request'}: {err['msg']}" for err in e.errors())
+            raise InvalidRequestError(f"Malformed request: {problems}")
+        except ValueError as e:
             raise InvalidRequestError(f"Malformed 'manifest': {e}")
 
-        role = data.get("requested_client_role", enums.ClientRoleVanilla.INTERFACE.value)
-        valid_roles = [r.value for r in enums.ClientRoleVanilla]
-        if role not in valid_roles:
-            raise InvalidRequestError(
-                f"Invalid 'requested_client_role' {role!r}; expected one of {', '.join(valid_roles)}."
-            )
-
         try:
-            fakts_client = client_services.redeem_token(redeem_token, manifest, role=role)
-        except fakts_models.RedeemToken.DoesNotExist:
-            raise InvalidGrantError(description="Invalid redeem token.")
-        except client_services.RedeemTokenExhausted as e:
-            raise InvalidGrantError(description=str(e))
-        except client_services.RedeemTokenExpired:
-            raise InvalidGrantError(description="Redeem token expired.")
-        except client_services.RedeemTokenManifestChanged as e:
-            raise InvalidGrantError(description=str(e))
-        except client_services.RedeemTokenManifestMismatch as e:
+            grant = mandates.authenticate_key(request)
+        except (mandates.MandateError, MandatePinMismatch, client_services.DeviceAuthRequired) as e:
             raise InvalidGrantError(description=str(e))
         except client_services.UnknownScope as e:
             raise InvalidScopeError(description=str(e))
-        except MandateNotLive as e:
-            raise InvalidGrantError(description=str(e))
-        except client_services.DeviceAuthRequired as e:
-            raise InvalidGrantError(description=str(e))
         except OAuth2Error:
             raise
         except Exception as e:
-            # redeem_token/bind_client can fail in many domain-specific ways
-            # (logo download, a hub whose owner lost membership, ...). Every one
-            # of them is an OAuth error to the caller — never a 500.
-            logger.exception("Redeem grant failed for manifest %s", manifest.identifier)
+            # Binding can fail in many domain-specific ways (a logo download, ...).
+            # Every one of them is an OAuth error to the caller, never a 500.
+            logger.exception("Mandate-key grant failed for manifest %s", request.manifest.identifier)
             raise InvalidGrantError(description=str(e))
 
-        membership = fakts_client.membership
-        if membership is None:
-            raise InvalidGrantError(description="The redeemed client is not attached to an organization membership.")
-
-        self.request.client = fakts_client
-        self.request.user = membership
+        self.request.client = grant.client
+        self.request.user = grant.client.membership
+        self.mesh_key = grant.mesh_key
 
     def create_token_response(self):
+        from authapp.models import OAuth2Token
+        from authapp.server import MAX_ACCESS_TOKEN_EXPIRES_IN
+
         client = self.request.client
         token = self.generate_token(
             user=self.request.user,
             scope=client.scope,
-            include_refresh_token=True,
+            include_refresh_token=False,
         )
         self.save_token(token)
+        # Rows of access tokens that have expired are of no further use (there is
+        # no chain to detect reuse on); one grant an hour would pile them up.
+        OAuth2Token.objects.filter(
+            client_id=client.client_id,
+            refresh_token__isnull=True,
+            issued_at__lt=int(timezone.now().timestamp()) - MAX_ACCESS_TOKEN_EXPIRES_IN,
+        ).delete()
         self.append_fakts_envelope(token)
+        self.append_mesh_key(token, self.mesh_key)
         return 200, token, self.TOKEN_RESPONSE_HEADER

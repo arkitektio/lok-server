@@ -13,7 +13,6 @@ import logging
 from django.conf import settings
 from django.db import transaction
 from django.db.models import Q
-from django.utils import timezone
 
 from fakts import base_models, enums, models
 from fakts.base_models import Manifest
@@ -25,10 +24,12 @@ from karakter.hashers import hash_device_id
 logger = logging.getLogger(__name__)
 
 # Every fakts client is a *public* OAuth2 client: it holds no secret, exchanges
-# its device code (or redeem token) once, and from then on its identity is the
-# rotated refresh-token chain. authorization_code is included so website-kind
-# clients (with registered redirect URIs and PKCE) can use the standard code flow.
-FAKTS_CLIENT_GRANT_TYPES = "urn:ietf:params:oauth:grant-type:device_code urn:fakts:grant-type:redeem refresh_token authorization_code"
+# its device code once, and from then on its identity is the rotated
+# refresh-token chain. authorization_code is included so website-kind clients
+# (with registered redirect URIs and PKCE) can use the standard code flow.
+# Clients that log in with a mandate key are registered for that grant only
+# (see fakts.services.mandates).
+FAKTS_CLIENT_GRANT_TYPES = "urn:ietf:params:oauth:grant-type:device_code refresh_token authorization_code"
 
 # OIDC base scopes every fakts client may request on top of its granted
 # organization scopes.
@@ -38,24 +39,6 @@ BASE_OIDC_SCOPES = ["openid", "profile", "email"]
 class DeviceAuthRequired(Exception):
     """Raised when an organization requires device authentication but the client
     manifest carries no ``device_id``."""
-
-
-class RedeemTokenExpired(Exception):
-    """Raised when a redeem token has passed its expiry (and has been deleted)."""
-
-
-class RedeemTokenExhausted(Exception):
-    """Raised when a redeem token has been redeemed as many times as allowed."""
-
-
-class RedeemTokenManifestChanged(Exception):
-    """Raised when an already-redeemed token is re-redeemed with a different
-    manifest while ``allow_reredeem`` is not set."""
-
-
-class RedeemTokenManifestMismatch(Exception):
-    """Raised when a redeem presents a manifest that does not satisfy the manifest the
-    token was pinned to at mint time (see :func:`check_pinned_manifest`)."""
 
 
 class UnknownScope(Exception):
@@ -73,59 +56,12 @@ def hash_manifest(manifest: Manifest) -> str:
     ).hexdigest()
 
 
-def check_pinned_manifest(pinned: dict, manifest: Manifest) -> None:
-    """Refuse a redeem whose manifest is not covered by the token's pinned manifest.
-
-    Identity (``identifier``, and ``version`` when pinned) and placement (``device_id``,
-    when pinned) must match exactly. ``scopes`` and ``requirements`` are a *ceiling*: the presented manifest
-    may request a subset, never more — extra scopes would widen what the issued token can
-    do, extra requirements would render extra service instances into the envelope.
-    Cosmetic fields (title, description, logo, authors, keywords, public sources) are not
-    compared: the running app assembles them from its image, and the deployer that pinned
-    the token cannot reproduce them byte-for-byte.
-    """
-    if manifest.identifier != pinned.get("identifier"):
-        raise RedeemTokenManifestMismatch(
-            f"This redeem token is pinned to app '{pinned.get('identifier')}', "
-            f"not '{manifest.identifier}'."
-        )
-    # A pin without a version covers every release of the app: a hub's client requests
-    # are pinned so, and the hub runs the next release on the same token.
-    if pinned.get("version") is not None and manifest.version != pinned.get("version"):
-        raise RedeemTokenManifestMismatch(
-            f"This redeem token is pinned to version '{pinned.get('version')}' of "
-            f"'{manifest.identifier}', not '{manifest.version}'."
-        )
-    # Tokens pinned before the rename stored the device under `node_id`.
-    pinned_device = pinned.get("device_id") or pinned.get("node_id")
-    if pinned_device and manifest.device_id != pinned_device:
-        raise RedeemTokenManifestMismatch(
-            "This redeem token is pinned to a different device than the one the manifest names."
-        )
-    extra_scopes = sorted(set(manifest.scopes or []) - set(pinned.get("scopes") or []))
-    if extra_scopes:
-        raise RedeemTokenManifestMismatch(
-            f"This redeem token does not authorize the scope(s) {', '.join(extra_scopes)}."
-        )
-    pinned_requirements = {
-        (r.get("key"), r.get("service")) for r in (pinned.get("requirements") or [])
-    }
-    extra_requirements = sorted(
-        f"{r.key}={r.service}"
-        for r in (manifest.requirements or [])
-        if (r.key, r.service) not in pinned_requirements
-    )
-    if extra_requirements:
-        raise RedeemTokenManifestMismatch(
-            f"This redeem token does not authorize the requirement(s) {', '.join(extra_requirements)}."
-        )
-
-
 def create_public_client(
     kind: str = enums.ClientKindVanilla.DEVELOPMENT.value,
     role: str = enums.ClientRoleVanilla.INTERFACE.value,
     redirect_uris: list[str] | None = None,
     public: bool = False,
+    grant_types: str = FAKTS_CLIENT_GRANT_TYPES,
 ) -> models.Client:
     """Dynamic client registration: mint an *unbound* public client row.
 
@@ -136,7 +72,7 @@ def create_public_client(
         client_id=generate_client_id(),
         client_secret="",
         token_endpoint_auth_method="none",
-        grant_types=FAKTS_CLIENT_GRANT_TYPES,
+        grant_types=grant_types,
         scope="",
         kind=kind,
         role=role if isinstance(role, str) else role.value,
@@ -164,6 +100,7 @@ def bind_client(
     hub: models.Hub | None = None,
     declined_requirements: list[str] | None = None,
     device_name: str | None = None,
+    mandate: models.Mandate | None = None,
 ) -> models.Client:
     """Approve a registered client: bind it to a membership and fill in the
     app side (org-scoped App/Release, node, instance mappings, scopes) in place.
@@ -171,7 +108,12 @@ def bind_client(
     Re-approval rotates identity: any *other* bound client for the same
     (release identity, membership, node, hub) is deleted — the old client_id
     and its refresh chain die, and this row (with its fresh client_id from
-    registration) takes over.
+    registration) takes over. The mandates the old row issued move to this one:
+    re-approving an app is the same issuer.
+
+    A client logging in with a mandate key (``mandate``) acts as the grantor; its
+    identity is the mandate and the device instead, so it never rotates the
+    grantor's own login out (or is rotated out by it).
     """
     from fakts.utils import download_logo
 
@@ -230,14 +172,25 @@ def bind_client(
 
     # Identity rotation on re-approval: the previous installation's client (and
     # with it its refresh chain and report history) is deleted.
-    models.Client.objects.filter(
-        release=release,
-        membership=membership,
-        node=node,
-        hub=hub,
-        kind=client.kind,
-    ).exclude(pk=client.pk).delete()
+    if mandate is None:
+        stale = models.Client.objects.filter(
+            release=release,
+            membership=membership,
+            node=node,
+            hub=hub,
+            kind=client.kind,
+            mandate__isnull=True,
+        )
+    else:
+        stale = models.Client.objects.filter(mandate=mandate, node=node)
+    stale = stale.exclude(pk=client.pk)
+    # Re-parent before the delete: the cascade would otherwise take the
+    # mandates the old row issued with it.
+    models.Mandate.objects.filter(issuing_client__in=stale).update(issuing_client=client)
+    stale.delete()
 
+    client.mandate = mandate
+    client.manifest_hash = hash_manifest(manifest)
     client.membership = membership
     client.organization = organization
     client.release = release
@@ -307,6 +260,7 @@ def find_prior_clients(manifest: Manifest, user: karakter_models.User):
             membership__user=user,
             hub__isnull=False,
             release__app__identifier=manifest.identifier,
+            mandate__isnull=True,
         )
         .select_related("hub", "hub__organization", "release", "release__app", "node")
         .prefetch_related("scopes")
@@ -325,6 +279,13 @@ def client_access_state(client: models.Client) -> str:
     """
     from authapp.models import OAuth2Token
 
+    if client.mandate_id is not None:
+        # A mandated client has no refresh chain: it is as alive as its mandate.
+        mandate = client.mandate
+        if mandate.is_live():
+            return PRIOR_ACCESS_ACTIVE
+        return PRIOR_ACCESS_REVOKED if mandate.revoked_at is not None else PRIOR_ACCESS_EXPIRED
+
     latest = OAuth2Token.objects.filter(client_id=client.client_id).order_by("-issued_at", "-id").first()
     if latest is None:
         return PRIOR_ACCESS_EXPIRED
@@ -333,113 +294,6 @@ def client_access_state(client: models.Client) -> str:
     if latest.is_refresh_token_active():
         return PRIOR_ACCESS_ACTIVE
     return PRIOR_ACCESS_EXPIRED
-
-
-@transaction.atomic
-def validate_redeem_token(redeem_token: models.RedeemToken, manifest: Manifest, role: enums.ClientRoleVanilla = enums.ClientRoleVanilla.INTERFACE) -> models.RedeemToken:
-    device_id = manifest.device_id
-    hub = redeem_token.hub
-    organization = redeem_token.hub.organization
-    user = redeem_token.user
-    membership = karakter_models.Membership.objects.get(user=user, organization=organization)
-
-    if device_id:
-        node, _ = models.Device.objects.get_or_create(organization=organization, node_id=hash_device_id(device_id, organization))
-    else:
-        node = None
-
-    client = models.Client.objects.filter(
-        release__app__identifier=manifest.identifier,
-        release__app__organization=organization,
-        release__version=manifest.version,
-        kind="development",
-        node=node,
-        membership=membership,
-        hub=hub,
-    ).first()
-
-    if not client:
-        client = create_public_client(
-            kind=enums.ClientKindVanilla.DEVELOPMENT.value,
-            role=role.value if hasattr(role, "value") else role,
-        )
-
-    bind_client(
-        client,
-        manifest,
-        membership,
-        hub=hub,
-    )
-
-    if redeem_token.mandate_id is not None and client.mandate_id != redeem_token.mandate_id:
-        client.mandate_id = redeem_token.mandate_id
-        client.save(update_fields=["mandate"])
-
-    redeem_token.client = client
-    redeem_token.save()
-    return redeem_token
-
-
-def redeem_token(token: str, manifest: Manifest, role: enums.ClientRoleVanilla = enums.ClientRoleVanilla.INTERFACE) -> models.Client:
-    """Redeem a token into a client.
-
-    Raises ``RedeemToken.DoesNotExist`` for an unknown token and
-    :class:`RedeemTokenExpired` for an expired one (which is deleted).
-    """
-    with transaction.atomic():
-        # Lock the token row so simultaneous redeems of the same token serialize
-        # instead of racing to create duplicate clients.
-        valid_token = models.RedeemToken.objects.select_for_update().get(token=token)
-
-        # A token with a redemption budget must stop working once it is spent.
-        # Each redeem mints a fresh access+refresh pair, so without this an
-        # unlimited token is a permanent, unrevocable foothold as its user.
-        if valid_token.redemptions_exhausted():
-            raise RedeemTokenExhausted(
-                "This redeem token has already been redeemed the maximum number of times."
-            )
-
-        if not (valid_token.expires_at and valid_token.expires_at < timezone.now()):
-            # A pre-authorized token is checked against its pin *before* anything is
-            # looked up or provisioned, on every redeem: the pin is what makes the
-            # token safe to hand to an unattended container.
-            if valid_token.mandate_id is not None:
-                from fakts.services.mandates import assert_redeemable
-
-                assert_redeemable(valid_token)
-
-            if valid_token.pinned_manifest:
-                check_pinned_manifest(valid_token.pinned_manifest, manifest)
-
-            incoming_hash = hash_manifest(manifest)
-
-            if valid_token.client:
-                if valid_token.manifest_hash is None:
-                    # Pre-existing token from before manifest-hash tracking: record the
-                    # hash and accept this redeem rather than treating it as a change.
-                    valid_token.manifest_hash = incoming_hash
-                    valid_token.save()
-                    return valid_token.client
-                if valid_token.manifest_hash == incoming_hash:
-                    return valid_token.client
-                if not valid_token.allow_reredeem:
-                    raise RedeemTokenManifestChanged(
-                        "This redeem token was already redeemed with a different manifest. "
-                        "Re-redeeming with a changed manifest is not allowed unless allow_reredeem is set."
-                    )
-                # allow_reredeem is set and the manifest changed: re-validate to update the client.
-
-            valid_token = validate_redeem_token(redeem_token=valid_token, manifest=manifest, role=role)
-            valid_token.manifest_hash = incoming_hash
-            valid_token.redemption_count = valid_token.redemption_count + 1
-            valid_token.save()
-            return valid_token.client
-
-    # Reached only when the token is expired. Delete it *outside* the atomic block
-    # above so the removal commits — deleting inside would be rolled back by the
-    # raise (and the expired token would survive).
-    models.RedeemToken.objects.filter(token=token).delete()
-    raise RedeemTokenExpired("Redeem token expired")
 
 
 def _resolve_reported_alias(client: models.Client, alias_id: str | None) -> models.InstanceAlias | None:

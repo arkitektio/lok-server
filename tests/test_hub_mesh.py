@@ -155,7 +155,7 @@ def test_ionscale_failure_still_provisions_the_hub(client, ionscale_repo, mesh_o
 @pytest.mark.django_db
 def test_reauthorization_rotates_the_key_and_prunes_without_duplicating(client, ionscale_repo, mesh_org):
     ionscale_repo.unique_auth_keys = True
-    hub_client = {"identifier": "ui", "manifest": {"identifier": "com.example.hubui", "version": "1.0.0", "scopes": []}}
+    hub_client = {"identifier": "ui", "manifest": {"identifier": "com.example.hubui", "version": "1.0.0", "scopes": []}, "mandate_key": "u" * 40}
     hub, first = _grant(client, mesh_org, clients=[hub_client])
     old_identity = hub.client_id
     app_client_ids = set(hub.clients.values_list("client_id", flat=True))

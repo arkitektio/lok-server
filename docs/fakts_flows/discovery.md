@@ -46,9 +46,9 @@ image works across dev/staging/prod without reconfiguration.
 | `configure` | str? | Absolute [client-configure](./client_device_code.md) page template; the literal `{code}` is substituted by the client. |
 | `issuer` | str? | OAuth issuer identifier — the `iss` of issued access tokens. |
 | `device_authorization_endpoint` | str? | Absolute URL of the [app authorization](./client_device_code.md) endpoint (`/o/app-authorization/`) — RFC 8628 device authorization + dynamic client registration. |
-| `token_endpoint` | str? | Absolute URL of the OAuth2 token endpoint — the client polls it with the device-code grant (or exchanges a [redeem token](./redeem_token.md)) and refreshes there. |
+| `token_endpoint` | str? | Absolute URL of the OAuth2 token endpoint — the client polls it with the device-code grant (or exchanges a [mandate key](./mandate_key.md)) and refreshes there. |
 | `jwks_uri` | str? | Absolute URL of the JWKS used to verify issued access tokens. |
-| `grant_types_supported` | str[] | Grant types the token endpoint accepts, including `urn:ietf:params:oauth:grant-type:device_code` and `urn:fakts:grant-type:redeem`. |
+| `grant_types_supported` | str[] | Grant types the token endpoint accepts, including `urn:ietf:params:oauth:grant-type:device_code` and `urn:fakts:grant-type:mandate-key`. |
 | `token_endpoint_auth_methods_supported` | str[] | Client auth methods; fakts clients are public and use `none`. |
 | `mesh_coord_url` | str? | Public ionscale [mesh](./mesh_device_code.md) coordination URL, or `null` when no mesh is configured. |
 | `mesh_device_code_start` | str? | Absolute URL of the [mesh start](./mesh_device_code.md) endpoint. |

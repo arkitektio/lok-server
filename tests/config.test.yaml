@@ -138,7 +138,7 @@ private_key: '-----BEGIN PRIVATE KEY-----
   -----END PRIVATE KEY-----
 
   '
-redeem_tokens: []
+mandate_keys: []
 redis:
   channel_prefix: lok
   dependency: redis

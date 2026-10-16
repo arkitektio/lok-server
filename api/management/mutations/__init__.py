@@ -61,7 +61,7 @@ from .mesh_device_code import (
     decline_mesh_device_code,
 )
 from .hub import update_hub, delete_hub
-from .redeem_token import create_redeem_token
+from .mandate import issue_mandate_key, revoke_mandate
 from .ionscale import (
     create_ionscale_layer,
     delete_ionscale_layer,

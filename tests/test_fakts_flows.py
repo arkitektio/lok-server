@@ -11,7 +11,8 @@ The flow under test:
    and burns the code.
 4. ``grant_type=refresh_token`` — rotates the refresh token and re-renders the
    instances.
-5. ``grant_type=urn:fakts:grant-type:redeem`` — the headless equivalent.
+
+The headless equivalent, the mandate-key grant, is tested in ``test_mandate_keys``.
 """
 
 import json
@@ -28,7 +29,6 @@ from fakts.services.device_codes import validate_device_code
 from tests import factories
 
 DEVICE_CODE_GRANT = "urn:ietf:params:oauth:grant-type:device_code"
-REDEEM_GRANT = "urn:fakts:grant-type:redeem"
 
 
 def _start(client, manifest=None, **extra):
@@ -234,74 +234,6 @@ def test_empty_refresh_token_is_rejected_cleanly(client):
     assert resp.status_code == 400
 
 
-def _redeem(client, token, version="1.0.0"):
-    manifest = {"identifier": "com.example.redeemed", "version": version, "scopes": [], "requirements": []}
-    return client.post(
-        reverse("token"),
-        data={"grant_type": REDEEM_GRANT, "redeem_token": token, "manifest": json.dumps(manifest)},
-        secure=True,
-    )
-
-
-@pytest.mark.django_db
-def test_redeem_grant_mints_client_and_tokens(client):
-    hub = factories.make_hub()
-    redeem = factories.make_redeem_token(hub=hub)
-
-    resp = _redeem(client, redeem.token)
-    assert resp.status_code == 200
-    token = resp.json()
-
-    assert token["refresh_token"]
-    assert "instances" in token
-
-    redeem.refresh_from_db()
-    assert redeem.client is not None
-    assert redeem.client.organization == hub.organization
-    assert token["client_id"] == redeem.client.client_id
-
-    claims = _decode(token["access_token"])
-    assert claims["org"] == str(hub.organization_id)
-
-
-@pytest.mark.django_db
-def test_redeem_same_manifest_twice_returns_same_client(client):
-    redeem = factories.make_redeem_token()
-
-    first = _redeem(client, redeem.token).json()
-    second = _redeem(client, redeem.token).json()
-
-    assert first["client_id"] == second["client_id"]
-
-
-@pytest.mark.django_db
-def test_redeem_changed_manifest_rejected_without_allow_reredeem(client):
-    redeem = factories.make_redeem_token()
-
-    _redeem(client, redeem.token, "1.0.0")
-    resp = _redeem(client, redeem.token, "2.0.0")
-
-    assert resp.status_code == 400
-    assert "allow_reredeem" in resp.json()["error_description"]
-
-
-@pytest.mark.django_db
-def test_redeem_changed_manifest_allowed_with_reredeem(client):
-    redeem = factories.make_redeem_token(allow_reredeem=True)
-
-    _redeem(client, redeem.token, "1.0.0")
-    resp = _redeem(client, redeem.token, "2.0.0")
-
-    assert resp.status_code == 200
-
-
-@pytest.mark.django_db
-def test_redeem_unknown_token_errors(client):
-    resp = _redeem(client, "nope")
-    assert resp.status_code == 400
-    assert resp.json()["error"] == "invalid_grant"
-
-
 @pytest.mark.django_db
 def test_full_hub_grant_returns_tokens_and_hub_config(client):
     """The hub flow rides the same canonical grant: hub-authorization registers
@@ -461,137 +393,3 @@ def test_relying_party_rows_are_invisible_to_tenant_scoping(client):
     scoped = models.Client.objects.filter(organization=membership.organization)
     assert bound in scoped
     assert rp not in scoped
-
-
-# --- pre-authorized (pinned) redeem tokens ---------------------------------------
-#
-# A deployer mints a token pinned to the manifest it approved; the container that
-# receives it can only ever enrol as that app. Identity fields must match exactly,
-# scopes and requirements are a ceiling.
-
-PINNED = {
-    "identifier": "com.example.pinned",
-    "version": "1.0.0",
-    "scopes": [],
-    "requirements": [],
-    "device_id": "node-a",
-}
-
-
-def _redeem_manifest(client, token, manifest):
-    return client.post(
-        reverse("token"),
-        data={"grant_type": REDEEM_GRANT, "redeem_token": token, "manifest": json.dumps(manifest)},
-        secure=True,
-    )
-
-
-def _pinned(**overrides):
-    pinned = {**PINNED, **overrides}
-    return factories.make_redeem_token(pinned_manifest=pinned)
-
-
-@pytest.mark.django_db
-def test_pinned_redeem_accepts_matching_manifest(client):
-    redeem = _pinned()
-
-    resp = _redeem_manifest(client, redeem.token, PINNED)
-
-    assert resp.status_code == 200, resp.json()
-    redeem.refresh_from_db()
-    assert redeem.client is not None
-    assert redeem.client.release.app.identifier == "com.example.pinned"
-    assert redeem.redemption_count == 1
-
-
-@pytest.mark.django_db
-@pytest.mark.parametrize(
-    "change, fragment",
-    [
-        ({"identifier": "com.example.other"}, "pinned to app 'com.example.pinned'"),
-        ({"version": "2.0.0"}, "pinned to version '1.0.0'"),
-        ({"device_id": "node-b"}, "different device"),
-        ({"scopes": ["admin"]}, "does not authorize the scope(s) admin"),
-        (
-            {"requirements": [{"key": "lok", "service": "live.arkitekt.lok"}]},
-            "does not authorize the requirement(s) lok=live.arkitekt.lok",
-        ),
-    ],
-)
-def test_pinned_redeem_rejects_deviating_manifest(client, change, fragment):
-    redeem = _pinned()
-
-    resp = _redeem_manifest(client, redeem.token, {**PINNED, **change})
-
-    assert resp.status_code == 400
-    body = resp.json()
-    assert body["error"] == "invalid_grant"
-    assert fragment in body["error_description"]
-    redeem.refresh_from_db()
-    assert redeem.client is None, "a refused redeem must not provision a client"
-    assert redeem.redemption_count == 0
-
-
-@pytest.mark.django_db
-def test_pinned_redeem_allows_subset_of_scopes_and_requirements(client):
-    redeem = _pinned(
-        scopes=["read"],
-        requirements=[{"key": "rekuest", "service": "live.arkitekt.rekuest", "optional": False}],
-    )
-
-    # Asking for less than the pin authorizes is fine.
-    resp = _redeem_manifest(client, redeem.token, PINNED)
-
-    assert resp.status_code == 200, resp.json()
-
-
-@pytest.mark.django_db
-def test_pinned_redeem_is_checked_on_every_redeem(client):
-    redeem = _pinned()
-
-    assert _redeem_manifest(client, redeem.token, PINNED).status_code == 200
-    resp = _redeem_manifest(client, redeem.token, {**PINNED, "version": "2.0.0"})
-
-    assert resp.status_code == 400
-    # The pin, not the first-redeem hash, is what refuses it.
-    assert "pinned to version" in resp.json()["error_description"]
-
-
-@pytest.mark.django_db
-def test_pinned_device_is_optional(client):
-    redeem = _pinned(device_id=None)
-
-    resp = _redeem_manifest(client, redeem.token, {**PINNED, "device_id": "any-node"})
-
-    assert resp.status_code == 200, resp.json()
-
-
-@pytest.mark.django_db
-def test_the_deprecated_node_id_spelling_redeems_onto_the_same_device(client):
-    """A manifest posted with ``node_id`` (old clients) and one with ``device_id``
-    name the same device, and a pin stored under the old key still matches."""
-    redeem = factories.make_redeem_token(pinned_manifest={**{k: v for k, v in PINNED.items() if k != "device_id"}, "node_id": "node-a"})
-    old_spelling = {**{k: v for k, v in PINNED.items() if k != "device_id"}, "node_id": "node-a"}
-
-    assert _redeem_manifest(client, redeem.token, old_spelling).status_code == 200
-    redeem.refresh_from_db()
-    first = redeem.client
-
-    assert _redeem_manifest(client, redeem.token, PINNED).status_code == 200
-    redeem.refresh_from_db()
-    assert redeem.client == first
-    assert first.node is not None
-    assert first.manifest["device_id"] == "node-a" and "node_id" not in first.manifest
-
-
-@pytest.mark.django_db
-def test_max_redemptions_is_enforced(client):
-    redeem = _pinned()
-    redeem.max_redemptions = 1
-    redeem.save()
-
-    assert _redeem_manifest(client, redeem.token, PINNED).status_code == 200
-    resp = _redeem_manifest(client, redeem.token, PINNED)
-
-    assert resp.status_code == 400
-    assert "maximum number of times" in resp.json()["error_description"]

@@ -1011,6 +1011,7 @@ class ManagementHub:
         description="The instances of the hub. A service instance is a configured instance of a service."
     )
     clients: list["ManagementClient"] = strawberry_django.field(description="The clients that are part of this hub. A client is an application that uses the services in the hub.")
+    mandates: list["ManagementMandate"] = strawberry_django.field(description="The mandates that log apps into this hub (the ones you may see).")
     last_seen_at: Optional[datetime.datetime] = strawberry.field(description="When the hub last reported its health. Null if it never has.")
     last_healthy: Optional[bool] = strawberry.field(description="Whether the hub's last health report said it was healthy.")
     version: str = strawberry.field(description="The hub software version, as last reported.")
@@ -1591,6 +1592,7 @@ class ManagementReport:
 )
 class ManagementClient:
     id: strawberry.ID
+    mandate: Optional["ManagementMandate"] = strawberry_django.field(description="The mandate this client logs in with, if it logs in with a key.")
     functional: bool = strawberry_django.field(description="Is this client functional? A non-functional client cannot be used to authenticate users.")
     release: ManagementRelease | None = strawberry_django.field(description="The release that this client belongs to. Null for clients that are not bound to an app release: hub identities, relying parties, and registrations that are still awaiting approval.")
     public: bool = strawberry_django.field(description="Is this client public? A public client has no client secret and authenticates through a user-facing flow (device code / PKCE) instead.")
@@ -1869,28 +1871,85 @@ class ManagementMeshDeviceCode:
     # REST /f/meshchallenge/ poll (gated on the secret challenge_code).
 
 
-@strawberry_django.type(fakts_models.RedeemToken, filters=filters.ManagementRedeemTokenFilter, pagination=True, ordering=filters.ManagementRedeemTokenOrdering)
-class ManagementRedeemToken:
-    id: strawberry.ID
-    created_at: datetime.datetime
-    expires_at: datetime.datetime | None
-    hub: ManagementHub = strawberry_django.field(description="The hub that this redeem token grants access to.")
-    client: ManagementClient | None = strawberry.field(description="The client that this redeem token belongs to.")
-    user: ManagementUser = strawberry_django.field(description="The user that this redeem token belongs to.")
+@strawberry.type(description="A requirement as a mandate pins it.")
+class ManagementRequirementPin:
+    key: str
+    service: str
 
-    @strawberry_django.field(
-        description="The redeem token. A bearer credential: only returned to the user who issued it and to the hub organization's owner/admins, null for everyone else.",
-        only=["token", "user", "hub"],
-        select_related=["hub"],
-    )
-    def token(self, info: Info) -> str | None:
-        caller = _caller(info)
-        if caller is None:
-            return None
-        if self.user_id == caller.id or is_owner_or_admin(caller, self.hub.organization):
-            return self.token
-        return None
+
+@strawberry.type(description="The ceiling a mandate puts on the apps that log in under it. A null field is open.")
+class ManagementMandatePin:
+    identifier: str | None = strawberry.field(description="The app. Null: fixed by the first app that logs in.")
+    version: str | None = strawberry.field(description="The release. Null: every release.")
+    device_id: str | None = strawberry.field(description="The device. Null: any device.")
+    scopes: list[str] | None = strawberry.field(description="The most scopes an app may ask for. Null: the organization's.")
+    requirements: list[ManagementRequirementPin] | None = strawberry.field(description="The most requirements an app may ask for. Null: any.")
+
+
+@strawberry_django.type(
+    fakts_models.Mandate,
+    filters=filters.ManagementMandateFilter,
+    pagination=True,
+    ordering=filters.ManagementMandateOrdering,
+    description="A standing authority to act as the grantor, inside one hub, up to a pinned app. Whoever holds its key logs in as the grantor, or the agent app it names may issue keys under it. It dies with whoever issued it.",
+)
+class ManagementMandate:
+    id: strawberry.ID
+    hub: ManagementHub = strawberry_django.field(description="The hub the clients compose against.")
+
+    @strawberry_django.field(description="Who may use the mandate.", only=["claimant"])
+    def claimant(self, info: Info) -> fakts_enums.MandateClaimant:
+        return fakts_enums.MandateClaimant[str(self.claimant).upper()]
+
+    @strawberry_django.field(description="Who issued the mandate.", only=["origin"])
+    def origin(self, info: Info) -> fakts_enums.MandateOrigin:
+        return fakts_enums.MandateOrigin[str(self.origin).upper()]
+
+    @strawberry_django.field(description="Why the mandate was withdrawn.", only=["revocation_reason"])
+    def revocation_reason(self, info: Info) -> fakts_enums.MandateRevocation | None:
+        return fakts_enums.MandateRevocation[str(self.revocation_reason).upper()] if self.revocation_reason else None
+
+    label: str = strawberry_django.field(description="A human name for the mandate.")
+    key_prefix: str = strawberry_django.field(description="The first characters of the key, to recognise it by. Empty for an agent mandate.")
+    agent_identifier: str | None = strawberry_django.field(description="The app allowed to issue keys under this mandate. Null for a keyed mandate.")
+    max_clients: int | None = strawberry_django.field(description="Keyed: on how many devices the key may log in. Agent: how many live keys may be issued under it. Null means unlimited.")
+    allow_mesh: bool = strawberry_django.field(description="Whether a client logging in with the key may ask for a mesh key.")
+    created_at: datetime.datetime
+    expires_at: datetime.datetime | None = strawberry_django.field(description="After this the mandate no longer works. Null: as long as its issuer.")
+    revoked_at: datetime.datetime | None = strawberry_django.field(description="When the mandate was withdrawn; its clients were deleted then.")
+    last_used_at: datetime.datetime | None = strawberry_django.field(description="When the key was last exchanged for a token.")
+    clients: list[ManagementClient] = strawberry_django.field(description="The clients logged in with the key, one per device.")
+    parent: Optional["ManagementMandate"] = strawberry_django.field(description="The agent mandate this one was issued under.")
+    children: list["ManagementMandate"] = strawberry_django.field(description="The keys the agent issued under this mandate.")
+    issuing_client: ManagementClient | None = strawberry_django.field(description="The app that issued this mandate.")
+
+    @strawberry_django.field(description="The user the clients act as.", select_related=["membership__user"])
+    def grantor(self, info: Info) -> ManagementUser:
+        return self.membership.user
+
+    @strawberry_django.field(description="The app the mandate admits, and the ceilings it puts on it.", only=["subject_manifest"])
+    def subject(self, info: Info) -> ManagementMandatePin:
+        pin = self.pin
+        return ManagementMandatePin(
+            identifier=pin.identifier,
+            version=pin.version,
+            device_id=pin.device_id,
+            scopes=pin.scopes,
+            requirements=[ManagementRequirementPin(key=r.key, service=r.service) for r in pin.requirements] if pin.requirements is not None else None,
+        )
+
+    @strawberry_django.field(description="Whether the mandate still works.", only=["revoked_at", "expires_at", "membership"], select_related=["membership__user"])
+    def is_live(self, info: Info) -> bool:
+        return self.is_live()
 
     @classmethod
     def get_queryset(cls, queryset, info: Info):
-        return queryset.filter(hub__organization__memberships__user=info.context.request.user).distinct()
+        """A member sees the mandates they granted; owners and admins see every mandate of their organization."""
+        user = info.context.request.user
+        return queryset.filter(Q(membership__user=user) | owner_or_admin_q(user, "organization")).distinct()
+
+
+@strawberry.type(description="A freshly issued mandate and its key. The key is shown only here, once.")
+class ManagementIssuedMandateKey:
+    mandate: ManagementMandate
+    key: str = strawberry.field(description="The mandate key. Hand it to the app as FAKTS_MANDATE_KEY; lok keeps only its hash.")

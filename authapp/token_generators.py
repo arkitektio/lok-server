@@ -50,11 +50,20 @@ def public_jwks() -> dict:
 
 
 def _actor_claim(client: Any) -> dict:
-    """``act`` for a client provisioned under a mandate, else nothing."""
-    mandate_id = getattr(client, "mandate_id", None) if client is not None else None
-    if mandate_id is None:
+    """``act`` for a client logging in with a mandate key that an app handed out, else nothing.
+
+    ``client_app`` is the app that issued the key (the agent, for a key issued under
+    an agent mandate); ``mandate`` is the agent mandate the key was issued under
+    (a kabinet release approval points at it), or the key's own mandate."""
+    mandate = getattr(client, "mandate", None) if client is not None else None
+    if mandate is None:
         return {}
-    return {"act": {"client_app": client.mandate.agent_identifier, "mandate": str(mandate_id)}}
+    if mandate.parent_id is not None:
+        return {"act": {"client_app": mandate.parent.agent_identifier, "mandate": str(mandate.parent_id)}}
+    issuer = mandate.issuing_client
+    if issuer is not None and issuer.release_id is not None:
+        return {"act": {"client_app": issuer.release.app.identifier, "mandate": str(mandate.pk)}}
+    return {}
 
 class MyJWTBearerTokenGenerator(JWTBearerTokenGenerator):
     """Custom JWT Bearer token generator that adds application claims.

@@ -66,7 +66,7 @@ def test_oauth_metadata_is_advertised(client):
     assert data["token_endpoint"] == "http://lok/lok/o/token/"
     assert data["jwks_uri"] == "http://lok/lok/o/jwks/"
     assert "urn:ietf:params:oauth:grant-type:device_code" in data["grant_types_supported"]
-    assert "urn:fakts:grant-type:redeem" in data["grant_types_supported"]
+    assert "urn:fakts:grant-type:mandate-key" in data["grant_types_supported"]
     assert "refresh_token" in data["grant_types_supported"]
     assert "none" in data["token_endpoint_auth_methods_supported"]
 

@@ -108,7 +108,7 @@ class AuthorizationCodeGrant(FaktsEnvelopeMixin, grants.AuthorizationCodeGrant):
         and then finds the row gone (the first has deleted it) or, on a backend
         without row locking, still races only as far as the delete below, which
         is now guarded by an affected-row count. This is the same pattern
-        `fakts.services.clients` already uses for the redeem path.
+        `fakts.services.mandates` uses for the mandate-key grant.
         """
         with transaction.atomic():
             try:
@@ -211,11 +211,15 @@ class RefreshTokenGrant(FaktsEnvelopeMixin, grants.RefreshTokenGrant):
                 chain_started_at=item.chain_started_at,
                 revoked=False,
             ).update(revoked=True)
-            # A leaked chain's mesh sidecar is revoked with it.
+            # A leaked chain's mesh sidecar is revoked with it, and so is
+            # everything the client issued: the thief could have issued it.
             from fakts.models import Client
+            from fakts.services.mandates import revoke_issued_by
             from fakts.services.mesh import schedule_reap_for_clients
 
-            schedule_reap_for_clients(Client.objects.filter(client_id=item.client_id))
+            leaked = Client.objects.filter(client_id=item.client_id)
+            revoke_issued_by(leaked)
+            schedule_reap_for_clients(leaked)
             logger.warning(
                 "Refresh token reuse detected for client %s (chain started %s); "
                 "revoked %s live token(s) in that chain.",

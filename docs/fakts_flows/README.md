@@ -88,7 +88,7 @@ Key properties:
 | [Client device code](./client_device_code.md) | register **one app/client** (a CLI, worker, desktop app) against a user's org | ✅ yes | access + refresh tokens + instances, in one token response |
 | [Hub device code](./hub_device_code.md) | stand up a **whole hub** — many instances + clients (+ optional mesh key) in one authorization | ✅ yes | access + refresh tokens + the full hub config, in one token response |
 | [Mesh device code](./mesh_device_code.md) | let a **machine join the org's mesh** (tailnet) with a configurable machine name | ✅ yes | a single-use ionscale **pre-auth key** + coord URL + machine name |
-| [Redeem token](./redeem_token.md) | provision a client **non-interactively** from a pre-shared one-time token (CI, headless installs) | ❌ no | same combined token response, via `urn:fakts:grant-type:redeem` |
+| [Mandate key](./mandate_key.md) | log a client in **non-interactively** with a standing mandate key (CI, containers, hub-run apps, deployed apps) | ❌ no | access token + envelope (no refresh token), via `urn:fakts:grant-type:mandate-key` |
 
 Removed flows: **retrieve** (unauthenticated public-app token handout) is gone —
 website-kind apps use the standard authorization-code + PKCE flow via
@@ -156,7 +156,7 @@ link back rather than repeat them.
 
 ### `Manifest`
 Describes a client/app. Used by [client device code](./client_device_code.md),
-[redeem](./redeem_token.md), and inside a hub's `clients`.
+[mandate key](./mandate_key.md), and inside a hub's `clients`.
 
 | Field | Type | Default | Description |
 |---|---|---|---|
@@ -227,7 +227,7 @@ of the service flow and the `aliases` of a hub instance.
 - [Client device code (the canonical grant)](./client_device_code.md)
 - [Hub device code](./hub_device_code.md)
 - [Mesh device code](./mesh_device_code.md)
-- [Redeem token](./redeem_token.md)
+- [Mandate key](./mandate_key.md)
 - [Discovery (`/.well-known/fakts`)](./discovery.md)
 - [Report](./report.md)
 

@@ -79,25 +79,12 @@ def test_the_deprecated_node_id_spelling_still_names_the_device():
     assert a.node is not None and a.node_id == b.node_id
 
 
-def test_check_pinned_manifest_accepts_a_pin_stored_under_the_old_key():
-    """Tokens pinned before the rename stored the device under ``node_id``."""
+def test_a_pin_stored_under_the_old_device_key_still_reads():
+    """Pins stored before the rename named the device ``node_id``."""
     manifest = base_models.Manifest(identifier="com.example.pinned", version="1.0.0", scopes=[], requirements=[], device_id="node-a")
-    clients.check_pinned_manifest({"identifier": "com.example.pinned", "version": "1.0.0", "node_id": "node-a"}, manifest)
-    with pytest.raises(clients.RedeemTokenManifestMismatch, match="different device"):
-        clients.check_pinned_manifest({"identifier": "com.example.pinned", "version": "1.0.0", "node_id": "node-b"}, manifest)
-
-
-@pytest.mark.django_db
-def test_validate_redeem_token_creates_and_attaches_client():
-    hub = factories.make_hub()
-    redeem = factories.make_redeem_token(hub=hub)
-
-    result = clients.validate_redeem_token(redeem, _manifest(identifier="com.example.redeem"))
-
-    assert result.client is not None
-    assert result.client.release.app.identifier == "com.example.redeem"
-    redeem.refresh_from_db()
-    assert redeem.client_id == result.client.id
+    base_models.MandatePin.model_validate({"identifier": "com.example.pinned", "version": "1.0.0", "node_id": "node-a"}).check(manifest)
+    with pytest.raises(base_models.MandatePinMismatch, match="different device"):
+        base_models.MandatePin.model_validate({"identifier": "com.example.pinned", "version": "1.0.0", "node_id": "node-b"}).check(manifest)
 
 
 @pytest.mark.django_db

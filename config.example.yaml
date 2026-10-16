@@ -64,10 +64,12 @@ QJnwvQKBgHdmIMdExd6pWT9z0OQG/7UX4+80sW3A7Po26L+tRrZJpynFcbCwS3bo
 boAf1Rqpjy5XjTTVtmohUsr/X3UHYw2aYJPG9jsPoEwDyYOmAEc1
 -----END RSA PRIVATE KEY-----
 "
-redeem_tokens:
-- token: example-redeem-token
+mandate_keys:
+- name: example
+  key: REPLACE-ME-with-at-least-32-random-characters
   user: demo
   organization: demo
+  hub: demo
 redis:
   dependency: redis
   host: redis

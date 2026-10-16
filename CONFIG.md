@@ -449,7 +449,7 @@ list/object fields below are provisioning data applied on boot — express them 
 | `organizations` | — (use YAML) | list[object] | `[]` | Organizations ensured on boot. |
 | `users` | — (use YAML) | list[object] | `[]` | Users ensured on boot. |
 | `memberships` | — (use YAML) | list[object] | `[]` | User/organization memberships ensured on boot. |
-| `redeem_tokens` | — (use YAML) | list[object] | `[]` | Redeem tokens provisioned on boot. |
+| `mandate_keys` | — (use YAML) | list[mandate_key] | `[]` | Mandate keys kept in place by the `ensuremandates` setup job: `name`, `key` (≥32 chars, handed to the app as `FAKTS_MANDATE_KEY`), `user`, `organization`, `hub`, and optionally `app`, `scopes`, `expires_at`, `max_clients`, `allow_mesh`. An entry dropped from the config has its key revoked; a revoked key is never revived. |
 | `kommunity_partners` | — (use YAML) | list[object] | `[]` | Pre-authorized kommunity partner apps. |
 | `system_messages` | — (use YAML) | list[object] | `[]` | System messages shown to users. |
 | `openid_apps` | — (use YAML) | list[openid_app] | `[]` | OIDC/OAuth2 clients provisioned on boot. |

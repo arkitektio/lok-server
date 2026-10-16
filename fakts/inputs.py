@@ -57,47 +57,6 @@ class ManifestInput:
     public_sources: list[PublicSourceInput] | None = None
 
 
-class RedeemTokenInputModel(BaseModel):
-    manifest: Manifest
-    token: Optional[str] = None
-    expires_in_days: Optional[int] = None
-    max_redemptions: Optional[int] = None
-
-
-@pydantic.input(RedeemTokenInputModel)
-class RedeemTokenInput:
-    """Input for minting a redeem token on the caller's hub.
-
-    A token minted here is always *pre-authorized*: ``manifest`` is required and the
-    token may then only be redeemed by an app presenting that identifier/version/
-    device_id, requesting no more than those scopes and requirements. ``expires_in_days``
-    defaults to 7 and is capped at 30; ``max_redemptions`` is unlimited when omitted (a
-    redeem with the same manifest returns the same client, so a restarting container
-    may redeem more than once).
-    """
-
-    manifest: ManifestInput
-    token: Optional[str] = None
-    expires_in_days: Optional[int] = None
-    max_redemptions: Optional[int] = None
-
-
-class DevelopmentClientInputModel(BaseModel):
-    manifest: Manifest
-    hub: str | None = None
-    requirements: list[RequirementModel] = Field(default_factory=list)
-    layers: list[str] = Field(default_factory=lambda: ["web"])
-    role: enums.ClientRoleVanilla | None = None
-
-
-@pydantic.input(DevelopmentClientInputModel)
-class DevelopmentClientInput:
-    manifest: ManifestInput
-    hub: strawberry.ID | None = None
-    layers: list[str] | None = None
-    role: enums.ClientRole | None = None
-
-
 class ScanBackendInputModel(BaseModel):
     backend: str | None
 

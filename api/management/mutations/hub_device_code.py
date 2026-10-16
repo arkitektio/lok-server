@@ -10,6 +10,7 @@ from karakter.hashers import hash_device_id
 from fakts import models as fakts_models
 from api.management.authz import DENIED, HUB_ADMIN_REQUIRED, assert_member, get_or_denied, is_owner_or_admin
 from graphql import GraphQLError
+from fakts.services.mandates import MandateError
 from fakts import logic, base_models
 from fakts.services import aliases as alias_services
 from fakts.services import hubs as hub_services
@@ -157,9 +158,12 @@ def _provision_hub(info: Info, input: AcceptHubDeviceCodeInput, device_code, org
     accepting_user = info.context.request.user
     membership = get_or_denied(models.Membership.objects, user=accepting_user, organization=organization)
 
-    # The hub's own apps are approved with it: each gets a redeem token, acting as the
-    # approver. Re-authorization re-pins them and keeps what was redeemed.
-    hub_services.ensure_client_requests(hub, manifest, accepting_user)
+    # The hub's own apps are approved with it: each gets a mandate under the key the
+    # hub proposed, granted by the approver. Re-authorization re-pins them.
+    try:
+        hub_services.ensure_hub_mandates(hub, manifest, membership)
+    except MandateError as e:
+        raise GraphQLError(str(e)) from e
 
     # Bind the staged (registered-at-start) client to the hub and the approving
     # user's membership: the hub server polls the token endpoint as this client

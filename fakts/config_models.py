@@ -109,39 +109,6 @@ class KommunityPartnerModel(BaseModel):
     filter_config: Optional[FilterConfigModel] = None
 
 
-class RedeemTokenModel(BaseModel):
-    """Model representing a redeem token configuration."""
-
-    # Optional: an omitted token is *generated* with real entropy rather than
-    # being whatever string an operator typed into a YAML file. A redeem token
-    # is an unauthenticated bearer credential at the token endpoint — it is the
-    # one secret in this flow whose entropy was a human's choice.
-    token: Optional[str] = None
-    user: str
-    organization: str
-    hub: str
-    expires_in_days: Optional[int] = Field(
-        default=90,
-        description=(
-            "Lifetime from provisioning. `null` means never expires, which is "
-            "only appropriate for a token you rotate by other means."
-        ),
-    )
-    max_redemptions: Optional[int] = Field(
-        default=None,
-        description=(
-            "How many times this token may be redeemed. `null` means unlimited "
-            "(the historical behaviour). Set to 1 for a genuine single-use token."
-        ),
-    )
-
-
-class RedeemTokenConfigs(BaseModel):
-    """The redeem tokens configuration model"""
-
-    tokens: List[RedeemTokenModel] = Field(default_factory=list)
-
-
 class KommunityPartnerConfigModel(BaseModel):
     """Model representing the Kommunity YAML configuration."""
 

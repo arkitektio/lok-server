@@ -398,42 +398,73 @@ class InstanceAlias(models.Model):
         return f"{self.instance}@{self.layer}:{self.name}"
 
 
+class MandateQuerySet(models.QuerySet):
+    def live(self) -> "MandateQuerySet":
+        """Mandates that still work: not revoked, not expired, the grantor still active.
+
+        One row is enough: revoking pushes down to every child at once, and a child
+        never outlives its parent (see ``fakts.services.mandates``)."""
+        now = timezone.now()
+        return self.filter(revoked_at__isnull=True, membership__user__is_active=True).filter(
+            Q(expires_at__isnull=True) | Q(expires_at__gt=now)
+        )
+
+
 class Mandate(models.Model):
-    """A standing authorization: *grantor* lets *agent* provision *subject* as them.
+    """A standing authority to act as the grantor, inside one hub, up to a pinned manifest.
 
-    The grantor (a membership, into one hub) pre-authorizes a subject app manifest
-    once; the agent app — a deployer, a launcher, a scheduler — may then provision
-    clients for that subject unattended, each one acting as the grantor. The subject
-    manifest is a ceiling in the same sense as a pinned redeem token (it is copied
-    into every token the agent provisions), so the agent can never obtain more than
-    the grantor approved.
+    Every headless login goes through one. Who may use it is the *claimant*:
 
-    The agent is named by app *identifier*, not by client: ``bind_client`` rotates
-    client rows on re-approval, so a client reference would silently die. It can be
-    narrowed to one device and/or one operator membership.
+    - ``key``: whoever holds the mandate key exchanges it at the token endpoint
+      (``urn:fakts:grant-type:mandate-key``) for an access token of a client acting as
+      the grantor. Only the key's SHA-256 is stored. There is no refresh chain: the
+      client runs the grant again when its access token expires, and every grant
+      re-checks the mandate.
+    - ``agent``: the app named by ``agent_identifier`` (a deployer) may issue keyed
+      child mandates under it, one per instance it runs. kabinet's release approvals
+      are agent mandates.
 
-    ``attestation`` is opaque to lok: the service the grantor approved from (e.g.
-    kabinet's release digest) stores what it needs to recheck at provision time.
-
-    Revoking deletes every client provisioned under the mandate (their refresh
-    chains die with them); expiry only stops *new* provisioning.
+    Who issued it is the *origin*, and a mandate dies with its issuer: the grantor
+    membership, the issuing client (``issuing_client``), the parent agent mandate
+    (``parent``), the hub that asked for it, or the deployment config entry
+    (``config_name``) that names it. Deletions cascade; revocations are pushed down
+    to every child by ``fakts.services.mandates.revoke_mandate``.
     """
 
     membership = models.ForeignKey(
         "karakter.Membership",
         on_delete=models.CASCADE,
         related_name="granted_mandates",
-        help_text="The grantor: every client provisioned under this mandate acts as this membership.",
+        help_text="The grantor: every client logged in under this mandate acts as this membership.",
     )
     organization = models.ForeignKey(Organization, on_delete=models.CASCADE, related_name="mandates")
     hub = models.ForeignKey(
         "Hub",
         on_delete=models.CASCADE,
         related_name="mandates",
-        help_text="The hub provisioned clients compose against.",
+        help_text="The hub the clients compose against.",
     )
+    claimant = TextChoicesField(
+        choices_enum=enums.MandateClaimantChoices,
+        help_text="Who may use this mandate: the holder of its key, or the agent app it names.",
+    )
+    origin = TextChoicesField(
+        choices_enum=enums.MandateOriginChoices,
+        help_text="Who issued this mandate. It dies with its issuer.",
+    )
+    label = models.CharField(max_length=1000, blank=True, default="", help_text="A human name for the mandate.")
+    key_hash = models.CharField(
+        max_length=64,
+        unique=True,
+        null=True,
+        blank=True,
+        help_text="SHA-256 (hex) of the mandate key. Unique across revoked mandates too: a revoked key never works again.",
+    )
+    key_prefix = models.CharField(max_length=12, blank=True, default="", help_text="The first characters of the key, to recognise it by.")
     agent_identifier = fields.IdentifierField(
-        help_text="The app (by identifier, within the organization) allowed to provision under this mandate."
+        null=True,
+        blank=True,
+        help_text="The app (by identifier, within the organization) allowed to issue keyed child mandates. Set for agent mandates only.",
     )
     agent_device = models.ForeignKey(
         "Device",
@@ -441,7 +472,7 @@ class Mandate(models.Model):
         null=True,
         blank=True,
         related_name="agent_mandates",
-        help_text="If set, only an agent client running on this device may provision.",
+        help_text="If set, only an agent client running on this device may issue.",
     )
     agent_membership = models.ForeignKey(
         "karakter.Membership",
@@ -449,10 +480,10 @@ class Mandate(models.Model):
         null=True,
         blank=True,
         related_name="agent_mandates",
-        help_text="If set, only an agent client acting as this membership may provision.",
+        help_text="If set, only an agent client acting as this membership may issue.",
     )
     subject_manifest = models.JSONField(
-        help_text="The manifest the grantor approved (identifier, version, scopes, requirements). Copied as the pin into every provisioned token."
+        help_text="The pin (a MandatePin): identifier, version, device, and the scope and requirement ceilings. Read it through `pin`."
     )
     attestation = models.CharField(
         max_length=1000,
@@ -463,109 +494,81 @@ class Mandate(models.Model):
     max_clients = models.PositiveIntegerField(
         null=True,
         blank=True,
-        help_text="How many live clients (plus outstanding tokens) may exist under this mandate. Null means unlimited.",
+        help_text="Keyed: how many clients (one per device) may log in with the key. Agent: how many live keyed children it may have. Null means unlimited.",
     )
+    allow_mesh = models.BooleanField(default=False, help_text="Whether a client logging in with the key may ask for a mesh key.")
+    parent = models.ForeignKey(
+        "self",
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name="children",
+        help_text="The agent mandate this one was issued under.",
+    )
+    issuing_client = models.ForeignKey(
+        "Client",
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name="issued_mandates",
+        help_text="The app client that issued this mandate (itself, or as the agent of `parent`).",
+    )
+    config_name = models.CharField(max_length=1000, null=True, blank=True, help_text="The deployment config entry that declares this mandate.")
+    hub_request = models.CharField(max_length=1000, null=True, blank=True, help_text="The identifier of the hub manifest's client request this mandate answers.")
     created_at = models.DateTimeField(auto_now_add=True)
-    expires_at = models.DateTimeField(null=True, blank=True, help_text="After this, no new clients may be provisioned. Existing ones keep running.")
+    expires_at = models.DateTimeField(null=True, blank=True, help_text="After this the mandate no longer works. Null: as long as its issuer.")
     revoked_at = models.DateTimeField(null=True, blank=True)
+    revocation_reason = models.CharField(max_length=64, choices=enums.MandateRevocationChoices.choices, null=True, blank=True)
+    last_used_at = models.DateTimeField(null=True, blank=True, help_text="When the key was last exchanged for a token.")
 
-    def is_live(self) -> bool:
-        """Whether the agent may still provision under this mandate."""
-        if self.revoked_at is not None:
-            return False
-        return not (self.expires_at and self.expires_at <= timezone.now())
-
-    def __str__(self) -> str:
-        return f"Mandate {self.pk}: {self.agent_identifier} → {self.subject_manifest.get('identifier')}:{self.subject_manifest.get('version')}"
-
-
-class RedeemToken(models.Model):
-    """A redeem token is a token that can be used to redeem the rights to create
-    a client. It is used to give the recipient the right to create a client.
-
-    If the token is not redeemed within the expires_at time, it will be invalid.
-    If the token has been redeemed, but the manifest has changed, the token will be invalid.
-
-
-    """
-
-    client = models.OneToOneField("Client", on_delete=models.CASCADE, related_name="redeemed_client", null=True)
-    token = models.CharField(max_length=1000, unique=True, default=uuid.uuid4)
-    created_at = models.DateTimeField(auto_now_add=True)
-    expires_at = models.DateTimeField(null=True)
-    manifest_hash = models.CharField(
-        max_length=64,
-        null=True,
-        blank=True,
-        help_text="SHA-256 hash of the manifest this token was first redeemed with. Used to detect manifest changes on re-redeem.",
-    )
-    allow_reredeem = models.BooleanField(
-        default=False,
-        help_text="If set, this token may be re-redeemed even when the manifest hash differs from the originally redeemed one.",
-    )
-    pinned_manifest = models.JSONField(
-        null=True,
-        blank=True,
-        help_text=(
-            "The manifest this token was pre-authorized for, fixed at mint time. When set, a "
-            "redeem must present the same identifier, version and device_id, and may request "
-            "only a subset of the pinned scopes and requirements; anything else is refused "
-            "before a client is provisioned. NULL means the token is unpinned and the "
-            "manifest is fixed on first redeem (manifest_hash) instead."
-        ),
-    )
-    max_redemptions = models.PositiveIntegerField(
-        null=True,
-        blank=True,
-        help_text=(
-            "How many times this token may be redeemed. NULL means unlimited. "
-            "Each redeem mints a fresh access+refresh pair, so an unlimited, "
-            "never-expiring token is a permanent foothold for whoever holds it."
-        ),
-    )
-    redemption_count = models.PositiveIntegerField(
-        default=0,
-        help_text="How many times this token has been redeemed so far.",
-    )
-    mandate = models.ForeignKey(
-        Mandate,
-        on_delete=models.CASCADE,
-        null=True,
-        blank=True,
-        related_name="redeem_tokens",
-        help_text="The mandate this token was provisioned under, if any. The client it produces is stamped with it.",
-    )
-
-    def redemptions_exhausted(self) -> bool:
-        """Whether this token has been redeemed as many times as it is allowed."""
-        if self.max_redemptions is None:
-            return False
-        return self.redemption_count >= self.max_redemptions
-    user = models.ForeignKey(get_user_model(), on_delete=models.CASCADE, related_name="issued_tokens")
-    hub = models.ForeignKey(
-        "Hub",
-        on_delete=models.CASCADE,
-        related_name="issued_tokens",
-    )
-    hub_client = models.CharField(
-        max_length=1000,
-        null=True,
-        blank=True,
-        help_text=(
-            "The identifier of the hub manifest's client request this token was minted for. "
-            "Such a token belongs to the hub: it is re-pinned whenever the hub is approved again, "
-            "and removed when the hub stops asking for the client."
-        ),
-    )
+    objects = MandateQuerySet.as_manager()
 
     class Meta:
         constraints = [
+            models.CheckConstraint(
+                condition=(
+                    Q(claimant="key", key_hash__isnull=False, agent_identifier__isnull=True)
+                    | Q(claimant="agent", key_hash__isnull=True, agent_identifier__isnull=False)
+                ),
+                name="A keyed mandate has a key, an agent mandate names an agent",
+            ),
+            models.CheckConstraint(
+                condition=(
+                    Q(origin="member", parent__isnull=True, issuing_client__isnull=True, config_name__isnull=True, hub_request__isnull=True)
+                    | Q(origin="client", parent__isnull=True, issuing_client__isnull=False, config_name__isnull=True, hub_request__isnull=True)
+                    | Q(origin="agent", parent__isnull=False, issuing_client__isnull=False, config_name__isnull=True, hub_request__isnull=True)
+                    | Q(origin="hub", parent__isnull=True, issuing_client__isnull=True, config_name__isnull=True, hub_request__isnull=False)
+                    | Q(origin="config", parent__isnull=True, issuing_client__isnull=True, config_name__isnull=False, hub_request__isnull=True)
+                ),
+                name="A mandate records exactly the issuer its origin names",
+            ),
             models.UniqueConstraint(
-                fields=["hub", "hub_client"],
-                condition=models.Q(hub_client__isnull=False),
-                name="One token per client request of a hub",
-            )
+                fields=["config_name"],
+                condition=Q(config_name__isnull=False, revoked_at__isnull=True),
+                name="One live mandate per config entry",
+            ),
+            models.UniqueConstraint(
+                fields=["hub", "hub_request"],
+                condition=Q(hub_request__isnull=False, revoked_at__isnull=True),
+                name="One live mandate per client request of a hub",
+            ),
         ]
+
+    @property
+    def pin(self) -> base_models.MandatePin:
+        return base_models.MandatePin.model_validate(self.subject_manifest)
+
+    def is_live(self) -> bool:
+        """Whether the mandate still works (the row-level ``MandateQuerySet.live``)."""
+        if self.revoked_at is not None:
+            return False
+        if self.expires_at is not None and self.expires_at <= timezone.now():
+            return False
+        return self.membership.user.is_active
+
+    def __str__(self) -> str:
+        pin = self.pin
+        return f"Mandate {self.pk} ({self.claimant}, {self.origin}) → {pin.identifier or '*'}:{pin.version or '*'}"
 
 
 class Hub(models.Model):
@@ -1058,7 +1061,13 @@ class Client(models.Model, ClientMixin):
         null=True,
         blank=True,
         related_name="clients",
-        help_text="The mandate this client was provisioned under. Revoking the mandate deletes the client.",
+        help_text="The keyed mandate this client logs in with. Revoking the mandate deletes the client.",
+    )
+    manifest_hash = models.CharField(
+        max_length=64,
+        blank=True,
+        default="",
+        help_text="SHA-256 of the manifest the client was last bound with: a mandate-key login re-binds only when it changes.",
     )
 
     class Meta:
@@ -1068,8 +1077,21 @@ class Client(models.Model, ClientMixin):
             # client per hub. Matches the rotation key in ``bind_client``.
             models.UniqueConstraint(
                 fields=["release", "membership", "node", "hub"],
+                condition=Q(mandate__isnull=True),
                 name="Only one client per release, membership, node and hub",
-            )
+            ),
+            # A mandated client acts as the grantor, so its identity is the mandate
+            # and the device instead: it never collides with the grantor's own login.
+            models.UniqueConstraint(
+                fields=["mandate", "node"],
+                condition=Q(mandate__isnull=False, node__isnull=False),
+                name="Only one client per mandate and device",
+            ),
+            models.UniqueConstraint(
+                fields=["mandate"],
+                condition=Q(mandate__isnull=False, node__isnull=True),
+                name="Only one deviceless client per mandate",
+            ),
         ]
 
     def __str__(self) -> str:

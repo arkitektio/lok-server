@@ -7,10 +7,10 @@ Covers the browser- and machine-facing surface hardened in one pass:
 - the mesh device-code flow is throttled, speaks RFC 8628 vocabulary, and burns
   a granted challenge after the first successful poll (single-use);
 - ``report_client`` never applies an alias id from another organization;
-- the token endpoint turns every domain failure of the redeem grant into an
+- the token endpoint turns every domain failure of the mandate-key grant into an
   OAuth error (``invalid_scope`` / ``invalid_grant``), never a 500/HTML page;
 - an unknown ``requested_client_role`` is a ``400 invalid_request`` both at app
-  authorization and in the redeem grant;
+  authorization and in the mandate-key grant;
 - no published JWKS (``/o/jwks/``, the bearer validator) carries private members;
 - CORS headers are served on /o/, /f/ and /.well-known/ only, driven by the
   ``django.cors_*`` config keys.
@@ -31,7 +31,7 @@ from lok_server.configuration import Settings
 from tests import factories
 
 DEVICE_CODE_GRANT = "urn:ietf:params:oauth:grant-type:device_code"
-REDEEM_GRANT = "urn:fakts:grant-type:redeem"
+MANDATE_KEY_GRANT = "urn:fakts:grant-type:mandate-key"
 PRIVATE_JWK_MEMBERS = {"d", "p", "q", "dp", "dq", "qi", "oth"}
 
 
@@ -267,62 +267,61 @@ def test_report_client_ignores_unknown_alias_id():
 
 
 # --------------------------------------------------------------------------- #
-# Token endpoint: redeem grant never 500s
+# Token endpoint: the mandate-key grant never 500s
 # --------------------------------------------------------------------------- #
 
 
-def _redeem(client, token, manifest, **extra):
+def _login(client, key, manifest, **extra):
     return client.post(
         reverse("token"),
-        data={"grant_type": REDEEM_GRANT, "redeem_token": token, "manifest": json.dumps(manifest), **extra},
+        data={"grant_type": MANDATE_KEY_GRANT, "key": key, "manifest": json.dumps(manifest), **extra},
         secure=True,
     )
 
 
 @pytest.mark.django_db
-def test_redeem_with_unknown_scope_is_an_oauth_error(client):
-    redeem = factories.make_redeem_token()
+def test_a_key_login_with_an_unknown_scope_is_an_oauth_error(client):
+    _, key = factories.make_mandate_key()
     manifest = {
         "identifier": "com.example.scoped",
         "version": "1.0.0",
         "scopes": ["definitely-not-a-scope-of-this-org"],
         "requirements": [],
     }
-    resp = _redeem(client, redeem.token, manifest)
+    resp = _login(client, key, manifest)
     assert resp.status_code == 400, resp.content
     assert resp["Content-Type"].startswith("application/json")
     body = resp.json()
-    assert body["error"] in ("invalid_scope", "invalid_grant")
+    assert body["error"] == "invalid_scope"
     assert "definitely-not-a-scope-of-this-org" in body["error_description"]
 
 
 @pytest.mark.django_db
-def test_redeem_unexpected_domain_failure_is_invalid_grant(client, monkeypatch):
-    def _boom(*a, **kw):
-        raise ValueError("Could not download logo boom")
+def test_a_key_login_the_organization_refuses_is_invalid_grant(client):
+    mandate, key = factories.make_mandate_key()
+    mandate.organization.require_device_auth = True
+    mandate.organization.save(update_fields=["require_device_auth"])
+    manifest = {"identifier": "com.example.deviceless", "version": "1.0.0", "scopes": [], "requirements": []}
 
-    monkeypatch.setattr(clients, "redeem_token", _boom)
-    redeem = factories.make_redeem_token()
-    manifest = {"identifier": "com.example.boom", "version": "1.0.0", "scopes": [], "requirements": []}
-    resp = _redeem(client, redeem.token, manifest)
+    resp = _login(client, key, manifest)
+
     assert resp.status_code == 400
     body = resp.json()
     assert body["error"] == "invalid_grant"
-    assert "boom" in body["error_description"]
+    assert "device" in body["error_description"]
 
 
 @pytest.mark.django_db
-def test_redeem_with_bogus_client_role_is_invalid_request(client):
-    redeem = factories.make_redeem_token()
+def test_a_key_login_with_a_bogus_client_role_is_invalid_request(client):
+    mandate, key = factories.make_mandate_key()
     manifest = {"identifier": "com.example.role", "version": "1.0.0", "scopes": [], "requirements": []}
-    resp = _redeem(client, redeem.token, manifest, requested_client_role="bogus")
+    resp = _login(client, key, manifest, requested_client_role="bogus")
     assert resp.status_code == 400
     body = resp.json()
     assert body["error"] == "invalid_request"
     assert "requested_client_role" in body["error_description"]
     # nothing was provisioned
-    redeem.refresh_from_db()
-    assert redeem.client is None
+    assert not mandate.clients.exists()
 
 
 @pytest.mark.django_db

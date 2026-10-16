@@ -11,7 +11,6 @@ from fakts.services.clients import (
     bind_client,
     create_public_client,
     finalize_client_scope,
-    validate_redeem_token,
 )
 from fakts.services.hubs import (
     PartnerPreAuthorizationError,
@@ -63,5 +62,4 @@ __all__ = [
     "run_partner_pre_authorize_hook",
     "start_mesh_device_code",
     "validate_device_code",
-    "validate_redeem_token",
 ]

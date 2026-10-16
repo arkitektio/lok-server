@@ -14,7 +14,7 @@ from authlib.integrations.django_oauth2 import AuthorizationServer, BearerTokenV
 from fakts.models import Client
 from .models import OAuth2Token
 from .grants import AuthorizationCodeGrant, OpenIDCode, RefreshTokenGrant
-from .fakts_grants import FaktsDeviceCodeGrant, FaktsRedeemGrant
+from .fakts_grants import FaktsDeviceCodeGrant, FaktsMandateKeyGrant
 from .token_generators import MyJWTBearerTokenGenerator
 from authlib.oidc.core import UserInfo
 from .token_generators import jwk_dict, public_jwks
@@ -74,7 +74,7 @@ GRANT_TYPES_SUPPORTED = [
     "authorization_code",
     "refresh_token",
     "urn:ietf:params:oauth:grant-type:device_code",
-    "urn:fakts:grant-type:redeem",
+    "urn:fakts:grant-type:mandate-key",
 ]
 
 # `none` is how the dynamically registered public fakts clients authenticate
@@ -88,7 +88,7 @@ server = AuthorizationServer(Client, OAuth2Token)
 # Register the project's supported grants.
 #
 # ClientCredentialsGrant is deliberately NOT registered: fakts clients use the
-# device-code/redeem grants and the OIDC relying parties use authorization_code
+# device-code/mandate-key grants and the OIDC relying parties use authorization_code
 # — nothing in the deployment exchanges client credentials, so the grant would
 # only widen the attack surface of every confidential client's secret. The
 # class is kept in grants.py for easy re-enable if a machine-to-machine
@@ -108,11 +108,11 @@ server.register_grant(AuthorizationCodeGrant, [OpenIDCode(require_nonce=False), 
 server.register_grant(RefreshTokenGrant)
 
 # The canonical fakts grants: RFC 8628 device-code (interactive, approved in the
-# kontrol frontend) and the headless redeem grant. Both issue the combined
-# response — access token + refresh token + rendered service instances — for
+# kontrol frontend; access + refresh token) and the headless mandate-key grant
+# (access token only). Both append the rendered service instances for
 # dynamically registered public clients. See authapp/fakts_grants.py.
 server.register_grant(FaktsDeviceCodeGrant)
-server.register_grant(FaktsRedeemGrant)
+server.register_grant(FaktsMandateKeyGrant)
 
 # RFC 7009 token revocation, served at /o/revoke/.
 from .revocation import MyRevocationEndpoint  # noqa: E402  (needs `server` grants above conceptually grouped)

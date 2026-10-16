@@ -35,7 +35,7 @@ class Query:
     service_instance_mappings: list[types.ManagementServiceInstanceMapping] = kante.django_field()
     clients: list[types.ManagementClient] = kante.django_field()
     devices: list[types.ManagementDevice] = kante.django_field()
-    redeem_tokens: list[types.ManagementRedeemToken] = kante.django_field()
+    mandates: list[types.ManagementMandate] = kante.django_field()
     layers: list[types.ManagementLayer] = kante.django_field()
     device_groups: list[types.ManagementDeviceGroup] = kante.django_field()
     used_aliases: list[types.ManagementUsedAlias] = kante.django_field()
@@ -392,8 +392,11 @@ class Mutation:
         resolver=mutations.cancel_invite,
     )
 
-    create_redeem_token = strawberry_django.mutation(
-        resolver=mutations.create_redeem_token,
+    issue_mandate_key = strawberry_django.mutation(
+        resolver=mutations.issue_mandate_key,
+    )
+    revoke_mandate = strawberry_django.mutation(
+        resolver=mutations.revoke_mandate,
     )
 
     # device Mutations

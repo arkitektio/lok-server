@@ -58,7 +58,7 @@ def make_oauth2_client(membership: Membership | None = None, **kw) -> fmodels.Cl
     kw.setdefault("client_id", generate_client_id())
     kw.setdefault("client_secret", generate_client_secret())
     kw.setdefault("token_endpoint_auth_method", "client_secret_post")
-    kw.setdefault("grant_types", "authorization_code refresh_token client_credentials urn:ietf:params:oauth:grant-type:device_code urn:fakts:grant-type:redeem")
+    kw.setdefault("grant_types", "authorization_code refresh_token client_credentials urn:ietf:params:oauth:grant-type:device_code")
     kw.setdefault("scope", "openid profile email")
     kw.setdefault("organization", membership.organization)
     return fmodels.Client.objects.create(membership=membership, **kw)
@@ -104,7 +104,7 @@ def make_client(membership: Membership | None = None, release: fmodels.Release |
     kw.setdefault("role", ClientRoleChoices.INTERFACE.value)
     kw.setdefault("client_id", generate_client_id())
     kw.setdefault("token_endpoint_auth_method", "none")
-    kw.setdefault("grant_types", "urn:ietf:params:oauth:grant-type:device_code urn:fakts:grant-type:redeem refresh_token authorization_code")
+    kw.setdefault("grant_types", "urn:ietf:params:oauth:grant-type:device_code refresh_token authorization_code")
     kw.setdefault("scope", "openid profile email")
     return fmodels.Client.objects.create(release=release, membership=membership, **kw)
 
@@ -164,9 +164,31 @@ def make_device_code(**kw) -> fmodels.DeviceCode:
     return fmodels.DeviceCode.objects.create(**kw)
 
 
-def make_redeem_token(hub: fmodels.Hub | None = None, **kw) -> fmodels.RedeemToken:
+def make_mandate_key(
+    hub: fmodels.Hub | None = None,
+    membership: Membership | None = None,
+    pin: dict | None = None,
+    key: str | None = None,
+    **kw,
+) -> tuple[fmodels.Mandate, str]:
+    """A keyed mandate, issued as a member through ``issue_mandate``, and its key.
+
+    ``pin`` is a MandatePin as a dict; left out, the mandate is open (the hub's
+    creator, who owns the organization, may issue those)."""
+    from fakts.base_models import MandatePin
+    from fakts.services import mandates
+
     if hub is None:
         hub = make_hub()
-    kw.setdefault("user", hub.creator)
-    kw.setdefault("token", str(uuid4()))
-    return fmodels.RedeemToken.objects.create(hub=hub, **kw)
+    if membership is None:
+        membership = make_membership(user=hub.creator, organization=hub.organization)
+    key = key or f"test-mandate-key-{uuid4().hex}"
+    issued = mandates.issue_mandate(
+        issuer=mandates.MemberIssuer(membership=membership),
+        grantor=membership,
+        hub=hub,
+        pin=MandatePin.model_validate(pin or {}),
+        claimant=mandates.KeyClaimant(key=key),
+        **kw,
+    )
+    return issued.mandate, key

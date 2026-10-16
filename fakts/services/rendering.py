@@ -62,10 +62,11 @@ def render_server_fakts(hub: models.Hub, context: base_models.ServerLinkingConte
         )
 
     request_claims: Dict[str, HubClientRequestClaim] = {}
-    for token in hub.issued_tokens.filter(hub_client__isnull=False).select_related("client"):
-        request_claims[token.hub_client] = HubClientRequestClaim(
-            redeem_token=token.token,
-            client_id=token.client.client_id if token.client else None,
+    for mandate in hub.mandates.filter(origin="hub", revoked_at__isnull=True).prefetch_related("clients"):
+        request_claims[mandate.hub_request] = HubClientRequestClaim(
+            mandate=str(mandate.pk),
+            key_sha256=mandate.key_hash,
+            client_ids=[client.client_id for client in mandate.clients.all()],
         )
 
     claim = HubClaimAnswer(

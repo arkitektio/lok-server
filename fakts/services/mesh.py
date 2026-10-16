@@ -96,7 +96,14 @@ def _clients_with_session(clients, grace_seconds: int):
     # were all revoked is dead at once, however new it is.
     never_polled = ~Q(client_id__in=OAuth2Token.objects.values("client_id"))
     fresh = timezone.now() - timedelta(seconds=BACKER_GRACE_SECONDS)
-    return clients.filter(Q(client_id__in=held) | (never_polled & Q(created_at__gte=fresh)))
+    session = Q(client_id__in=held) | (never_polled & Q(created_at__gte=fresh))
+    # A client logging in with a mandate key has no refresh chain: it is backed
+    # for as long as its mandate works (an expired one for the grace; a revoked
+    # one never, and revoking deletes its clients anyway).
+    mandated = models.Mandate.objects.filter(revoked_at__isnull=True, membership__user__is_active=True).filter(
+        Q(expires_at__isnull=True) | Q(expires_at__gt=timezone.now() - timedelta(seconds=grace_seconds))
+    )
+    return clients.filter((Q(mandate__isnull=True) & session) | Q(mandate__in=mandated))
 
 
 def live_clients(clients):
@@ -238,14 +245,30 @@ def reject_app_installation(client: models.Client) -> None:
     sidecar is reaped the usual way."""
     from authapp.models import OAuth2Token
 
+    if client.mandate_id is not None:
+        # A client logging in with a key would just run its grant again: rejecting
+        # it withdraws the key (which deletes the client and reaps its sidecar).
+        from fakts.services.mandates import revoke_mandate
+
+        revoke_mandate(client.mandate)
+        return
+
     if client.release_id is None or client.membership_id is None:
+        from fakts.services.mandates import revoke_issued_by
+
         OAuth2Token.objects.filter(client_id=client.client_id).update(revoked=True)
+        revoke_issued_by(models.Client.objects.filter(pk=client.pk))
         schedule_reap_for_clients(models.Client.objects.filter(pk=client.pk))
         return
+
+    from fakts.services.mandates import revoke_issued_by
 
     app_id = client.release.app_id
     siblings = enrollment_clients(client.membership_id, app_id, client.node_id)
     OAuth2Token.objects.filter(client_id__in=siblings.values("client_id")).update(revoked=True)
+    # A rejected app takes everything it issued with it (and a mandated sibling
+    # stops working only once its mandate does).
+    revoke_issued_by(siblings)
     # An approved code that was not polled yet would still hand out tokens (and
     # the mesh key) to a client we are rejecting.
     models.DeviceCode.objects.filter(client__in=siblings).delete()

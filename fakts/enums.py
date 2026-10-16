@@ -59,6 +59,59 @@ class ClientRoleVanilla(str, Enum):
     AGENT = "agent"
 
 
+class MandateClaimantChoices(TextChoices):
+    """Who may use a mandate."""
+
+    KEY = "key", "KEY (whoever holds the mandate key logs in as the grantor)"
+    AGENT = "agent", "AGENT (an agent app may issue keyed child mandates under it)"
+
+
+class MandateOriginChoices(TextChoices):
+    """Who issued a mandate: the mandate dies with its issuer."""
+
+    MEMBER = "member", "MEMBER (a member, through kontrol)"
+    CLIENT = "client", "CLIENT (an app, as its own user)"
+    AGENT = "agent", "AGENT (an agent, under a parent agent mandate)"
+    HUB = "hub", "HUB (approving a hub that asks for the client)"
+    CONFIG = "config", "CONFIG (the deployment config)"
+
+
+class MandateRevocationChoices(TextChoices):
+    """Why a mandate stopped working."""
+
+    REVOKED = "revoked", "REVOKED (withdrawn by its grantor or an admin)"
+    PARENT_REVOKED = "parent_revoked", "PARENT_REVOKED (the agent mandate it was issued under was withdrawn)"
+    ISSUER_REVOKED = "issuer_revoked", "ISSUER_REVOKED (the app that issued it was rejected or revoked)"
+    REMOVED_FROM_CONFIG = "removed_from_config", "REMOVED_FROM_CONFIG (the deployment config no longer names it)"
+    SUPERSEDED = "superseded", "SUPERSEDED (replaced by a new key, or no longer asked for)"
+    ORGANIZATION_REVOKED = "organization_revoked", "ORGANIZATION_REVOKED (every session of the organization was revoked)"
+
+
+@strawberry.enum(description="Who may use a mandate.")
+class MandateClaimant(str, Enum):
+    KEY = strawberry.enum_value("key", description="Whoever holds the mandate key logs in as the grantor.")
+    AGENT = strawberry.enum_value("agent", description="The agent app it names may issue keyed child mandates under it.")
+
+
+@strawberry.enum(description="Who issued a mandate. A mandate dies with its issuer.")
+class MandateOrigin(str, Enum):
+    MEMBER = strawberry.enum_value("member", description="A member, through kontrol.")
+    CLIENT = strawberry.enum_value("client", description="An app, as its own user.")
+    AGENT = strawberry.enum_value("agent", description="An agent, under a parent agent mandate.")
+    HUB = strawberry.enum_value("hub", description="Approving a hub that asks for the client.")
+    CONFIG = strawberry.enum_value("config", description="The deployment config.")
+
+
+@strawberry.enum(description="Why a mandate stopped working.")
+class MandateRevocation(str, Enum):
+    REVOKED = strawberry.enum_value("revoked", description="Withdrawn by its grantor or an admin.")
+    PARENT_REVOKED = strawberry.enum_value("parent_revoked", description="The agent mandate it was issued under was withdrawn.")
+    ISSUER_REVOKED = strawberry.enum_value("issuer_revoked", description="The app that issued it was rejected or revoked.")
+    REMOVED_FROM_CONFIG = strawberry.enum_value("removed_from_config", description="The deployment config no longer names it.")
+    SUPERSEDED = strawberry.enum_value("superseded", description="Replaced by a new key, or no longer asked for.")
+    ORGANIZATION_REVOKED = strawberry.enum_value("organization_revoked", description="Every session of the organization was revoked.")
+
+
 @strawberry.enum
 class ClientRole(str, Enum):
     INTERFACE = strawberry.enum_value(

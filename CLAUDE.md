@@ -26,7 +26,7 @@ anything is recreated — and runs everything else as a job the image offers by 
 
 What this service declares:
 
-- Setup, in order: `ensurepartners`, `ensureopenid`, `ensureusers`, `ensureorganizations`, `ensurememberships`, `ensuretokens`.
+- Setup, in order: `ensurepartners`, `ensureopenid`, `ensureusers`, `ensureorganizations`, `ensurememberships`, `ensuremandates`.
 - Other jobs: `reconcile_meshes`.
 - Not jobs, on purpose: `validatecode` approves a device code from the command line: the client packages' integration tests use it, no hub does.
 

@@ -17,6 +17,7 @@ from graphql import GraphQLError
 from api.management.authz import DENIED, assert_owner_or_admin, get_or_denied, get_user, is_owner_or_admin
 from authapp.models import OAuth2Token
 from fakts import models as fakts_models
+from fakts.services.mandates import revoke_organization_mandates
 from fakts.services.mesh import reject_app_installation, schedule_reap_for_clients
 from karakter import models
 
@@ -67,5 +68,8 @@ def revoke_organization_sessions(info: Info, input: RevokeOrganizationSessionsIn
     )
 
     revoked = OAuth2Token.objects.filter(client_id__in=client_ids, revoked=False).update(revoked=True)
+    # Every mandate stops working too: the clients logging in with a key would
+    # otherwise just run their grant again.
+    revoke_organization_mandates(organization)
     schedule_reap_for_clients(fakts_models.Client.objects.filter(client_id__in=client_ids))
     return revoked
