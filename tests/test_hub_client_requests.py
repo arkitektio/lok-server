@@ -238,3 +238,19 @@ def test_a_revoked_key_is_skipped_but_the_hub_is_still_approved(client):
     hub_token, _, _ = _approve(client, _hub_manifest(_engine_request(mandate_key=renewed)), membership=membership)
     assert hub_token["client_requests"]["engine"]["key_sha256"] == _sha256(renewed)
     assert _login(client, renewed, ENGINE).status_code == 200
+
+
+@pytest.mark.django_db
+def test_setup_gives_an_upgraded_preconfigured_hub_its_mandates_back(client):
+    """Migrating drops the redeem tokens; the next setup re-applies the preconfigured hub
+    (ensureorganizations does on every run) and the engine logs in with the key it has."""
+    org = factories.make_organization()
+    factories.make_membership(user=org.owner, organization=org)
+    manifest = base_models.HubManifest(**_hub_manifest(_engine_request(), identifier="local"))
+    hub = create_hub_from_manifest(manifest=manifest, organization=org)
+    models.Mandate.objects.filter(hub=hub).delete()  # what the hub looks like after the migration
+    assert _login(client, PROPOSED, ENGINE).status_code == 400
+
+    create_hub_from_manifest(manifest=manifest, organization=org)
+
+    assert _login(client, PROPOSED, ENGINE).status_code == 200
