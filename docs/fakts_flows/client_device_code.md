@@ -61,10 +61,17 @@ reviews the manifest and calls `acceptDeviceCode` (management GraphQL):
 Approval mints the org-scoped fakts `Client` (bound to the approving user's
 membership), resolves every manifest requirement to a service instance in the
 chosen hub, grants the manifest's scopes (they must exist as org scopes), and
-writes the granted scope onto the OAuth2 client. Re-approving an app that
-already has a client in the same org **rotates its identity**: the client is
-re-pointed at the new registration and the previous OAuth client (and with it
-that installation's refresh chain) is deleted.
+writes the granted scope onto the OAuth2 client.
+
+Re-approving an app the same member already approved on the same device (or,
+without a device id, without one) into the same hub, as the same kind and role,
+with an **unchanged manifest keeps its client**: the token response carries the
+earlier `client_id` (the device keeps polling as the one it registered with), so
+services that key on the client, such as rekuest's agents, see the same client
+with a fresh session. Re-approving with a **changed** manifest **rotates the
+identity**: the new registration takes over and the previous client (and with it
+that installation's refresh chain) is deleted. Clients use the `client_id` of the
+token response from then on.
 
 `declineDeviceCode` requires the `code` itself as proof of possession.
 

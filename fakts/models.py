@@ -691,7 +691,17 @@ class DeviceCode(models.Model):
         on_delete=models.CASCADE,
         related_name="device_code",
         help_text="The unified client dynamically registered at start — the staged row itself. "
-        "Approval binds it in place; the code is burned at token issuance.",
+        "Approval binds it in place, or, when the same app was approved before unchanged, "
+        "points here to that client instead; the code is burned at token issuance.",
+    )
+    polling_client_id = models.CharField(
+        max_length=48,
+        unique=True,
+        null=True,
+        blank=True,
+        help_text="The client_id the device registered with and polls as, when approval kept an "
+        "earlier client instead of the staged one. The token endpoint resolves it to `client` "
+        "for as long as the code lives.",
     )
     organization = models.ForeignKey(
         Organization,

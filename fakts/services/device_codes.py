@@ -7,7 +7,7 @@ from django.db import transaction
 from django.utils import timezone
 
 from fakts import base_models, enums, models
-from fakts.services.clients import bind_client, create_public_client
+from fakts.services.clients import bind_client, create_public_client, find_unchanged_client
 from fakts.services.tokens import create_challenge_code, create_device_code
 from fakts.utils import download_logo
 from karakter import models as karakter_models
@@ -145,15 +145,33 @@ def validate_device_code(
     """Approve a device code: bind the staged (registered-at-start) client to
     the approving user's membership in place.
 
-    Re-approval rotates identity: ``bind_client`` deletes any other bound
-    client for the same (release, membership, node, hub) — the previous
-    installation's client_id and refresh chain die.
+    An app approved again unchanged (``find_unchanged_client``) keeps its earlier
+    client: the code points to that client, the staged row goes, and the device,
+    which still polls as the staged client_id (``polling_client_id``), gets tokens
+    for the earlier client_id. Otherwise re-approval rotates identity:
+    ``bind_client`` deletes any other bound client for the same (release,
+    membership, node, hub), and the previous installation's client_id and refresh
+    chain die.
     """
     membership = karakter_models.Membership.objects.get(user=user, organization=organization)
+    manifest = device_code.manifest_as_model
+    staged = device_code.client
+
+    kept = find_unchanged_client(staged, manifest, membership, hub)
+    if kept is not None:
+        # A code of the kept client that was approved but never polled is stale now.
+        models.DeviceCode.objects.filter(client=kept).exclude(pk=device_code.pk).delete()
+        kept.redirect_uris = staged.redirect_uris
+        kept.public = staged.public
+        kept.save(update_fields=["redirect_uris", "public"])
+        device_code.polling_client_id = staged.client_id
+        device_code.client = kept
+        device_code.save(update_fields=["polling_client_id", "client"])
+        staged.delete()
 
     client = bind_client(
         device_code.client,
-        device_code.manifest_as_model,
+        manifest,
         membership,
         hub=hub,
         declined_requirements=declined_requirements,

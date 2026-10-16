@@ -92,6 +92,39 @@ def finalize_client_scope(client: models.Client) -> str:
     return scope
 
 
+def find_unchanged_client(
+    staged: models.Client,
+    manifest: base_models.Manifest,
+    membership: karakter_models.Membership,
+    hub: models.Hub | None,
+) -> models.Client | None:
+    """The client this approval would replace, if the app did not change.
+
+    An app approved again by the same member, on the same device, into the same
+    hub, as the same kind and role, with a byte-for-byte identical manifest is the
+    same installation: it keeps its client_id (so the services that key on it, like
+    rekuest's agents, see the same client) and only gets a fresh session. A device-
+    less login counts as the same device as every other device-less login.
+    """
+    organization = membership.organization
+    candidates = models.Client.objects.filter(
+        membership=membership,
+        hub=hub,
+        kind=staged.kind,
+        role=staged.role,
+        mandate__isnull=True,
+        release__app__organization=organization,
+        release__app__identifier=manifest.identifier,
+        release__version=manifest.version,
+        manifest_hash=hash_manifest(manifest),
+    ).exclude(pk=staged.pk)
+    if manifest.device_id:
+        candidates = candidates.filter(node__organization=organization, node__node_id=hash_device_id(manifest.device_id, organization))
+    else:
+        candidates = candidates.filter(node__isnull=True)
+    return candidates.first()
+
+
 @transaction.atomic
 def bind_client(
     client: models.Client,

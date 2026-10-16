@@ -83,7 +83,22 @@ TOKEN_ENDPOINT_AUTH_METHODS_SUPPORTED = ["client_secret_basic", "client_secret_p
 
 # The AuthorizationServer is backed by the unified fakts Client (which
 # implements authlib's ClientMixin directly) and OAuth2Token.
-server = AuthorizationServer(Client, OAuth2Token)
+class LokAuthorizationServer(AuthorizationServer):
+    def query_client(self, client_id):
+        """A device whose approval kept an earlier client still polls as the client_id it
+        registered with: resolve that to the kept client while its code lives
+        (``fakts.DeviceCode.polling_client_id``)."""
+        client = super().query_client(client_id)
+        if client is None and client_id:
+            from fakts.models import DeviceCode
+
+            code = DeviceCode.objects.select_related("client").filter(polling_client_id=client_id).first()
+            if code is not None:
+                return code.client
+        return client
+
+
+server = LokAuthorizationServer(Client, OAuth2Token)
 
 # Register the project's supported grants.
 #

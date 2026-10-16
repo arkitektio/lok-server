@@ -315,31 +315,68 @@ def test_full_hub_grant_returns_tokens_and_hub_config(client):
     assert "clients" in refreshed.json()
 
 
-@pytest.mark.django_db
-def test_reapproval_rotates_identity(client):
-    """Approving the same app again (same org, hub, user): the previous bound
-    client row — and with it its client_id and refresh chain — is deleted, and
-    the freshly registered row takes over."""
+def _approve_twice(client, first_manifest, second_manifest):
     hub = factories.make_hub()
     user = factories.make_user()
     factories.make_membership(user=user, organization=hub.organization)
+    tokens = []
+    for manifest in (first_manifest, second_manifest):
+        body = _start(client, manifest=manifest)
+        validate_device_code(models.DeviceCode.objects.get(secret=body["device_code"]), user=user, organization=hub.organization, hub=hub)
+        resp = _poll(client, body["device_code"], body["client_id"])
+        assert resp.status_code == 200, resp.json()
+        tokens.append((body["client_id"], resp.json()))
+    return tokens
 
-    first = _start(client)
-    validate_device_code(
-        models.DeviceCode.objects.get(secret=first["device_code"]),
-        user=user, organization=hub.organization, hub=hub,
-    )
-    assert _poll(client, first["device_code"], first["client_id"]).status_code == 200
 
-    second = _start(client)
-    validate_device_code(
-        models.DeviceCode.objects.get(secret=second["device_code"]),
-        user=user, organization=hub.organization, hub=hub,
+UNCHANGED = {"identifier": "com.example.flow", "version": "1.0.0", "scopes": [], "requirements": [], "device_id": "box-1"}
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("manifest", [UNCHANGED, {k: v for k, v in UNCHANGED.items() if k != "device_id"}], ids=["device", "deviceless"])
+def test_reapproving_an_unchanged_app_keeps_its_client(client, manifest):
+    """The same app, unchanged, approved again by the same member on the same device
+    into the same hub keeps its client_id (services key on it) with a fresh session."""
+    (first_staged, first), (second_staged, second) = _approve_twice(client, manifest, manifest)
+
+    assert first["client_id"] == first_staged
+    # The device polled as the client_id it registered with, and got the kept one.
+    assert second_staged != first_staged
+    assert second["client_id"] == first["client_id"]
+    assert not models.Client.objects.filter(client_id=second_staged).exists()
+    assert models.Client.objects.filter(release__app__identifier="com.example.flow").count() == 1
+    # The new session refreshes as the kept client.
+    refreshed = client.post(
+        reverse("token"),
+        data={"grant_type": "refresh_token", "refresh_token": second["refresh_token"], "client_id": second["client_id"]},
+        secure=True,
     )
-    assert second["client_id"] != first["client_id"]
-    # The first installation's identity is gone entirely.
+    assert refreshed.status_code == 200, refreshed.json()
+    # The staged client_id resolves to nothing once the code is burned.
+    assert not models.DeviceCode.objects.filter(polling_client_id=second_staged).exists()
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    "change",
+    [{"version": "2.0.0"}, {"title": "Renamed"}, {"device_id": "box-2"}],
+    ids=["new-version", "changed-manifest", "other-device"],
+)
+def test_reapproving_a_changed_app_is_a_new_client(client, change):
+    (_, first), (second_staged, second) = _approve_twice(client, UNCHANGED, {**UNCHANGED, **change})
+
+    assert second["client_id"] == second_staged != first["client_id"]
+
+
+@pytest.mark.django_db
+def test_reapproval_with_a_changed_manifest_rotates_identity(client):
+    """Approving the same release again with a changed manifest (same org, hub, user):
+    the previous bound client row — and with it its client_id and refresh chain — is
+    deleted, and the freshly registered row takes over."""
+    (first_staged, first), (second_staged, second) = _approve_twice(client, UNCHANGED, {**UNCHANGED, "title": "Renamed"})
+
     assert not models.Client.objects.filter(client_id=first["client_id"]).exists()
-    assert _poll(client, second["device_code"], second["client_id"]).status_code == 200
+    assert models.Client.objects.filter(client_id=second_staged).exists()
 
 
 @pytest.mark.django_db
