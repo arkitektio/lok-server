@@ -362,3 +362,98 @@ def test_the_org_kill_switch_revokes_every_mandate(client):
     mandate.refresh_from_db()
     assert mandate.revocation_reason == "organization_revoked"
     assert _login(client, key).status_code == 400
+
+
+# --------------------------------------------------------------------------- #
+# A new key for a device keeps the device's client (and so its rekuest agent)
+# --------------------------------------------------------------------------- #
+
+DEVICE = {**APP, "device_id": "esp32-a"}
+
+
+@pytest.mark.django_db
+def test_a_new_key_for_a_device_keeps_its_client_after_the_old_one_expired(client):
+    old, old_key = factories.make_mandate_key(pin=_pinned())
+    first = _login(client, old_key, DEVICE).json()
+    models.Mandate.objects.filter(pk=old.pk).update(expires_at=timezone.now() - timedelta(minutes=1))
+
+    new, new_key = factories.make_mandate_key(hub=old.hub, membership=old.membership, pin=_pinned())
+    second = _login(client, new_key, DEVICE).json()
+
+    assert second["client_id"] == first["client_id"]
+    assert models.Client.objects.get(client_id=second["client_id"]).mandate_id == new.pk
+    assert not old.clients.exists()
+
+
+@pytest.mark.django_db
+def test_a_new_key_takes_the_client_over_early_and_the_old_key_cannot_take_it_back(client):
+    old, old_key = factories.make_mandate_key(pin=_pinned())
+    first = _login(client, old_key, DEVICE).json()
+
+    _, new_key = factories.make_mandate_key(hub=old.hub, membership=old.membership, pin=_pinned())
+    second = _login(client, new_key, DEVICE).json()
+    old_again = _login(client, old_key, DEVICE).json()
+    new_again = _login(client, new_key, DEVICE).json()
+
+    assert second["client_id"] == first["client_id"] == new_again["client_id"]
+    assert old_again["client_id"] != first["client_id"]
+
+
+@pytest.mark.django_db
+def test_a_new_key_for_another_device_gets_its_own_client(client):
+    old, old_key = factories.make_mandate_key(pin=_pinned())
+    first = _login(client, old_key, DEVICE).json()
+
+    _, new_key = factories.make_mandate_key(hub=old.hub, membership=old.membership, pin=_pinned())
+    other = _login(client, new_key, {**APP, "device_id": "esp32-b"}).json()
+
+    assert other["client_id"] != first["client_id"]
+    assert models.Client.objects.filter(client_id=first["client_id"], mandate=old).exists()
+
+
+@pytest.mark.django_db
+def test_a_new_key_of_another_grantor_gets_its_own_client(client):
+    old, old_key = factories.make_mandate_key(pin=_pinned())
+    first = _login(client, old_key, DEVICE).json()
+
+    someone_else = factories.make_membership(organization=old.organization)
+    _, new_key = factories.make_mandate_key(hub=old.hub, membership=someone_else, pin=_pinned())
+    second = _login(client, new_key, DEVICE).json()
+
+    assert second["client_id"] != first["client_id"]
+
+
+@pytest.mark.django_db
+def test_a_new_key_for_another_app_on_the_device_gets_its_own_client(client):
+    old, old_key = factories.make_mandate_key(pin=_pinned())
+    first = _login(client, old_key, DEVICE).json()
+
+    other_app = {**DEVICE, "identifier": "com.example.other"}
+    _, new_key = factories.make_mandate_key(hub=old.hub, membership=old.membership, pin=_pinned(identifier=other_app["identifier"]))
+    second = _login(client, new_key, other_app).json()
+
+    assert second["client_id"] != first["client_id"]
+
+
+@pytest.mark.django_db
+def test_after_a_revoke_a_new_key_is_a_new_client(client):
+    old, old_key = factories.make_mandate_key(pin=_pinned())
+    first = _login(client, old_key, DEVICE).json()
+    mandates.revoke_mandate(old)
+
+    _, new_key = factories.make_mandate_key(hub=old.hub, membership=old.membership, pin=_pinned())
+    second = _login(client, new_key, DEVICE).json()
+
+    assert second["client_id"] != first["client_id"]
+
+
+@pytest.mark.django_db
+def test_without_a_device_id_a_new_key_is_a_new_client(client):
+    old, old_key = factories.make_mandate_key(pin=_pinned())
+    first = _login(client, old_key).json()
+
+    _, new_key = factories.make_mandate_key(hub=old.hub, membership=old.membership, pin=_pinned())
+    second = _login(client, new_key).json()
+
+    assert second["client_id"] != first["client_id"]
+

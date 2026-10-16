@@ -497,12 +497,43 @@ def _grant_mesh_key(client: models.Client) -> models.IonscaleAuthKey | None:
         return None
 
 
+def _predecessor_client(mandate: models.Mandate, node: models.Device, identifier: str) -> models.Client | None:
+    """The client the device ran under an older key of the same grantor, for the same app in the same hub.
+
+    A new key for a device takes that client over, so the device keeps its client_id, and
+    with it its identity in the services: a rekuest agent is one per client. Re-keying a
+    device (its key expired, or is about to) is then not a new installation.
+
+    Only a mandate of the same origin is a predecessor: a member's key never takes over a
+    client a hub or the deployment config manages for the same app and device.
+
+    Only an older mandate's client is taken (by pk), so the old key logging in again gets a
+    client of its own rather than taking this one back. A revoked mandate's clients are
+    deleted with it, so revoking stays a clean cut.
+    """
+    return (
+        models.Client.objects.select_for_update(of=("self",))
+        .filter(
+            node=node,
+            mandate__membership_id=mandate.membership_id,
+            mandate__hub_id=mandate.hub_id,
+            mandate__origin=mandate.origin,
+            mandate__pk__lt=mandate.pk,
+            release__app__identifier=identifier,
+        )
+        .order_by("-mandate__pk")
+        .first()
+    )
+
+
 def authenticate_key(request: MandateKeyGrantRequest) -> KeyGrant:
     """Exchange a mandate key for the client it logs in as.
 
     The client is one per (mandate, device): logging in again returns the same row,
-    and a new release of the app updates it in place. It is (re-)bound only when it
-    is new or its manifest, kind or role changed, so the hourly grant stays cheap.
+    and a new release of the app updates it in place. A device's first login with a
+    new key takes over the client it had under an older key (:func:`_predecessor_client`).
+    It is (re-)bound only when it is new, came from another mandate, or its manifest,
+    kind or role changed, so the hourly grant stays cheap.
     """
     from fakts.services.clients import DeviceAuthRequired, bind_client, create_public_client, hash_manifest
 
@@ -539,9 +570,17 @@ def authenticate_key(request: MandateKeyGrantRequest) -> KeyGrant:
         if client is None:
             if mandate.max_clients is not None and mandate.clients.count() >= mandate.max_clients:
                 raise MandateExhausted("This mandate key has been used on as many devices as it allows.")
-            client = create_public_client(kind=kind, role=role, grant_types=MANDATE_KEY_GRANT_TYPE)
+            client = _predecessor_client(mandate, node, manifest.identifier) if node is not None else None
+            if client is None:
+                client = create_public_client(kind=kind, role=role, grant_types=MANDATE_KEY_GRANT_TYPE)
 
-        if client.membership_id is None or client.manifest_hash != hash_manifest(manifest) or client.kind != kind or client.role != role:
+        if (
+            client.membership_id is None
+            or client.mandate_id != mandate.pk
+            or client.manifest_hash != hash_manifest(manifest)
+            or client.kind != kind
+            or client.role != role
+        ):
             client.kind = kind
             client.role = role
             client = bind_client(client, manifest, mandate.membership, hub=mandate.hub, mandate=mandate)

@@ -484,3 +484,15 @@ async def test_only_grantor_admin_or_issuing_app_may_revoke_and_agent_sees_its_m
     assert not revoked.errors, revoked.errors
     assert revoked.data["revokeMandate"]["isLive"] is False
     assert revoked.data["revokeMandate"]["revocationReason"] == "REVOKED"
+
+
+@pytest.mark.django_db
+def test_a_device_issued_a_second_child_key_keeps_its_client(client):
+    """Re-keying a device under the standing mandate is not a new installation: same client_id, same agent."""
+    w = _world()
+    parent = _agent_mandate(w)
+    first = _login(client, _issue_child(w, parent, "host-a:pod-1"), device_id="host-a:pod-1").json()
+    second = _login(client, _issue_child(w, parent, "host-a:pod-1"), device_id="host-a:pod-1").json()
+
+    assert second["client_id"] == first["client_id"]
+    assert models.Client.objects.filter(mandate__parent=parent).count() == 1

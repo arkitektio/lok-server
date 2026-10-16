@@ -63,3 +63,13 @@ One client per mandate and device: logging in again is the same `client_id`, and
 new release of the app updates the same client in place. It acts as the grantor but
 never replaces the grantor's own login of the same app. `max_clients` caps on how
 many devices one key logs in.
+
+A **new key for a device keeps the device's client.** On a device's first login with
+a key, lok takes over the client the device had under an *older* mandate of the same
+grantor and origin, for the same app identifier and hub. The `client_id` stays the same, and so
+does the device's identity in the services (a rekuest agent is one per client).
+Re-keying a device, whether its key expired or a fresh child key was issued under an
+agent mandate, is therefore not a new installation. The older key cannot take the
+client back: logging in with it again makes a client of its own. A revoked mandate's
+clients are deleted with it, so after a revoke the next key is a new client. Without
+a `device_id` nothing is taken over.
