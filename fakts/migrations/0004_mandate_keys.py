@@ -13,6 +13,10 @@ def drop_redeemed_clients(apps, schema_editor):
     client lived on a refresh chain its token could restart at will. The clients an
     old mandate provisioned go too: from now on a mandated client logs in with a key.
     Their tokens die with them."""
+    # Check the foreign keys as the rows go: deferred checks would still be pending
+    # when the schema changes below run in the same transaction, and Postgres
+    # refuses to alter a table with pending trigger events.
+    schema_editor.execute("SET CONSTRAINTS ALL IMMEDIATE")
     Client = apps.get_model("fakts", "Client")
     RedeemToken = apps.get_model("fakts", "RedeemToken")
     OAuth2Token = apps.get_model("authapp", "OAuth2Token")

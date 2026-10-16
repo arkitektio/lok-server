@@ -221,3 +221,20 @@ def test_a_preconfigured_hub_grants_its_clients_as_the_organizations_owner(clien
     assert mandate.pin.version is None
     response = _login(client, PROPOSED, ENGINE)
     assert response.status_code == 200, response.json()
+
+
+@pytest.mark.django_db
+def test_a_revoked_key_is_skipped_but_the_hub_is_still_approved(client):
+    from fakts.services.mandates import revoke_mandate
+
+    _, membership, hub = _approve(client, _hub_manifest(_engine_request()))
+    revoke_mandate(models.Mandate.objects.get(hub=hub, hub_request="engine"))
+
+    hub_token, _, _ = _approve(client, _hub_manifest(_engine_request()), membership=membership)
+
+    assert hub_token["client_requests"] == {}
+    assert _login(client, PROPOSED, ENGINE).status_code == 400
+    renewed = "r" * 43
+    hub_token, _, _ = _approve(client, _hub_manifest(_engine_request(mandate_key=renewed)), membership=membership)
+    assert hub_token["client_requests"]["engine"]["key_sha256"] == _sha256(renewed)
+    assert _login(client, renewed, ENGINE).status_code == 200

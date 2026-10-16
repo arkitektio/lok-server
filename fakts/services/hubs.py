@@ -122,7 +122,9 @@ def ensure_hub_mandates(hub: models.Hub, manifest: HubManifest, grantor: karakte
     Approving again keeps a mandate whose key is unchanged (re-pinning it, and moving
     it to the new grantor, whose clients are then logged in afresh), supersedes one
     whose key changed, and revokes the mandates of requests the manifest no longer
-    makes. Deleting the hub deletes its mandates.
+    makes. A request re-proposing a revoked key is skipped (a revoked key never works
+    again) and stays out of the envelope until the hub proposes a new one. Deleting
+    the hub deletes its mandates.
     """
     from fakts.base_models import MandatePin
     from fakts.services import mandates
@@ -145,6 +147,12 @@ def ensure_hub_mandates(hub: models.Hub, manifest: HubManifest, grantor: karakte
             issued.append(current)
             continue
 
+        if models.Mandate.objects.filter(key_hash=mandates.hash_key(request.mandate_key)).exists():
+            # The key was revoked (the app was rejected, the organization revoked every
+            # session, ...) and never works again. The rest of the hub is approved; the
+            # request stays out of the envelope until the hub proposes a new key.
+            logger.warning("Hub %s re-proposed the revoked key of client request %r; skipping it", hub.pk, request.identifier)
+            continue
         if current is not None:
             mandates.revoke_mandate(current, enums.MandateRevocationChoices.SUPERSEDED)
         issued.append(
