@@ -36,7 +36,7 @@ REQUEST_MEMBERSHIP = """
 ORKESTRATOR = {
     "protocol": "orkestrator",
     "name": "Orkestrator",
-    "installUrl": "https://arkitekt.live/docs/use/install",
+    "installUrl": "https://arkitekt.live/docs/guides/apps/orkestrator",
     "mobile": True,
 }
 
@@ -51,7 +51,7 @@ def test_the_default_is_orkestrator_with_its_install_page_on_desktop_and_mobile(
         {
             "protocol": "orkestrator",
             "name": "Orkestrator",
-            "install_url": "https://arkitekt.live/docs/use/install",
+            "install_url": "https://arkitekt.live/docs/guides/apps/orkestrator",
             "mobile": True,
         }
     ]

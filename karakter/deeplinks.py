@@ -6,7 +6,7 @@ acceptable is an organization setting (``Organization.deeplink_apps``), a list o
 entries::
 
     {"protocol": "orkestrator", "name": "Orkestrator",
-     "install_url": "https://arkitekt.live/docs/use/install", "mobile": true}
+     "install_url": "https://arkitekt.live/docs/guides/apps/orkestrator", "mobile": true}
 
 ``protocol`` is the app's URL scheme, ``install_url`` where someone who does not
 have the app yet is sent, and ``mobile`` whether the app also exists on phones
@@ -52,7 +52,7 @@ def default_deeplink_apps() -> list[dict]:
         {
             "protocol": "orkestrator",
             "name": "Orkestrator",
-            "install_url": "https://arkitekt.live/docs/use/install",
+            "install_url": "https://arkitekt.live/docs/guides/apps/orkestrator",
             "mobile": True,
         }
     ]
@@ -77,7 +77,7 @@ def normalize_protocol(raw: str) -> str:
 def normalize_install_url(raw: str | None) -> str | None:
     """An https page where the app can be installed, or ``None``.
 
-    A bare ``arkitekt.live/docs/use/install`` is read as https. The page is
+    A bare ``arkitekt.live/docs/guides/apps/orkestrator`` is read as https. The page is
     shown as a link on kontrol, so it is held to https: nothing else may ride
     in on it.
     """
