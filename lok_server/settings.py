@@ -359,7 +359,11 @@ PUBLIC_KEY = conf.lok.public_key
 KEY_ID = conf.lok.key_id
 
 
-AUTHENTIKATE = conf.authentikate.model_dump()
+# A scoped member (shared a few objects, nothing else) still has to reach Lok itself: to see
+# what was shared, accept an invite, leave. Lok's own authz already tells them apart
+# (api/management/authz.py), so it serves their tokens and applies its own rules ("self"),
+# instead of authentikate's default, which rejects them where nothing narrows reads.
+AUTHENTIKATE = {**conf.authentikate.model_dump(), "scoped_tokens": "self"}
 
 
 STRAWBERRY_DJANGO = {
