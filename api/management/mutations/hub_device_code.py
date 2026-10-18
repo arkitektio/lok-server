@@ -95,32 +95,28 @@ def _provision_hub(info: Info, input: AcceptHubDeviceCodeInput, device_code, org
             device, _ = fakts_models.Device.objects.get_or_create(organization=organization, node_id=hash_device_id(device_id, organization))
         else:
             device = None
-        instance = fakts_models.ServiceInstance.objects.filter(
-            release__service__identifier=service_manifest.identifier,
-            release__version=service_manifest.version,
-            device=device,
-            steward=user,
-            hub=hub,
-            organization=organization,
-            instance_id=service_manifest.instance_id,
-        ).first()
-
-        if not instance:
-            token = logic.create_api_token()
-            service, _ = fakts_models.Service.objects.get_or_create(identifier=service_manifest.identifier, organization=organization, defaults={"description": service_manifest.description or ""})
-            release, _ = fakts_models.ServiceRelease.objects.get_or_create(
-                service=service,
-                version=service_manifest.version,
-            )
+        service, _ = fakts_models.Service.objects.get_or_create(identifier=service_manifest.identifier, organization=organization, defaults={"description": service_manifest.description or ""})
+        release, _ = fakts_models.ServiceRelease.objects.get_or_create(
+            service=service,
+            version=service_manifest.version,
+        )
+        # One instance of a service per hub and instance_id: authorized again (by another admin,
+        # with another release, from another device), it is the same instance, and keeps its id,
+        # which tokens name and guests' collaborations are listed under.
+        instance = fakts_models.ServiceInstance.objects.filter(hub=hub, service=service, instance_id=service_manifest.instance_id).first()
+        if instance is None:
             instance = fakts_models.ServiceInstance.objects.create(
                 release=release,
                 device=device,
                 steward=user,
-                token=token,
+                token=logic.create_api_token(),
                 hub=hub,
                 instance_id=service_manifest.instance_id,
                 organization=organization,
             )
+        elif (instance.release, instance.device, instance.steward) != (release, device, user):
+            instance.release, instance.device, instance.steward = release, device, user
+            instance.save(update_fields=["release", "device", "steward"])
 
         # The instance's public key, vouched for from here on (its private half never left the
         # instance). A re-authorized hub may bring a new one: that is the rotation.

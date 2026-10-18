@@ -212,15 +212,18 @@ def create_hub_from_manifest(
 
         release, _ = models.ServiceRelease.objects.get_or_create(service=service, version=service_manifest.version)
 
+        # One instance of a service per hub and instance_id: configured again with another
+        # release, it is the same instance, and keeps its id.
         instance, inst_created = models.ServiceInstance.objects.update_or_create(
-            token=instance_request.identifier,
             hub=hub,
+            service=service,
+            instance_id=instance_request.identifier,
             defaults={
+                "token": instance_request.identifier,
                 "steward": organization.owner,
                 "release": release,
                 "organization": organization,
                 "template": "{}",
-                "instance_id": instance_request.identifier,
             },
         )
 

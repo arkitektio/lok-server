@@ -224,7 +224,20 @@ class ServiceRelease(models.Model):
 
 
 class ServiceInstance(models.Model):
+    """One service running in a hub: a hub runs one instance of a service per ``instance_id``.
+
+    Its id is what a token composed for it names (``aud``) and what a guest's collaborations are
+    listed under, so it must not change when the hub is authorized again by another admin or
+    upgraded to another release of the service: those are updated on the instance, in place.
+    """
+
     hub = models.ForeignKey("Hub", on_delete=models.CASCADE, related_name="instances")
+    service = models.ForeignKey(
+        Service,
+        on_delete=models.CASCADE,
+        related_name="instances",
+        help_text="The service this is an instance of: its release's, held here so that a hub runs one instance of a service per instance_id",
+    )
     release = models.ForeignKey(ServiceRelease, on_delete=models.CASCADE, related_name="instances")
     logo = models.ForeignKey(MediaStore, on_delete=models.CASCADE, null=True)
     instance_id = models.CharField(max_length=1000, default="default")
@@ -254,11 +267,18 @@ class ServiceInstance(models.Model):
     def __str__(self):
         return f"{self.release}:{self.instance_id}"
 
+    def save(self, *args, **kwargs) -> None:
+        """Save the instance, with its release's service: a new release of the same service is the same instance."""
+        self.service = self.release.service
+        if kwargs.get("update_fields") is not None and "release" in kwargs["update_fields"]:
+            kwargs["update_fields"] = {*kwargs["update_fields"], "service"}
+        super().save(*args, **kwargs)
+
     class Meta:
         constraints = [
             models.UniqueConstraint(
-                fields=["release", "instance_id", "organization", "device", "hub"],
-                name="Only one instance_id per release, organization and device and instance",
+                fields=["hub", "service", "instance_id"],
+                name="one_instance_of_a_service_per_hub_and_instance_id",
             ),
             models.UniqueConstraint(
                 fields=["token", "hub"],
