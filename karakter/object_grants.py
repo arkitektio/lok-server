@@ -2,9 +2,9 @@
 
 An *object invite* (``Invite.shared_objects``) shares a few objects of an organization.
 Whoever accepts it gets a **scoped membership**: a ``Membership`` with no roles
-and one ``ObjectGrant`` per object. Their tokens then carry the grants instead of
-the organization (see ``authapp.token_generators``), and each service decides
-what a grant lets them read.
+and one ``ObjectGrant`` per object. Their tokens then carry the grants beside the
+organization (see ``authapp.token_generators``), and each service decides what a
+grant lets them read.
 
 An object is unique by its hub, its structure (unique within a hub) and its id
 there, the three a smartlink names too. As a grant string, hub first::
@@ -15,6 +15,12 @@ there, the three a smartlink names too. As a grant string, hub first::
 ``reach`` is the hosting service's word for how much related data comes with the
 object; ``self`` (the object and what is needed to show it) when left out. lok
 stores and forwards it without interpreting it.
+
+A grant reaches no further than whoever shared it (``granted_by``): it is live only
+while they are a full member of the organization, and a token names them with each
+grant, ``@mikro/image:42#rois~8``, so that a service can narrow it by what it knows
+of them too. Stored grants (an invite's objects) carry no sharer: it is added when
+a token is minted.
 
 Whether a membership is scoped is not a flag: it is scoped exactly when it has
 grants. Two rules keep that from failing open, and both are enforced here and by
@@ -50,6 +56,8 @@ HUB_RE = re.compile(r"^[0-9]{1,18}$")
 STRUCTURE_RE = re.compile(r"^@[a-z0-9][a-z0-9_.-]{0,63}/[a-z0-9][a-z0-9_.-]{0,127}$")
 OBJECT_ID_RE = re.compile(r"^[A-Za-z0-9_.-]{1,200}$")
 REACH_RE = re.compile(r"^[a-z][a-z0-9_-]{0,63}$")
+# Who shared a grant, as a token names them: their sub (`str(user.id)`).
+SHARER_RE = re.compile(r"^[A-Za-z0-9_.-]{1,200}$")
 
 
 @dataclass(frozen=True)
@@ -64,6 +72,12 @@ class GrantRef:
         """The grant without its hub, as a token lists it under the hub."""
         base = f"{self.structure}:{self.object_id}"
         return base if self.reach == DEFAULT_REACH else f"{base}#{self.reach}"
+
+    def minted(self, sharer: str) -> str:
+        """The grant as a token lists it: :attr:`scoped`, and ``~<sharer>``."""
+        if not SHARER_RE.match(sharer):
+            raise ValueError(f"Not a sharer: {sharer!r}")
+        return f"{self.scoped}~{sharer}"
 
     def __str__(self) -> str:
         return f"{self.hub}/{self.scoped}"
@@ -141,21 +155,29 @@ def is_full_member(user, organization) -> bool:
 
 
 def live_grants_by_hub(membership: models.Membership) -> dict[str, list[str]]:
-    """The grants a token lists, keyed by hub id, oldest first: ``{"3": ["@mikro/image:42#rois"]}``.
+    """The grants a token lists, keyed by hub id, oldest first: ``{"3": ["@mikro/image:42#rois~8"]}``.
 
     Keyed by hub so a hub is not repeated per object, and each service reads only
-    its own hub's list. Expired grants are left out, not deleted; with none left
-    the result is ``{}``, which reaches nothing.
+    its own hub's list. Each names its sharer (``~8``, their sub). Expired grants
+    are left out, not deleted, and so are the grants of a sharer who is no longer a
+    full member of the organization (or whose account is gone): a share reaches no
+    further than whoever made it. With none left the result is ``{}``, which reaches
+    nothing.
     """
     now = timezone.now()
+    # Whoever may share here: the organization's full members, with a live account.
+    sharers = models.Membership.objects.filter(
+        organization_id=membership.organization_id, object_grants__isnull=True, user__is_active=True
+    ).values("user_id")
     grants = (
         membership.object_grants.filter(Q(expires_at__isnull=True) | Q(expires_at__gt=now))
+        .filter(granted_by_id__in=sharers)
         .order_by("created_at", "id")
-        .values_list("hub_id", "structure", "object_id", "reach")[:MAX_GRANTS_PER_MEMBERSHIP]
+        .values_list("hub_id", "structure", "object_id", "reach", "granted_by_id")[:MAX_GRANTS_PER_MEMBERSHIP]
     )
     by_hub: dict[str, list[str]] = {}
-    for hub_id, structure, object_id, reach in grants:
-        by_hub.setdefault(str(hub_id), []).append(GrantRef(str(hub_id), structure, object_id, reach).scoped)
+    for hub_id, structure, object_id, reach, sharer_id in grants:
+        by_hub.setdefault(str(hub_id), []).append(GrantRef(str(hub_id), structure, object_id, reach).minted(str(sharer_id)))
     return by_hub
 
 

@@ -78,8 +78,8 @@ def _object_invite(organization, created_by, objects=("@mikro/image:42",), **kw)
 
 
 def _live(membership):
-    """The live grants of the membership's organization hub, as a token lists them."""
-    return sorted(object_grants.live_grants_by_hub(membership).get(_hub(membership.organization), []))
+    """The live grants of the membership's organization hub, as a token lists them, sharer aside."""
+    return sorted(grant.partition("~")[0] for grant in object_grants.live_grants_by_hub(membership).get(_hub(membership.organization), []))
 
 
 # --------------------------------------------------------------------------- #
@@ -266,8 +266,77 @@ def test_a_scoped_members_token_lists_the_objects():
 
     assert claims["org"] == str(organization.pk)
     assert claims["roles"] == []
-    assert claims["objects"] == {_hub(organization): ["@mikro/image:42#rois"]}
+    assert claims["objects"] == {_hub(organization): [f"@mikro/image:42#rois~{member.user.id}"]}
     assert access_token_expires_in(client, "authorization_code") <= SCOPED_ACCESS_TOKEN_EXPIRES_IN
+
+
+# --------------------------------------------------------------------------- #
+# a share reaches no further than its sharer
+# --------------------------------------------------------------------------- #
+
+
+def _minted(membership):
+    return object_grants.live_grants_by_hub(membership).get(_hub(membership.organization), [])
+
+
+@pytest.mark.django_db
+def test_each_grant_names_its_sharer():
+    organization, karl = _org_with_member()
+    anna = factories.make_membership(organization=organization)
+    visitor = factories.make_user()
+    redeem_invite(_object_invite(organization, karl.user, ["@mikro/image:1"]), visitor)
+    membership = redeem_invite(_object_invite(organization, anna.user, ["@mikro/scene:2#rois"]), visitor)
+
+    assert sorted(_minted(membership)) == sorted([f"@mikro/image:1~{karl.user.id}", f"@mikro/scene:2#rois~{anna.user.id}"])
+
+
+@pytest.mark.django_db
+def test_a_sharer_who_left_takes_their_grants_along():
+    organization, karl = _org_with_member()
+    anna = factories.make_membership(organization=organization)
+    visitor = factories.make_user()
+    redeem_invite(_object_invite(organization, karl.user, ["@mikro/image:1"]), visitor)
+    membership = redeem_invite(_object_invite(organization, anna.user, ["@mikro/scene:2"]), visitor)
+
+    karl.delete()
+
+    assert _minted(membership) == [f"@mikro/scene:2~{anna.user.id}"]
+    anna.delete()
+    claims = _generator().get_extra_claims(factories.make_client(membership=membership), "authorization_code", membership, None)
+    assert claims["objects"] == {}  # still scoped, to nothing
+
+
+@pytest.mark.django_db
+def test_a_sharer_who_is_only_scoped_or_inactive_shares_nothing():
+    organization, karl = _org_with_member()
+    membership = redeem_invite(_object_invite(organization, karl.user, ["@mikro/image:1"]), factories.make_user())
+
+    karl.user.is_active = False
+    karl.user.save(update_fields=["is_active"])
+    assert _minted(membership) == []
+
+    karl.user.is_active = True
+    karl.user.save(update_fields=["is_active"])
+    # Karl's own membership turns scoped: he no longer acts for the organization.
+    karl.roles.clear()
+    object_grants.grant_objects(karl, [f"{_hub(organization)}/@mikro/image:9"])
+    assert _minted(membership) == []
+
+
+@pytest.mark.django_db
+def test_a_grant_whose_sharer_is_gone_shares_nothing():
+    organization, karl = _org_with_member()
+    membership = redeem_invite(_object_invite(organization, karl.user, ["@mikro/image:1"]), factories.make_user())
+    membership.object_grants.update(granted_by=None)
+
+    assert _minted(membership) == []
+
+
+def test_a_minted_grant_refuses_a_sharer_it_could_not_name():
+    ref = object_grants.parse_grant("3/@mikro/image:42")
+    assert ref.minted("8") == "@mikro/image:42~8"
+    with pytest.raises(ValueError):
+        ref.minted("a~b")
 
 
 @pytest.mark.django_db
