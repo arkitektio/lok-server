@@ -587,6 +587,13 @@ class HubInstanceClaim(BaseModel):
 
     identifier: str
     private_key: str | None = None
+    id: str | None = None
+    """The instance's id: the ``aud`` a token composed for it carries, and the key
+    a guest's ``collabs`` lists its collaborations under. A service verifies tokens
+    for this audience."""
+    service: str | None = None
+    """What the instance is registered as (its manifest's identifier), which tells
+    a hub which of its services this instance is: the identifier is an opaque token."""
 
 
 class HubClientClaim(BaseModel):

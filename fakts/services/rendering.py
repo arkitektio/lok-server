@@ -50,10 +50,12 @@ def render_server_fakts(hub: models.Hub, context: base_models.ServerLinkingConte
     instance_claims: Dict[str, HubInstanceClaim] = {}
     client_claims: Dict[str, HubClientClaim] = {}
 
-    for instance in hub.instances.all():
+    for instance in hub.instances.select_related("release__service"):
         instance_claims[instance.token] = HubInstanceClaim(
             identifier=instance.token,
             private_key=instance.private_key,
+            id=str(instance.pk),
+            service=instance.release.service.identifier,
         )
 
     for client in hub.clients.all():
