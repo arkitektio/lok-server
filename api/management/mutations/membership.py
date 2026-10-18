@@ -7,7 +7,7 @@ from kante.types import Info
 from karakter import models
 from api.management import types
 from api.management.authz import DENIED, get_or_denied, is_owner, is_owner_or_admin
-from karakter.object_grants import upgrade_to_full
+from karakter.collaboration_grants import upgrade_to_full
 
 logger = logging.getLogger(__name__)
 
@@ -33,8 +33,8 @@ def update_membership(info: Info, input: UpdateMembershipInput) -> types.Managem
         # id from another organization be attached.
         roles = models.Role.objects.filter(pk__in=input.roles, organization=organization)
         if membership.is_scoped:
-            # Giving roles to someone who only had objects shared with them makes
-            # them a full member; what was shared goes, the organization is theirs.
+            # Giving roles to a guest of some collaborations makes them a full member;
+            # their collaboration grants go, the organization is theirs.
             upgrade_to_full(membership)
         membership.roles.set(roles)
     membership.save()

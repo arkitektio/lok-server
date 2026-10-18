@@ -256,7 +256,7 @@ class Query:
         # another org is ever reachable.
         layers = fakts_models.IonscaleLayer.objects.filter(
             organization__memberships__user=info.context.request.user,
-            organization__memberships__object_grants__isnull=True,
+            organization__memberships__collaboration_grants__isnull=True,
             tailnet_name__isnull=False,
         ).distinct()
 
@@ -392,9 +392,9 @@ class Mutation:
     cancel_invite = strawberry_django.mutation(
         resolver=mutations.cancel_invite,
     )
-    revoke_object_grant = strawberry_django.mutation(
-        resolver=mutations.revoke_object_grant,
-        description="Take back one shared object. Taking back someone's last one removes them from the organization.",
+    revoke_collaboration_grant = strawberry_django.mutation(
+        resolver=mutations.revoke_collaboration_grant,
+        description="Take back one granted collaboration. Taking back someone's last one removes them from the organization.",
     )
 
     issue_mandate_key = strawberry_django.mutation(

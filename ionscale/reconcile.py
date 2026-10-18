@@ -130,7 +130,7 @@ def reconcile_layer(
             # Full members, as `sync` lists them: a scoped member never has an
             # account of their own on the tailnet.
             str(pk)
-            for pk in Membership.objects.filter(organization=org, object_grants__isnull=True).values_list("user_id", flat=True)
+            for pk in Membership.objects.filter(organization=org, collaboration_grants__isnull=True).values_list("user_id", flat=True)
         }
         for user in repo.list_users(layer.tailnet_name):
             if user.external_id is None:

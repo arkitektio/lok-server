@@ -8,8 +8,25 @@ import kante
 from graphql import GraphQLError
 from django.core.exceptions import ValidationError
 from api.management.authz import DENIED, get_or_denied, is_owner, is_owner_or_admin
-from karakter import object_grants
+from karakter import collaboration_grants
 from karakter.invites import InviteError, redeem_invite
+
+
+@kante.input
+class SharedCollaborationInput:
+    """One collaboration of a service instance to grant, with the roles that hold inside it."""
+
+    instance: strawberry.ID = strawberry.field(description="The service instance the collaboration lives in (on a hub of the organization).")
+    collaboration: str = strawberry.field(description="The collaboration's id in that service.")
+    roles: list[str] = strawberry.field(
+        default_factory=list,
+        description="Identifiers of the organization's roles that hold for the guest inside the collaboration. Empty: view only.",
+    )
+
+
+def collaboration_entries(collaborations: list[SharedCollaborationInput]) -> list[dict]:
+    """The input as the entries ``karakter.collaboration_grants`` validates."""
+    return [{"instance": str(s.instance), "collaboration": s.collaboration, "roles": list(s.roles or [])} for s in collaborations]
 
 
 @kante.input
@@ -20,26 +37,27 @@ class CreateInviteInput:
     expires_in_days: int | None = 7
     roles: list[str] | None = None  # Role identifiers to assign
     public: bool = True  # If true, the invite can be previewed before signing in (default)
-    objects: list[str] | None = strawberry.field(
+    collaborations: list[SharedCollaborationInput] | None = strawberry.field(
         default=None,
-        description="Share only these objects, as `<hub>/<structure>:<id>[#<reach>]` strings (e.g. `3/@mikro/image:42#rois`), "
-        "instead of making the holder a member. Whoever accepts gets a scoped membership that reaches just these.",
+        description="Grant only these collaborations of the organization's service instances, each with the roles that hold "
+        "inside it, instead of making the holder a member. Whoever accepts becomes a guest that reaches just these.",
     )
     max_uses: int | None = strawberry.field(
         default=None,
-        description="For an object invite: how many people may accept it. Null: anyone with the link until it expires.",
+        description="For a collaboration invite: how many people may accept it. Null: anyone with the link until it expires.",
     )
 
 
 def _may_share(user, organization) -> bool:
-    """Any full member with a role other than `guest` may share objects of the organization.
+    """Any full member with a role other than `guest` may grant collaborations of the organization.
 
-    They can already read all of it, so sharing a part grants nothing they could
-    not reach themselves.
+    They can already reach all of it, and a guest's roles in a collaboration are
+    cut to the granter's own when a token is minted, so granting a part gives
+    nothing they could not do themselves.
     """
     if is_owner(user, organization):
         return True
-    membership = organization.memberships.filter(user=user, object_grants__isnull=True).first()
+    membership = organization.memberships.filter(user=user, collaboration_grants__isnull=True).first()
     if membership is None:
         return False
     return membership.roles.exclude(identifier="guest").exists()
@@ -52,8 +70,10 @@ def create_invite(info: Info, input: CreateInviteInput) -> types.ManagementInvit
     An ordinary invite is single-use, makes its holder a member and may only be
     created by the owner. If no roles are specified, the 'guest' role is assigned.
 
-    An object invite (`objects`) shares just those objects: whoever accepts gets a
-    scoped membership with no roles. Any member other than a guest may create one,
+    A collaboration invite (`collaborations`) grants just those collaborations:
+    whoever accepts becomes a guest, with no roles in the organization and the
+    given roles inside each collaboration. Any member other than a guest may
+    create one,
     and it may be accepted by up to `max_uses` people (unlimited when null) until
     it expires.
     """
@@ -62,16 +82,16 @@ def create_invite(info: Info, input: CreateInviteInput) -> types.ManagementInvit
     organization = get_or_denied(models.Organization.objects, id=input.organization)
     user = info.context.request.user
 
-    shared_objects = None
-    if input.objects is not None:
+    shared_collaborations = None
+    if input.collaborations is not None:
         if not _may_share(user, organization):
-            raise GraphQLError("Only members of the organization can share its objects.")
+            raise GraphQLError("Only members of the organization can grant its collaborations.")
         try:
-            shared_objects = object_grants.normalize_grants(input.objects, organization)
+            shared_collaborations = collaboration_grants.normalize_collaborations(collaboration_entries(input.collaborations), organization)
         except ValidationError as e:
             raise GraphQLError(" ".join(e.messages))
         if input.roles:
-            raise GraphQLError("An invite that shares objects grants no roles.")
+            raise GraphQLError("An invite that grants collaborations grants no roles in the organization.")
         if input.max_uses is not None and input.max_uses < 1:
             raise GraphQLError("max_uses must be at least 1.")
     elif not is_owner(user, organization):
@@ -87,10 +107,10 @@ def create_invite(info: Info, input: CreateInviteInput) -> types.ManagementInvit
         created_for=organization,
         expires_at=expires_at,
         public=input.public,
-        shared_objects=shared_objects,
-        max_uses=input.max_uses if shared_objects is not None else None,
+        shared_collaborations=shared_collaborations,
+        max_uses=input.max_uses if shared_collaborations is not None else None,
     )
-    if shared_objects is not None:
+    if shared_collaborations is not None:
         return invite
 
     # Assign roles
@@ -175,7 +195,7 @@ class CancelInviteInput:
     id: strawberry.ID
     revoke_shared: bool = strawberry.field(
         default=False,
-        description="For an object invite: also take back what it shared from everyone who accepted it.",
+        description="For a collaboration invite: also take back the collaborations it granted from everyone who accepted it.",
     )
 
 
@@ -191,16 +211,16 @@ def cancel_invite(info: Info, input: CancelInviteInput) -> types.ManagementInvit
     invite = get_or_denied(models.Invite.objects.select_related("created_for"), id=input.id)
     user = info.context.request.user
 
-    # Whoever shared objects may take them back; everything else is for the
+    # Whoever granted collaborations may take them back; everything else is for the
     # people who govern membership.
     may_cancel = is_owner_or_admin(user, invite.created_for) or (
-        invite.is_object_invite and invite.created_by_id == user.id
+        invite.is_collaboration_invite and invite.created_by_id == user.id
     )
     if not may_cancel:
         raise GraphQLError(DENIED)
 
-    if input.revoke_shared and invite.is_object_invite:
-        object_grants.revoke_invite_grants(invite)
+    if input.revoke_shared and invite.is_collaboration_invite:
+        collaboration_grants.revoke_invite_grants(invite)
     elif invite.status != models.Invite.Status.PENDING:
         raise GraphQLError(f"Cannot cancel an invite that has been {invite.status}")
 

@@ -7,5 +7,5 @@ class KarakterConfig(AppConfig):
 
     def ready(self):
         # Registers the signals that keep scoped memberships from turning into
-        # full ones (see karakter.object_grants).
-        from karakter import object_grants  # noqa: F401
+        # full ones (see karakter.collaboration_grants).
+        from karakter import collaboration_grants  # noqa: F401

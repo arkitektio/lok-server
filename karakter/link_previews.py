@@ -49,7 +49,7 @@ def build_link_preview(organization_slug: str, user_id=None):
                 user_id=user_pk,
                 public_link_preview=True,
                 user__memberships__organization=organization,
-                user__memberships__object_grants__isnull=True,
+                user__memberships__collaboration_grants__isnull=True,
             )
             .select_related("user", "avatar")
             .first()

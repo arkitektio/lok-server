@@ -123,8 +123,10 @@ class MyJWTBearerTokenGenerator(JWTBearerTokenGenerator):
         - scope: the resolved scope string
         - org: the client's organization pk (identity; the slug is a mutable handle)
 
-        For a scoped member (only objects shared with them) ``roles`` is empty and
-        ``objects`` lists their live grants keyed by hub id, ``{"3": ["@mikro/image:42"]}``.
+        For a guest (a scoped member, only granted some collaborations) ``roles``
+        is empty and ``collabs`` lists the collaborations they hold in the
+        instances this token is minted for, with the roles that hold inside each:
+        ``{"7": {"12": ["editor"], "9": []}}``.
         """
         membership = self._get_membership(client, user)
 
@@ -141,12 +143,13 @@ class MyJWTBearerTokenGenerator(JWTBearerTokenGenerator):
         # does for users (`str(user.id)`).
         scope_claims: dict[str, Any] = {"org": str(membership.organization_id)}
         if membership.is_scoped:
-            # A scoped member (karakter.object_grants): no roles, and the objects
-            # shared with them, keyed by hub. Services narrow to those (authentikate).
-            from karakter.object_grants import live_grants_by_hub
+            # A guest (karakter.collaboration_grants): no roles in the organization,
+            # and the collaborations granted to them in this token's instances, each
+            # with the roles that hold there. Services narrow to those (authentikate).
+            from karakter.collaboration_grants import live_collaborations
 
             scope_claims["roles"] = []
-            scope_claims["objects"] = live_grants_by_hub(membership)
+            scope_claims["collabs"] = live_collaborations(membership, self._instance_audiences(client))
         else:
             scope_claims["roles"] = [role.identifier for role in membership.roles.all()]
 
@@ -168,6 +171,21 @@ class MyJWTBearerTokenGenerator(JWTBearerTokenGenerator):
             **_actor_claim(fakts_client),
         }
 
+    def _instance_audiences(self, client: Any) -> list[str]:
+        """The ServiceInstance ids a token for ``client`` is composed for, sorted.
+
+        Those of a fakts client's granted instance mappings; none for any other
+        client. ``get_audiences`` puts them in ``aud``, and a guest's ``collaborations``
+        lists only these instances.
+        """
+        fakts_client = self._get_app_client(client)
+        if fakts_client is None:
+            return []
+        # `instance_id` is the FK column already on the mapping row, so this
+        # needs no join at all (it previously select_related through three
+        # tables to reach the service identifier).
+        return sorted({str(pk) for pk in fakts_client.mappings.values_list("instance_id", flat=True)})
+
     def get_audiences(self, client: Any, user: Any, scope: Optional[str]) -> str | list[str]:
         """Return the audience claim(s) for the token.
 
@@ -186,15 +204,8 @@ class MyJWTBearerTokenGenerator(JWTBearerTokenGenerator):
         instance id is globally unique, so the audience now names exactly one
         resource server.
         """
-        fakts_client = self._get_app_client(client)
-        if fakts_client is not None:
-            # `instance_id` is the FK column already on the mapping row, so this
-            # needs no join at all (it previously select_related through three
-            # tables to reach the service identifier).
-            instances = sorted(
-                {str(pk) for pk in fakts_client.mappings.values_list("instance_id", flat=True)}
-            )
-            return ["lok", *instances]
+        if self._get_app_client(client) is not None:
+            return ["lok", *self._instance_audiences(client)]
         if self._get_hub(client) is not None:
             return ["lok"]
         return [client.client_id]

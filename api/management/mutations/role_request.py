@@ -27,10 +27,10 @@ def request_role(info: Info, input: RequestRoleInput) -> types.ManagementRoleReq
     must not already hold it, and there must be no pending request for it yet.
     """
     request = info.context.request
-    # Someone with only shared objects holds no roles and cannot ask for one: they
-    # ask to join instead (see karakter.object_grants).
+    # A guest of some collaborations holds no roles and cannot ask for one: they ask to
+    # join instead (see karakter.collaboration_grants).
     membership = get_or_denied(
-        models.Membership.objects.filter(object_grants__isnull=True),
+        models.Membership.objects.filter(collaboration_grants__isnull=True),
         user=request.user,
         organization_id=input.organization,
     )

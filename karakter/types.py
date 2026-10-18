@@ -409,6 +409,13 @@ class ComChannel:
     user: User
 
 
+@strawberry.type(description="""One collaboration a collaboration invite grants: a collaboration of a service instance, with the roles that hold inside it.""")
+class SharedCollaboration:
+    instance: strawberry.ID = strawberry.field(description="The service instance the collaboration lives in.")
+    collaboration: str = strawberry.field(description="The collaboration's id in that service.")
+    roles: list[str] = strawberry.field(description="Identifiers of the organization's roles that hold inside the collaboration. Empty: view only.")
+
+
 @strawberry_django.type(models.Invite, filters=filters.InviteFilter, pagination=True, description="""A single-use magic invite link that allows one person to join an organization.""", ordering=filters.InviteOrdering)
 class Invite:
     id: strawberry.ID
@@ -424,12 +431,14 @@ class Invite:
     responded_at: datetime.datetime | None
     roles: list["Role"]
     created_memberships: list["Membership"]
-    max_uses: int | None = strawberry.field(description="For an object invite: how many people may accept it. Null: anyone with the link until it expires.")
+    max_uses: int | None = strawberry.field(description="For a collaboration invite: how many people may accept it. Null: anyone with the link until it expires.")
     uses: int = strawberry.field(description="How many people accepted it so far.")
 
-    @strawberry_django.field(description="The objects this invite shares, as `<hub>/<structure>:<id>[#<reach>]` strings. Null for an invite that makes its holder a member.")
-    def objects(self) -> list[str] | None:
-        return self.shared_objects
+    @strawberry_django.field(description="The collaborations this invite grants, with the roles that hold inside each. Null for an invite that makes its holder a member.")
+    def collaborations(self) -> list[SharedCollaboration] | None:
+        if self.shared_collaborations is None:
+            return None
+        return [SharedCollaboration(instance=strawberry.ID(str(e["instance"])), collaboration=e["collaboration"], roles=list(e.get("roles") or [])) for e in self.shared_collaborations]
 
     @strawberry_django.field(description="Check if the invite is still valid and pending")
     def valid(self) -> bool:

@@ -236,7 +236,7 @@ def access_token_expires_in(client, grant_type) -> int:
     return lifetime
 
 
-# A scoped member's token lists the objects shared with them; once one is taken
+# A guest's token lists the collaborations granted to them; once one is taken
 # back, the services only learn of it when the token runs out (they verify by
 # JWT alone). So those tokens are kept short, whatever the organization set.
 SCOPED_ACCESS_TOKEN_EXPIRES_IN = 900
@@ -246,9 +246,9 @@ def _is_scoped_client(client) -> bool:
     membership_id = getattr(client, "membership_id", None)
     if not membership_id:
         return False
-    from karakter.models import ObjectGrant
+    from karakter.models import CollaborationGrant
 
-    return ObjectGrant.objects.filter(membership_id=membership_id).exists()
+    return CollaborationGrant.objects.filter(membership_id=membership_id).exists()
 
 
 server.register_token_generator(

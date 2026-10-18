@@ -6,7 +6,7 @@ each other when some entry links them, so the policy is an allow-list:
 
 - members' own devices and standalone mesh machines (``tag:mesh-<org>``) reach
   each other, as they did under ionscale's default allow-all policy. Only full
-  members can log devices in (``manager.sync``); someone with just shared objects
+  members can log devices in (``manager.sync``); a guest of some collaborations
   is on the tailnet only through their apps' sidecars;
 - an app sidecar (``tag:app-<n>``) reaches the sidecar of every hub one of its
   live clients is bound to (``tag:hub-<m>``) — one way: the hub answers, it

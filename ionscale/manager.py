@@ -111,12 +111,12 @@ def sync(layer: IonscaleLayer) -> IonscaleLayer:
         logger.warning("Ionscale is not configured; skipping member sync for mesh %s", layer)
         return layer
 
-    # Full members only. Someone with just shared objects (a scoped membership,
-    # karakter.object_grants) cannot log a device of their own into the tailnet,
+    # Full members only. A guest of some collaborations (a scoped membership,
+    # karakter.collaboration_grants) cannot log a device of their own into the tailnet,
     # so they never join `autogroup:member` and its member-to-member rule. Their
     # apps still enroll as sidecars (`tag:app-<n>`), which reach only the hub the
     # app is bound to (ionscale.acl).
-    members = Membership.objects.filter(organization=layer.organization, object_grants__isnull=True).select_related("user").order_by("id")
+    members = Membership.objects.filter(organization=layer.organization, collaboration_grants__isnull=True).select_related("user").order_by("id")
 
     repo = get_ionscale_repo()
 

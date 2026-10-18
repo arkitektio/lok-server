@@ -6,7 +6,7 @@ import kante
 from graphql import GraphQLError
 
 from api.management.authz import DENIED, assert_owner_or_admin
-from karakter.object_grants import upgrade_to_full
+from karakter.collaboration_grants import upgrade_to_full
 
 logger = logging.getLogger(__name__)
 

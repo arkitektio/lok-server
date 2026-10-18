@@ -308,18 +308,20 @@ def test_machine_list_reads_connected_as_live():
 
 @pytest.mark.django_db
 def test_scoped_members_cannot_log_devices_in_until_they_are_full_members(ionscale_repo, commit_callbacks):
-    """Someone with only shared objects is on the tailnet through their apps'
+    """A guest of some collaborations is on the tailnet through their apps'
     sidecars alone (which reach only the hub); their own devices stay out of
     `autogroup:member` until they become a full member."""
     from fakts.models import Hub
-    from karakter import models as karakter_models, object_grants
+    from karakter import models as karakter_models, collaboration_grants
     from karakter.invites import redeem_invite
+    from tests import factories
 
     owner = User.objects.create(username="scoped-owner")
     organization, _ = _org_with_mesh("ionscale-scoped", owner, ionscale_repo, commit_callbacks)
     hub = Hub.objects.create(organization=organization, name="hub", identifier="scoped-hub", creator=owner)
+    instance = factories.make_service_instance(hub=hub)
     invite = karakter_models.Invite.objects.create(
-        created_by=owner, created_for=organization, shared_objects=[f"{hub.pk}/@mikro/image:1"]
+        created_by=owner, created_for=organization, shared_collaborations=[{"instance": str(instance.pk), "collaboration": "1", "roles": []}]
     )
     visitor = User.objects.create(username="scoped-visitor")
 
@@ -331,6 +333,6 @@ def test_scoped_members_cannot_log_devices_in_until_they_are_full_members(ionsca
 
     ionscale_repo.updated_policies.clear()
     with commit_callbacks():
-        object_grants.upgrade_to_full(membership)
+        collaboration_grants.upgrade_to_full(membership)
 
     assert set(ionscale_repo.updated_policies[-1][1]["subs"]) == {str(owner.pk), str(visitor.pk)}

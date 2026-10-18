@@ -18,7 +18,7 @@ from fakts import base_models
 from fakts import enums as fakts_enums
 from api.management import filters, enums, scalars
 from api.management.authz import is_owner_or_admin, owner_or_admin_q
-from karakter.object_grants import full_member_q, is_full_member
+from karakter.collaboration_grants import full_member_q, is_full_member
 from pydantic import ValidationError as PydanticValidationError
 from karakter import filters as karakter_filters
 from strawberry.experimental import pydantic
@@ -511,11 +511,11 @@ class ManagementMembership:
     brand_chroma: Optional[float] = strawberry.field(description="The member's personal brand chroma (0–1) for this organization, if set.")
     allow_notifications: bool = strawberry.field(description="Whether this organization is allowed to push notifications to the member's registered devices.")
     role_requests: List["ManagementRoleRequest"] = strawberry_django.field(description="The role requests this member has made in the organization")
-    object_grants: List["ManagementObjectGrant"] = strawberry_django.field(description="The objects shared with this person. Empty for a full member.")
+    collaboration_grants: List["ManagementCollaborationGrant"] = strawberry_django.field(description="The collaborations granted to this person as a guest. Empty for a full member.")
 
-    @strawberry_django.field(description="Whether this person only has objects shared with them, rather than being a full member.")
+    @strawberry_django.field(description="Whether this person is only a guest of some collaborations, rather than being a full member.")
     def is_scoped(self) -> bool:
-        return self.object_grants.exists()
+        return self.collaboration_grants.exists()
 
     @strawberry_django.field(
         description="Whether the member has at least one device registered for notifications (e.g. through the companion app). Opting in does nothing until they do."
@@ -532,8 +532,8 @@ class ManagementMembership:
 
     @classmethod
     def get_queryset(cls, queryset, info: Info):
-        # A full member sees the memberships of their organization; someone with
-        # only shared objects sees just their own.
+        # A full member sees the memberships of their organization; a guest of
+        # some collaborations sees just their own.
         user = info.context.request.user
         return queryset.filter(full_member_q("organization", user) | Q(user=user)).distinct()
 
@@ -637,7 +637,7 @@ class ManagementOrganization:
     clients: List["ManagementClient"] = strawberry_django.field(description="The clients that belong to this organization")
     service_instances: List["ManagementServiceInstance"] = strawberry_django.field(description="The service instances that belong to this organization")
 
-    @strawberry_django.field(description="The users that are part of the organization. Empty for someone who only has objects shared with them.")
+    @strawberry_django.field(description="The users that are part of the organization. Empty for a guest who was only granted some collaborations.")
     def users(self, info: Info) -> List[ManagementUser]:
         if not is_full_member(info.context.request.user, self):
             return []
@@ -692,7 +692,7 @@ class ManagementOrganization:
 
     @classmethod
     def get_queryset(cls, queryset, info: Info):
-        # Any membership, scoped ones included: someone with shared objects sees
+        # Any membership, scoped ones included: a guest of some collaborations sees
         # the organization's name, logo and link apps. Everything that reaches
         # further (members, invites, hubs, clients…) is gated on full membership
         # by its own type.
@@ -712,6 +712,19 @@ class ManagementNotificationResult:
     membership: "ManagementMembership" = strawberry.field(description="The member the notification was addressed to.")
 
 
+@strawberry.type(description="""One collaboration a collaboration invite grants: a collaboration of a service instance, with the roles that hold inside it.""")
+class ManagementSharedCollaboration:
+    instance: strawberry.ID = strawberry.field(description="The service instance the collaboration lives in.")
+    collaboration: str = strawberry.field(description="The collaboration's id in that service.")
+    roles: list[str] = strawberry.field(description="Identifiers of the organization's roles that hold inside the collaboration. Empty: view only.")
+
+    @classmethod
+    def from_entries(cls, entries: list[dict] | None) -> list["ManagementSharedCollaboration"] | None:
+        if entries is None:
+            return None
+        return [cls(instance=strawberry.ID(str(e["instance"])), collaboration=e["collaboration"], roles=list(e.get("roles") or [])) for e in entries]
+
+
 @strawberry_django.type(models.Invite, filters=filters.ManagementInviteFilter, pagination=True, description="""A single-use magic invite link that allows one person to join an organization.""")
 class ManagementInvite:
     id: strawberry.ID
@@ -727,13 +740,13 @@ class ManagementInvite:
     responded_at: datetime.datetime | None
     roles: list["ManagementRole"]
     created_memberships: list["ManagementMembership"]
-    max_uses: int | None = strawberry.field(description="For an object invite: how many people may accept it. Null: anyone with the link until it expires.")
+    max_uses: int | None = strawberry.field(description="For a collaboration invite: how many people may accept it. Null: anyone with the link until it expires.")
     uses: int = strawberry.field(description="How many people accepted it so far.")
-    object_grants: list["ManagementObjectGrant"] = strawberry_django.field(description="What this invite has shared, with whom. Only for the people who may see the grants.")
+    collaboration_grants: list["ManagementCollaborationGrant"] = strawberry_django.field(description="What this invite has granted, to whom. Only for the people who may see the grants.")
 
-    @strawberry_django.field(description="The objects this invite shares, as `<hub>/<structure>:<id>[#<reach>]` strings. Null for an invite that makes its holder a member.")
-    def objects(self) -> list[str] | None:
-        return self.shared_objects
+    @strawberry_django.field(description="The collaborations this invite grants, with the roles that hold inside each. Null for an invite that makes its holder a member.")
+    def collaborations(self) -> list[ManagementSharedCollaboration] | None:
+        return ManagementSharedCollaboration.from_entries(self.shared_collaborations)
 
     @strawberry_django.field(
         description="The e-mail address this invite was addressed to, if any. Only visible to the organization's owner and admins.",
@@ -780,36 +793,32 @@ class ManagementInvite:
                 created_for__memberships__user=user,
                 created_for__memberships__roles__identifier="admin",
             )
-            # Whoever shared objects sees the invites they shared them with.
-            | Q(created_by=user, shared_objects__isnull=False, created_for__memberships__user=user, created_for__memberships__object_grants__isnull=True)
+            # Whoever granted collaborations sees the invites they granted them with.
+            | Q(created_by=user, shared_collaborations__isnull=False, created_for__memberships__user=user, created_for__memberships__collaboration_grants__isnull=True)
         ).distinct()
 
 
 @strawberry_django.type(
-    models.ObjectGrant,
+    models.CollaborationGrant,
     pagination=True,
-    description="""One object shared with someone who is not a full member of the organization (a scoped membership). The object is named by its hub, its structure and its id, plus how much related data comes with it (`reach`, in the hosting service's words).""",
+    description="""One collaboration of a service instance granted to someone who is not a full member of the organization (a guest). The collaboration is named by its instance and its id there; `roles` are the organization's roles that hold for the guest inside it (none: view only), cut to the granter's own roles whenever a token is minted.""",
 )
-class ManagementObjectGrant:
+class ManagementCollaborationGrant:
     id: strawberry.ID
     membership: ManagementMembership
-    hub: "ManagementHub" = strawberry.field(description="The hub the object lives on. With the structure and the id it names the object uniquely.")
-    structure: str = strawberry.field(description="The structure identifier, e.g. @mikro/image (unique within a hub).")
-    object_id: str = strawberry.field(description="The object's id in its service.")
-    reach: str = strawberry.field(description="How much related data the grant reaches; `self` unless the service declares more.")
-    granted_by: Optional[ManagementUser] = strawberry.field(description="Who shared it.")
-    granted_through: Optional[ManagementInvite] = strawberry.field(description="The invite it was shared through.")
+    instance: "ManagementServiceInstance" = strawberry.field(description="The service instance the collaboration lives in.")
+    instance_id: strawberry.ID = strawberry.field(description="The id of the service instance the collaboration lives in, as a guest's token names it.")
+    collaboration_id: str = strawberry.field(description="The collaboration's id in its service.")
+    roles: list[str] = strawberry.field(description="Identifiers of the organization's roles that hold inside the collaboration. Empty: view only.")
+    granted_by: Optional[ManagementUser] = strawberry.field(description="Who granted it.")
+    granted_through: Optional[ManagementInvite] = strawberry.field(description="The invite it was granted through.")
     created_at: datetime.datetime
     expires_at: Optional[datetime.datetime]
 
-    @strawberry_django.field(description="The grant as one string, `<hub>/<structure>:<id>[#<reach>]`.")
-    def grant(self) -> str:
-        return str(self)
-
     @classmethod
     def get_queryset(cls, queryset, info: Info, **kwargs):
-        # Full members see who their organization's objects are shared with; the
-        # person they are shared with sees their own.
+        # Full members see who their organization's collaborations are granted to; the
+        # guest they are granted to sees their own.
         user = info.context.request.user
         return queryset.filter(full_member_q("membership__organization", user) | Q(membership__user=user)).distinct()
 

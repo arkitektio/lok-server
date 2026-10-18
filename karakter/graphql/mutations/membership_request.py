@@ -54,8 +54,8 @@ def _store_request(user, organization_id, reason) -> None:
         organization = models.Organization.objects.get(pk=organization_id)
     except (models.Organization.DoesNotExist, ValueError, TypeError):
         return
-    # Someone with only shared objects may still ask to become a full member.
-    if models.Membership.objects.filter(user=user, organization=organization, object_grants__isnull=True).exists():
+    # A guest of some collaborations may still ask to become a full member.
+    if models.Membership.objects.filter(user=user, organization=organization, collaboration_grants__isnull=True).exists():
         return
 
     mine = models.MembershipRequest.objects.filter(user=user)
