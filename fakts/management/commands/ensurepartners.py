@@ -22,7 +22,7 @@ class Command(BaseCommand):
             # Prepare preconfigured hub data if present
             preconfigured_hub_data = None
             if partner.preconfigured_hub:
-                preconfigured_hub_data = partner.preconfigured_hub.model_dump()
+                preconfigured_hub_data = partner.preconfigured_hub.model_dump(mode="json")
 
             # First, handle the OAuth2 client if present
             oauth_client = None
@@ -46,7 +46,7 @@ class Command(BaseCommand):
                     self.stdout.write(self.style.SUCCESS(f"Created OpenID client {oauth_client.client_id}"))
 
             # Create or update the KommunityPartner
-            filter_config_data = partner.filter_config.model_dump() if partner.filter_config else {}
+            filter_config_data = partner.filter_config.model_dump(mode="json") if partner.filter_config else {}
 
             kommunity_partner, created = KommunityPartner.objects.update_or_create(
                 identifier=partner.identifier,
