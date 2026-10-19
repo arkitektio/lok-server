@@ -584,6 +584,12 @@ class Invite(models.Model):
         "until it expires. Ordinary invites are always single-use.",
     )
     uses = models.PositiveIntegerField(default=0, db_default=0, help_text="How many people accepted it so far.")
+    mesh = models.BooleanField(
+        default=True,
+        db_default=True,
+        help_text="For a collaboration invite: whether its guests' apps may join the organization's mesh, "
+        "reaching only the hubs their collaborations run on. Copied onto every grant it makes.",
+    )
 
     @property
     def is_collaboration_invite(self) -> bool:
@@ -636,6 +642,12 @@ class CollaborationGrant(models.Model):
     granted_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name="collaboration_grants_given")
     created_at = models.DateTimeField(auto_now_add=True)
     expires_at = models.DateTimeField(null=True, blank=True)
+    mesh = models.BooleanField(
+        default=False,
+        db_default=False,
+        help_text="Whether the guest's apps may join the organization's mesh to reach the hub this collaboration's "
+        "instance runs on. Set from the invite it was granted through.",
+    )
 
     class Meta:
         constraints = [

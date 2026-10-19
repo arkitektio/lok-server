@@ -11,6 +11,11 @@ each other when some entry links them, so the policy is an allow-list:
 - an app sidecar (``tag:app-<n>``) reaches the sidecar of every hub one of its
   live clients is bound to (``tag:hub-<m>``) — one way: the hub answers, it
   never initiates;
+- a guest's app sidecar reaches only those of its hubs that run an instance of
+  one of the guest's live grants allowing the mesh
+  (``karakter.collaboration_grants.mesh_hub_ids``). A guest whose grants lapse
+  or are taken back keeps their node but no rule: the next rewrite (a grant
+  change, ``reconcile_meshes --sidecars``) cuts it off;
 - nothing else reaches a sidecar.
 
 Every write replaces the whole policy (ionscale skips it when unchanged), so any
@@ -38,6 +43,8 @@ def build_acl_policy(organization) -> dict:
     """The ACL policy of ``organization``'s mesh, from the current database state."""
     from fakts import models
     from fakts.services.mesh import live_clients
+    from karakter.collaboration_grants import mesh_hub_ids
+    from karakter.models import Membership
 
     org_id = organization.pk if hasattr(organization, "pk") else organization
     peers = ["autogroup:member", mesh_tag(org_id)]
@@ -59,6 +66,11 @@ def build_acl_policy(organization) -> dict:
             .values_list("hub_id", flat=True)
             .distinct()
         )
+        # A guest (a membership with grants, live or not) reaches no further than
+        # their mesh grants; one left with none reaches nothing.
+        guest = Membership.objects.filter(pk=enrollment.membership_id, collaboration_grants__isnull=False).first()
+        if guest is not None:
+            hub_ids = set(hub_ids) & mesh_hub_ids(guest)
         for hub_id in hub_ids:
             reach.setdefault(hub_id, set()).add(enrollment.tag)
 

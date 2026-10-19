@@ -170,3 +170,27 @@ def get_or_denied(manager, **lookup):
         return manager.get(**lookup)
     except (ObjectDoesNotExist, ValueError, ValidationError, TypeError):
         raise GraphQLError(DENIED)
+
+
+def assert_member_or_guest(info, organization):
+    """Require that the caller belongs to ``organization``, as a full member or a guest; return their membership.
+
+    For the few things a guest of some collaborations (a scoped membership,
+    ``karakter.collaboration_grants``) does for themselves, like approving an app
+    login: everything that acts *for* the organization stays behind
+    :func:`assert_member`. A guest counts only while one of their grants is live
+    (unexpired, from a granter who is still a full member); one whose grants all
+    lapsed is refused like a non-member. ``organization`` ``None`` fails closed,
+    as in :func:`assert_member`.
+    """
+    from karakter.collaboration_grants import live_grants
+
+    if organization is None:
+        raise GraphQLError(DENIED)
+    user = get_user(info)
+    membership = organization.memberships.filter(user=user).first()
+    if membership is None:
+        raise GraphQLError(DENIED)
+    if membership.is_scoped and not live_grants(membership).exists():
+        raise GraphQLError(DENIED)
+    return membership

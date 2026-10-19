@@ -6,7 +6,8 @@ import strawberry
 from api.management import types
 from karakter import models
 from fakts import models as fakts_models
-from api.management.authz import DENIED, assert_member, get_or_denied
+from api.management.authz import DENIED, assert_member_or_guest, get_or_denied
+from karakter.collaboration_grants import live_grants, mesh_hub_ids
 from graphql import GraphQLError
 from fakts import logic
 import kante
@@ -40,7 +41,11 @@ def accept_device_code(info: Info, input: AcceptDeviceCodeInput) -> types.Manage
     service instances and mint its credentials.
 
     Requires the user code the device displayed (proof of possession) and
-    membership in the hub's organization.
+    membership in the hub's organization. A guest of some of its collaborations
+    may approve an app into a hub that runs one of their live collaborations; its
+    tokens carry no roles, only those collaborations. Their app gets a mesh key
+    only when one of those live grants allows the mesh, and then reaches only the
+    hubs such grants run on (``ionscale.acl``).
     """
     user = info.context.request.user
     device_code = resolve_device_code_with_proof(
@@ -62,7 +67,14 @@ def accept_device_code(info: Info, input: AcceptDeviceCodeInput) -> types.Manage
     # Accepting mints a client and an API token inside `organization`, so the
     # caller must belong to it -- otherwise any authenticated user could name
     # another tenant's hub and provision credentials there.
-    assert_member(info, organization)
+    membership = assert_member_or_guest(info, organization)
+    allow_mesh = True
+    if membership.is_scoped:
+        # A guest logs apps in only where their collaborations live: anywhere
+        # else the client would reach nothing it may use.
+        if not live_grants(membership).filter(instance__hub=hub).exists():
+            raise GraphQLError(DENIED)
+        allow_mesh = hub.pk in mesh_hub_ids(membership)
 
     # One transaction for approve + mesh key: `validate_device_code` makes the
     # code redeemable (the device is polling /o/token/), and redemption burns the
@@ -79,7 +91,7 @@ def accept_device_code(info: Info, input: AcceptDeviceCodeInput) -> types.Manage
             declined_requirements=input.declined_requirements,
         )
 
-        if input.allow_ionscale and device_code.request_auth_key:
+        if input.allow_ionscale and device_code.request_auth_key and allow_mesh:
             _grant_mesh_key(device_code, user, organization)
 
     return validate_device_code.client

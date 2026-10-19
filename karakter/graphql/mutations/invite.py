@@ -30,6 +30,11 @@ class CreateInviteInput:
         default=None,
         description="For a collaboration invite: how many people may accept it. Null: anyone with the link until it expires.",
     )
+    allow_mesh: bool = strawberry.field(
+        default=True,
+        description="For a collaboration invite: whether the guests' apps may join the organization's mesh. They then reach "
+        "only the hubs the granted collaborations run on, nothing else of the mesh.",
+    )
 
 
 def create_invite(info: Info, input: CreateInviteInput) -> types.Invite:
@@ -77,6 +82,7 @@ def create_invite(info: Info, input: CreateInviteInput) -> types.Invite:
         expires_at=expires_at,
         shared_collaborations=shared_collaborations,
         max_uses=input.max_uses if shared_collaborations is not None else None,
+        mesh=input.allow_mesh,
     )
     if shared_collaborations is not None:
         return invite

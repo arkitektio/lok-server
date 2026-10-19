@@ -9,19 +9,28 @@ and what a guest's token says: the collaborations of the instances it is minted 
 with roles that never exceed what the granter holds now.
 """
 
+import json
 from datetime import timedelta
+from types import SimpleNamespace
 
 import pytest
 from asgiref.sync import sync_to_async
+from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.db import connection, transaction
 from django.db.migrations.executor import MigrationExecutor
+from django.urls import reverse
 from django.utils import timezone
+from graphql import GraphQLError
+from joserfc import jwt
+from joserfc.jwk import RSAKey
 
+from api.management.mutations.device_code import AcceptDeviceCodeInput, accept_device_code
 from api.management.schema import schema as management_schema
 from authapp.server import SCOPED_ACCESS_TOKEN_EXPIRES_IN, access_token_expires_in
 from authapp.token_generators import MyJWTBearerTokenGenerator
 from fakts import models as fakts_models
+from ionscale.acl import build_acl_policy
 from karakter import models, collaboration_grants
 from karakter.invites import InviteError, redeem_invite
 from tests import factories
@@ -556,6 +565,315 @@ async def test_another_guest_cannot_take_a_grant_back():
 
 
 # --------------------------------------------------------------------------- #
+# a guest's apps: logging in, and the mesh
+# --------------------------------------------------------------------------- #
+
+DEVICE_CODE_GRANT = "urn:ietf:params:oauth:grant-type:device_code"
+
+
+def _mesh_org_with_member():
+    """``_org_with_member`` whose organization has a mesh."""
+    organization, member, instance = _org_with_member()
+    layer = fakts_models.IonscaleLayer.objects.create(
+        organization=organization, name="Default", kind="ionscale", identifier=organization.slug, tailnet_name=organization.slug
+    )
+    return organization, member, instance, layer
+
+
+def _guest(organization, member, instance, roles=("editor",), **invite):
+    return redeem_invite(_collaboration_invite(organization, member.user, [_entry(instance, roles=roles)], **invite), factories.make_user())
+
+
+def _start_app(client, instance, *, request_auth_key=True):
+    manifest = {
+        "identifier": "com.example.guestapp",
+        "version": "1.0.0",
+        "scopes": [],
+        "device_id": "guest-laptop",
+        "requirements": [{"key": "data", "service": instance.release.service.identifier}],
+    }
+    payload = {
+        "manifest": manifest,
+        "requested_client_kind": "development",
+        "requested_client_role": "agent",
+        "request_auth_key": request_auth_key,
+    }
+    resp = client.post(reverse("app_authorization"), data=json.dumps(payload), content_type="application/json")
+    assert resp.status_code == 200, resp.content
+    return resp.json()
+
+
+def _accept_app(body, user, hub):
+    device_code = fakts_models.DeviceCode.objects.get(secret=body["device_code"])
+    info = SimpleNamespace(context=SimpleNamespace(request=SimpleNamespace(user=user)))
+    return accept_device_code(
+        info, AcceptDeviceCodeInput(device_code=str(device_code.id), code=device_code.code, hub=str(hub.id))
+    )
+
+
+def _login_app(client, user, instance, **start):
+    body = _start_app(client, instance, **start)
+    _accept_app(body, user, instance.hub)
+    resp = client.post(
+        reverse("token"),
+        data={"grant_type": DEVICE_CODE_GRANT, "device_code": body["device_code"], "client_id": body["client_id"]},
+        secure=True,
+    )
+    assert resp.status_code == 200, resp.content
+    return resp.json()
+
+
+def _decode(access_token):
+    return jwt.decode(access_token, RSAKey.import_key(settings.PUBLIC_KEY), algorithms=["RS256"]).claims
+
+
+@pytest.mark.django_db
+def test_a_guest_approves_an_app_whose_token_carries_only_their_collaborations(client):
+    organization, member, instance = _org_with_member()
+    guest = _guest(organization, member, instance)
+
+    token = _login_app(client, guest.user, instance, request_auth_key=False)
+
+    claims = _decode(token["access_token"])
+    assert claims["sub"] == str(guest.user_id)
+    assert claims["roles"] == []
+    assert claims["collabs"] == {str(instance.pk): {"12": ["editor"]}}
+    app_client = fakts_models.Client.objects.get(client_id=token["client_id"])
+    assert app_client.membership == guest
+    assert app_client.mappings.get().instance == instance
+
+
+ACCEPT_DEVICE_CODE = """
+    mutation ($input: AcceptDeviceCodeInput!) {
+        acceptDeviceCode(input: $input) { id name release { version } }
+    }
+"""
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_a_guest_approves_an_app_through_the_management_api(client):
+    def _setup():
+        organization, member, instance = _org_with_member()
+        guest = _guest(organization, member, instance)
+        body = _start_app(client, instance, request_auth_key=False)
+        device_code = fakts_models.DeviceCode.objects.get(secret=body["device_code"])
+        context = build_auth_context(guest.user, organization, factories.make_client(membership=guest), roles=())
+        return guest, instance, device_code, context
+
+    guest, instance, device_code, context = await sync_to_async(_setup)()
+
+    result = await management_schema.execute(
+        ACCEPT_DEVICE_CODE,
+        variable_values={"input": {"deviceCode": str(device_code.id), "code": device_code.code, "hub": str(instance.hub_id)}},
+        context_value=context,
+    )
+
+    assert not result.errors, result.errors
+    accepted = result.data["acceptDeviceCode"]
+    assert accepted["release"] == {"version": "1.0.0"}
+    bound = await sync_to_async(lambda: fakts_models.Client.objects.get(pk=accepted["id"]).membership_id)()
+    assert bound == guest.pk
+
+
+@pytest.mark.django_db
+def test_a_non_member_or_a_lapsed_guest_cannot_approve_an_app(client):
+    organization, member, instance = _org_with_member()
+    stranger = factories.make_user()
+    with pytest.raises(GraphQLError, match="Not found"):
+        _accept_app(_start_app(client, instance), stranger, instance.hub)
+
+    lapsed = _guest(organization, member, instance)
+    lapsed.collaboration_grants.update(expires_at=timezone.now() - timedelta(minutes=1))
+    with pytest.raises(GraphQLError, match="Not found"):
+        _accept_app(_start_app(client, instance), lapsed.user, instance.hub)
+
+
+@pytest.mark.django_db
+def test_a_guest_approves_apps_only_into_a_hub_their_collaborations_run_on(client):
+    organization, member, instance = _org_with_member()
+    other = factories.make_service_instance(hub=factories.make_hub(organization=organization))
+    guest = _guest(organization, member, instance)
+
+    with pytest.raises(GraphQLError, match="Not found"):
+        _accept_app(_start_app(client, other), guest.user, other.hub)
+
+
+@pytest.mark.django_db
+def test_redeeming_copies_the_invites_mesh_onto_its_grants_and_a_re_grant_ors_it():
+    organization, member, instance = _org_with_member()
+    visitor = factories.make_user()
+    closed = _collaboration_invite(organization, member.user, [_entry(instance)], mesh=False)
+    membership = redeem_invite(closed, visitor)
+    assert membership.collaboration_grants.get().mesh is False
+
+    redeem_invite(_collaboration_invite(organization, member.user, [_entry(instance)], mesh=True), visitor)
+    assert membership.collaboration_grants.get().mesh is True
+    # A later invite without the mesh takes nothing away, and spends nothing.
+    again = _collaboration_invite(organization, member.user, [_entry(instance)], mesh=False)
+    redeem_invite(again, visitor)
+    assert membership.collaboration_grants.get().mesh is True
+    assert models.Invite.objects.get(pk=again.pk).uses == 0
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("mesh", [True, False])
+def test_a_guests_app_gets_a_mesh_key_only_when_the_invite_allowed_it(client, ionscale_repo, mesh):
+    organization, member, instance, layer = _mesh_org_with_member()
+    guest = _guest(organization, member, instance, mesh=mesh)
+
+    token = _login_app(client, guest.user, instance)
+
+    if mesh:
+        assert token["mesh"]["ionscale_auth_key"] == ionscale_repo.auth_key
+        assert fakts_models.AppMeshEnrollment.objects.get().membership == guest
+    else:
+        assert "mesh" not in token
+        assert ionscale_repo.created_auth_keys == []
+        assert not fakts_models.AppMeshEnrollment.objects.exists()
+
+
+@pytest.mark.django_db
+def test_a_guests_lapsed_mesh_grant_renews_no_mesh_key(client, ionscale_repo):
+    from fakts.services.hubs import MeshKeyRefused, renew_mesh_key
+
+    organization, member, instance, layer = _mesh_org_with_member()
+    guest = _guest(organization, member, instance, mesh=True)
+    token = _login_app(client, guest.user, instance)
+    app_client = fakts_models.Client.objects.get(client_id=token["client_id"])
+    fakts_models.IonscaleAuthKey.objects.update(created_at=timezone.now() - timedelta(hours=1))
+
+    guest.collaboration_grants.update(expires_at=timezone.now() - timedelta(minutes=1))
+
+    with pytest.raises(MeshKeyRefused) as refused:
+        renew_mesh_key(app_client)
+    assert refused.value.reason == "not_enrolled"
+
+
+@pytest.mark.django_db
+def test_the_acl_lets_a_guests_app_reach_only_the_hub_of_their_collaboration(client, ionscale_repo):
+    organization, member, instance, layer = _mesh_org_with_member()
+    other_hub = factories.make_hub(organization=organization)
+    guest = _guest(organization, member, instance, mesh=True)
+    _login_app(client, guest.user, instance)
+    tag = fakts_models.AppMeshEnrollment.objects.get(membership=guest).tag
+    # A member's app on another hub, for contrast: its rule is unchanged.
+    member_body = _start_app(client, factories.make_service_instance(hub=other_hub))
+    _accept_app(member_body, member.user, other_hub)
+    member_tag = fakts_models.AppMeshEnrollment.objects.get(membership=member).tag
+
+    members, *sidecars = build_acl_policy(organization)["acls"]
+
+    assert members["src"] == ["autogroup:member", f"tag:mesh-{organization.pk}"]
+    assert sorted(map(str, sidecars), key=str) == sorted(
+        map(
+            str,
+            [
+                {"action": "accept", "src": [tag], "dst": [f"tag:hub-{instance.hub_id}:*"]},
+                {"action": "accept", "src": [member_tag], "dst": [f"tag:hub-{other_hub.pk}:*"]},
+            ],
+        )
+    )
+    # The guest's sidecar is in no other rule: not among the members, not towards any other hub.
+    assert [rule for rule in build_acl_policy(organization)["acls"] if tag in rule["src"]] == [
+        {"action": "accept", "src": [tag], "dst": [f"tag:hub-{instance.hub_id}:*"]}
+    ]
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("how", ["expired", "revoked", "mesh_off"])
+def test_a_guest_whose_mesh_grant_lapses_drops_out_at_the_next_reconcile(client, ionscale_repo, how):
+    from ionscale.reconcile import reconcile_sidecars
+
+    organization, member, instance, layer = _mesh_org_with_member()
+    guest = _guest(organization, member, instance, mesh=True)
+    # A second, view-only grant without the mesh keeps the guest a guest when the first goes.
+    redeem_invite(
+        _collaboration_invite(organization, member.user, [_entry(instance, collaboration="99")], mesh=False), guest.user
+    )
+    _login_app(client, guest.user, instance)
+    tag = fakts_models.AppMeshEnrollment.objects.get(membership=guest).tag
+
+    reconcile_sidecars(layer)
+    _, policy = ionscale_repo.set_acl_policies[-1]
+    assert any(tag in rule["src"] for rule in policy["acls"])
+
+    grant = guest.collaboration_grants.get(collaboration_id="12")
+    if how == "expired":
+        grant.expires_at = timezone.now() - timedelta(minutes=1)
+        grant.save()
+    elif how == "revoked":
+        assert collaboration_grants.revoke_grant(grant) is False
+    else:
+        grant.mesh = False
+        grant.save()
+
+    report = reconcile_sidecars(layer)
+
+    assert report.acl_applied
+    # The app's session is live, so its enrollment stays; only its rule goes.
+    assert tag not in report.reaped_enrollments
+    _, policy = ionscale_repo.set_acl_policies[-1]
+    assert not any(tag in rule["src"] for rule in policy["acls"])
+
+
+# --------------------------------------------------------------------------- #
+# the token schema: the links a member handed out
+# --------------------------------------------------------------------------- #
+
+TOKEN_CREATE_INVITE = """
+    mutation ($input: CreateInviteInput!) {
+        createInvite(input: $input) { id mesh public collaborations { instance collaboration roles } maxUses uses inviteUrl }
+    }
+"""
+
+TOKEN_INVITES = """
+    query ($id: ID!) {
+        organization(id: $id) { invites { id mesh public maxUses uses inviteUrl collaborations { instance collaboration roles } } }
+    }
+"""
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_the_creator_sees_their_collaboration_invites_on_the_token_schema():
+    from lok_server.schema import schema as token_schema
+
+    organization, member, instance, member_context, guest_context, _ = await sync_to_async(_api_setup)()
+    collaboration = {"instance": str(instance.pk), "collaboration": "12", "roles": ["editor"]}
+
+    created = await token_schema.execute(
+        TOKEN_CREATE_INVITE,
+        variable_values={"input": {"organization": str(organization.pk), "collaborations": [collaboration], "allowMesh": False, "maxUses": 3}},
+        context_value=member_context,
+    )
+    assert not created.errors, created.errors
+    invite = created.data["createInvite"]
+    assert invite["mesh"] is False
+    assert invite["collaborations"] == [collaboration]
+    assert (invite["maxUses"], invite["uses"]) == (3, 0)
+    # One the owner made, which the member (neither owner nor admin) does not see.
+    await sync_to_async(_collaboration_invite)(organization, organization.owner, [_entry(instance)])
+
+    listed = await token_schema.execute(TOKEN_INVITES, variable_values={"id": str(organization.pk)}, context_value=member_context)
+    assert not listed.errors, listed.errors
+    assert listed.data["organization"]["invites"] == [invite]
+
+    # A member holding only the `guest` role lists none.
+    as_guest = await token_schema.execute(TOKEN_INVITES, variable_values={"id": str(organization.pk)}, context_value=guest_context)
+    assert not as_guest.errors, as_guest.errors
+    assert as_guest.data["organization"]["invites"] == []
+
+    allowed = await token_schema.execute(
+        TOKEN_CREATE_INVITE,
+        variable_values={"input": {"organization": str(organization.pk), "collaborations": [collaboration]}},
+        context_value=member_context,
+    )
+    assert not allowed.errors, allowed.errors
+    assert allowed.data["createInvite"]["mesh"] is True
+
+
+# --------------------------------------------------------------------------- #
 # deletes that cascade through grants
 # --------------------------------------------------------------------------- #
 
@@ -644,13 +962,16 @@ def test_the_migration_drops_object_grants_without_leaving_full_members_behind(b
     ordinary = Invite.objects.create(created_by=owner, created_for=org)
     ObjectGrant.objects.create(membership=scoped, hub=hub, structure="@mikro/image", object_id="1", granted_by=owner)
 
-    _migrate(AFTER)
+    # The models as they stood right after: later migrations add columns the current ones read.
+    after = _migrate(AFTER)
+    Membership = after.get_model("karakter", "Membership")
+    Invite = after.get_model("karakter", "Invite")
 
     assert "karakter_objectgrant" not in connection.introspection.table_names()
     assert "karakter_collaborationgrant" in connection.introspection.table_names()
     # The guest is gone rather than left as a role-less full member; the member stays.
-    assert not models.Membership.objects.filter(pk=scoped.pk).exists()
-    assert models.Membership.objects.filter(pk=full.pk).exists()
+    assert not Membership.objects.filter(pk=scoped.pk).exists()
+    assert Membership.objects.filter(pk=full.pk).exists()
     # The object invite cannot be redeemed as an ordinary one; the ordinary one is untouched.
-    assert models.Invite.objects.get(pk=object_invite.pk).status == models.Invite.Status.CANCELLED
-    assert models.Invite.objects.get(pk=ordinary.pk).status == models.Invite.Status.PENDING
+    assert Invite.objects.get(pk=object_invite.pk).status == models.Invite.Status.CANCELLED
+    assert Invite.objects.get(pk=ordinary.pk).status == models.Invite.Status.PENDING

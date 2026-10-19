@@ -431,8 +431,10 @@ class Invite:
     responded_at: datetime.datetime | None
     roles: list["Role"]
     created_memberships: list["Membership"]
+    public: bool = strawberry.field(description="Whether anyone with the link can preview the invitation before signing in.")
     max_uses: int | None = strawberry.field(description="For a collaboration invite: how many people may accept it. Null: anyone with the link until it expires.")
     uses: int = strawberry.field(description="How many people accepted it so far.")
+    mesh: bool = strawberry.field(description="For a collaboration invite: whether its guests' apps may join the organization's mesh, reaching only the hubs the granted collaborations run on.")
 
     @strawberry_django.field(description="The collaborations this invite grants, with the roles that hold inside each. Null for an invite that makes its holder a member.")
     def collaborations(self) -> list[SharedCollaboration] | None:
@@ -467,6 +469,10 @@ class Invite:
         caller is the intended recipient). This now matches the bar the
         management twin already enforces, `api.management.types.ManagementInvite`,
         whose docstring describes exactly that attack.
+
+        Whoever granted collaborations also sees the collaboration invites they
+        made, while they are a full member, as on the management twin: the
+        links they handed out, to look up again or cancel.
         """
         user = get_user(info)
         organization = get_organization(info)
@@ -476,6 +482,12 @@ class Invite:
             | Q(
                 created_for__memberships__user=user,
                 created_for__memberships__roles__identifier="admin",
+            )
+            | Q(
+                created_by=user,
+                shared_collaborations__isnull=False,
+                created_for__memberships__user=user,
+                created_for__memberships__collaboration_grants__isnull=True,
             ),
         ).distinct()
 

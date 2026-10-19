@@ -742,6 +742,7 @@ class ManagementInvite:
     created_memberships: list["ManagementMembership"]
     max_uses: int | None = strawberry.field(description="For a collaboration invite: how many people may accept it. Null: anyone with the link until it expires.")
     uses: int = strawberry.field(description="How many people accepted it so far.")
+    mesh: bool = strawberry.field(description="For a collaboration invite: whether its guests' apps may join the organization's mesh, reaching only the hubs the granted collaborations run on.")
     collaboration_grants: list["ManagementCollaborationGrant"] = strawberry_django.field(description="What this invite has granted, to whom. Only for the people who may see the grants.")
 
     @strawberry_django.field(description="The collaborations this invite grants, with the roles that hold inside each. Null for an invite that makes its holder a member.")
@@ -814,6 +815,7 @@ class ManagementCollaborationGrant:
     granted_through: Optional[ManagementInvite] = strawberry.field(description="The invite it was granted through.")
     created_at: datetime.datetime
     expires_at: Optional[datetime.datetime]
+    mesh: bool = strawberry.field(description="Whether the guest's apps may join the organization's mesh to reach the hub the collaboration's instance runs on.")
 
     @classmethod
     def get_queryset(cls, queryset, info: Info, **kwargs):

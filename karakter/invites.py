@@ -10,7 +10,8 @@ share it.
 - A collaboration invite makes its holder a *scoped* member (a guest) of those
   collaborations, or adds them (and their roles) to the collaborations already
   granted to them. It counts a use and stays open until ``max_uses`` is reached
-  or it expires.
+  or it expires. Whether the guest's apps may join the mesh (``Invite.mesh``) is
+  copied onto every grant it makes.
 - A full member accepting a collaboration invite gets nothing new and spends
   nothing, so opening a shared link as a member never uses it up. (An ordinary
   invite is marked accepted either way, as before.) A scoped member accepting an
@@ -68,7 +69,7 @@ def redeem_invite(invite: models.Invite, user) -> models.Membership:
             membership = models.Membership.objects.create(user=user, organization=organization, created_through=invite)
         try:
             changed = collaboration_grants.grant_collaborations(
-                membership, invite.shared_collaborations or [], invite=invite, granted_by=invite.created_by
+                membership, invite.shared_collaborations or [], invite=invite, granted_by=invite.created_by, mesh=invite.mesh
             )
         except ValidationError as e:
             raise InviteError(" ".join(e.messages)) from e

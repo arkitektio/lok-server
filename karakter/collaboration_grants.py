@@ -43,7 +43,7 @@ from dataclasses import dataclass
 from django.core.exceptions import ValidationError
 from django.db import transaction
 from django.db.models import Q, QuerySet
-from django.db.models.signals import m2m_changed, post_delete
+from django.db.models.signals import m2m_changed, post_delete, post_save
 from django.dispatch import receiver
 from django.utils import timezone
 
@@ -176,6 +176,33 @@ def is_full_member(user, organization) -> bool:
     return organization.memberships.filter(user=user, collaboration_grants__isnull=True).exists()
 
 
+def live_grants(membership: models.Membership) -> QuerySet:
+    """The grants of ``membership`` that hold now: unexpired, from a granter who is still a full member.
+
+    A granter who is no longer a full member of the organization (or whose
+    account is gone or inactive) takes their grants along; expired grants are
+    left in place, not deleted. What a token lists (``live_collaborations``) and
+    what reaches the mesh (``mesh_hub_ids``) both start from here.
+    """
+    granters = models.Membership.objects.filter(
+        organization_id=membership.organization_id, collaboration_grants__isnull=True, user__is_active=True
+    ).values("user_id")
+    return (
+        models.CollaborationGrant.objects.filter(membership_id=membership.pk)
+        .filter(Q(expires_at__isnull=True) | Q(expires_at__gt=timezone.now()))
+        .filter(granted_by_id__in=granters)
+    )
+
+
+def mesh_hub_ids(membership: models.Membership) -> set[int]:
+    """The hubs a guest's apps may reach on the mesh: those running an instance of a live grant that allows it.
+
+    Empty for a guest whose grants allow no mesh (or hold no longer), and for a
+    full member, who has no grants: callers tell the two apart with ``is_scoped``.
+    """
+    return set(live_grants(membership).filter(mesh=True, instance__hub__isnull=False).values_list("instance__hub_id", flat=True))
+
+
 def live_collaborations(membership: models.Membership, audiences: Iterable[str]) -> dict[str, dict[str, list[str]]]:
     """The collaborations a token lists (``collabs``), by instance id and collaboration id, with the roles held there.
 
@@ -191,15 +218,9 @@ def live_collaborations(membership: models.Membership, audiences: Iterable[str])
     instance_ids = sorted({int(a) for a in (str(a) for a in audiences) if INSTANCE_RE.match(a)})
     if not instance_ids:
         return {}
-    now = timezone.now()
-    # Whoever may grant here: the organization's full members, with a live account.
-    granters = models.Membership.objects.filter(
-        organization_id=membership.organization_id, collaboration_grants__isnull=True, user__is_active=True
-    ).values("user_id")
     grants = list(
-        membership.collaboration_grants.filter(instance_id__in=instance_ids)
-        .filter(Q(expires_at__isnull=True) | Q(expires_at__gt=now))
-        .filter(granted_by_id__in=granters)
+        live_grants(membership)
+        .filter(instance_id__in=instance_ids)
         .order_by("created_at", "id")
         .values_list("instance_id", "collaboration_id", "roles", "granted_by_id")[:MAX_GRANTS_PER_MEMBERSHIP]
     )
@@ -216,12 +237,15 @@ def live_collaborations(membership: models.Membership, audiences: Iterable[str])
     return collaborations
 
 
-def grant_collaborations(membership: models.Membership, entries: list, *, invite=None, granted_by=None, expires_at=None) -> bool:
+def grant_collaborations(
+    membership: models.Membership, entries: list, *, invite=None, granted_by=None, expires_at=None, mesh: bool = False
+) -> bool:
     """Add grants to a scoped (or new, role-less) membership. Returns whether anything changed.
 
     A collaboration already granted keeps its roles and gains the new ones (the
-    union); it changes, and takes the new granter and invite, only when that adds
-    a role.
+    union), and keeps mesh access once it was given (``mesh`` is or-ed in); it
+    changes, and takes the new granter and invite, only when that adds a role or
+    the mesh.
     """
     if membership.roles.exists():
         raise ValidationError("This person is already a member; there is nothing to grant them.")
@@ -238,7 +262,13 @@ def grant_collaborations(membership: models.Membership, entries: list, *, invite
             membership=membership,
             instance_id=int(ref.instance),
             collaboration_id=ref.collaboration,
-            defaults={"roles": list(ref.roles), "granted_through": invite, "granted_by": granted_by, "expires_at": expires_at},
+            defaults={
+                "roles": list(ref.roles),
+                "granted_through": invite,
+                "granted_by": granted_by,
+                "expires_at": expires_at,
+                "mesh": mesh,
+            },
         )
         if created:
             changed = True
@@ -247,12 +277,13 @@ def grant_collaborations(membership: models.Membership, entries: list, *, invite
                 raise ValidationError(f"At most {MAX_GRANTS_PER_MEMBERSHIP} collaborations can be granted to one person.")
             continue
         roles = sorted(set(grant.roles or []) | set(ref.roles))
-        if roles != sorted(grant.roles or []):
+        if roles != sorted(grant.roles or []) or (mesh and not grant.mesh):
             changed = True
             grant.roles = roles
+            grant.mesh = grant.mesh or mesh
             grant.granted_through = invite
             grant.granted_by = granted_by
-            grant.save(update_fields=["roles", "granted_through", "granted_by"])
+            grant.save(update_fields=["roles", "mesh", "granted_through", "granted_by"])
     return changed
 
 
@@ -314,6 +345,22 @@ def _drop_membership_without_grants(sender, instance, origin=None, **kwargs):
     membership = models.Membership.objects.filter(pk=instance.membership_id).first()
     if membership is not None and not membership.collaboration_grants.exists() and not membership.roles.exists():
         membership.delete()
+
+
+@receiver(post_save, sender=models.CollaborationGrant)
+@receiver(post_delete, sender=models.CollaborationGrant)
+def _reapply_acl_on_grant_change(sender, instance, origin=None, **kwargs):
+    """A guest's app sidecar reaches the hubs of their mesh grants (``ionscale.acl``): rewrite it when they change.
+
+    A grant that merely expires changes nothing here; ``reconcile_meshes --sidecars``
+    rewrites the policy and cuts it off. When the membership itself goes, its
+    enrollments' deletes rewrite the policy anyway.
+    """
+    from ionscale.acl import schedule_acl_apply
+
+    organization_id = models.Membership.objects.filter(pk=instance.membership_id).values_list("organization_id", flat=True).first()
+    if organization_id is not None:
+        schedule_acl_apply(organization_id)
 
 
 @receiver(m2m_changed, sender=models.Membership.roles.through)

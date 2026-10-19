@@ -518,7 +518,8 @@ def renew_mesh_key(client: models.Client) -> models.IonscaleAuthKey:
 
     - ``not_live``: the client's session is revoked or expired;
     - ``not_enrolled``: no sidecar was granted to it (or it was reaped), or it
-      is an app without a device, whose nodes cannot be pruned;
+      is an app without a device, whose nodes cannot be pruned, or the app of a
+      guest none of whose live grants allows the mesh on its hub any more;
     - ``throttled``: its current key is younger than the renewal interval;
     - ``connected``: a node of the sidecar is online. Whoever asks is by
       definition off the mesh, so this is a second party holding the token.
@@ -537,6 +538,11 @@ def renew_mesh_key(client: models.Client) -> models.IonscaleAuthKey:
         ).first()
     else:
         enrollment = None
+    if enrollment is not None and hub is None and client.membership.is_scoped:
+        from karakter.collaboration_grants import mesh_hub_ids
+
+        if client.hub_id not in mesh_hub_ids(client.membership):
+            enrollment = None
     organization = client.organization
     layer = get_org_mesh(organization) if enrollment is not None and organization is not None else None
     if layer is None:
