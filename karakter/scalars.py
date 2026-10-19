@@ -7,8 +7,7 @@ ExtraData = NewType("ExtraData", object)
 scalar_map: dict[Any, Any] = {
     ExtraData: strawberry.scalar(
         name="ExtraData",
-        description="The `ArrayLike` scalasr typsse represents a reference to a store "
-        "previously created by the user n a datalayer",
+        description="Just a placeholder for extra data that can be attached to a model instance.",
         serialize=lambda v: v,
         parse_value=lambda v: v,
     ),
