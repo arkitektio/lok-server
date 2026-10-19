@@ -47,8 +47,9 @@ def test_get_audiences_for_non_fakts_client_is_the_client():
 
 
 @pytest.mark.django_db
-def test_get_audiences_for_fakts_client_lists_mapped_instance_ids():
-    """A fakts client's audiences are the *instance ids* it was composed with, plus lok."""
+def test_get_audiences_for_fakts_client_names_its_services_as_their_hub_does():
+    """A fakts client's audiences are the *names* of the services it was composed with, plus lok:
+    a name is unique within its hub, and the token's ``hub`` says which hub."""
     membership = factories.make_membership()
     oauth2 = factories.make_oauth2_client(membership=membership)
     fakts_client = factories.make_client(membership=membership, oauth2_client=oauth2)
@@ -59,7 +60,8 @@ def test_get_audiences_for_fakts_client_lists_mapped_instance_ids():
     fmodels.ServiceInstanceMapping.objects.create(client=fakts_client, instance=instance, key="db")
 
     audiences = _generator().get_audiences(oauth2, membership, None)
-    assert audiences == ["lok", str(instance.pk)]
+    assert audiences == ["lok", instance.instance_id]
+    assert _generator().get_extra_claims(oauth2, "authorization_code", membership, None)["hub"] == str(instance.hub.uid)
 
 
 def test_get_jwks_exposes_signing_key():

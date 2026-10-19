@@ -203,26 +203,26 @@ def mesh_hub_ids(membership: models.Membership) -> set[int]:
     return set(live_grants(membership).filter(mesh=True, instance__hub__isnull=False).values_list("instance__hub_id", flat=True))
 
 
-def live_collaborations(membership: models.Membership, audiences: Iterable[str]) -> dict[str, dict[str, list[str]]]:
-    """The collaborations a token lists (``collabs``), by instance id and collaboration id, with the roles held there.
+def live_collaborations(membership: models.Membership, instances: Iterable[int]) -> dict[str, dict[str, list[str]]]:
+    """The collaborations a token lists (``collabs``), by service name and collaboration id, with the roles held there.
 
-    ``{"7": {"12": ["editor"], "9": []}}``. Only the instances in ``audiences``
-    (the instance ids the token is minted for) are listed: a service reads its
-    own. Expired grants are left out, not deleted, and so are the grants of a
-    granter who is no longer a full member of the organization (or whose account
-    is gone). The roles of each are cut to the roles its granter holds in the
-    organization now, so a guest never holds more than whoever let them in; a
-    collaboration left with none is still listed (view only). With nothing left
-    the result is ``{}``, which grants nothing.
+    ``{"mikro": {"12": ["editor"], "9": []}}``. Only the ``instances`` (pks) the token is
+    minted for are listed, each under the name its hub gives it -- the audience the service
+    verifies tokens for, and reads its own entry by. Expired grants are left out, not deleted,
+    and so are the grants of a granter who is no longer a full member of the organization (or
+    whose account is gone). The roles of each are cut to the roles its granter holds in the
+    organization now, so a guest never holds more than whoever let them in; a collaboration left
+    with none is still listed (view only). With nothing left the result is ``{}``, which grants
+    nothing.
     """
-    instance_ids = sorted({int(a) for a in (str(a) for a in audiences) if INSTANCE_RE.match(a)})
+    instance_ids = sorted({int(i) for i in instances})
     if not instance_ids:
         return {}
     grants = list(
         live_grants(membership)
         .filter(instance_id__in=instance_ids)
         .order_by("created_at", "id")
-        .values_list("instance_id", "collaboration_id", "roles", "granted_by_id")[:MAX_GRANTS_PER_MEMBERSHIP]
+        .values_list("instance__instance_id", "collaboration_id", "roles", "granted_by_id")[:MAX_GRANTS_PER_MEMBERSHIP]
     )
     held: dict[int, set[str]] = {}
     for user_id, identifier in models.Membership.objects.filter(
@@ -232,8 +232,8 @@ def live_collaborations(membership: models.Membership, audiences: Iterable[str])
         if identifier:
             held[user_id].add(identifier)
     collaborations: dict[str, dict[str, list[str]]] = {}
-    for instance_id, collaboration_id, roles, granted_by_id in sorted(grants, key=lambda g: (str(g[0]), g[1])):
-        collaborations.setdefault(str(instance_id), {})[collaboration_id] = sorted(set(roles or []) & held.get(granted_by_id, set()))
+    for name, collaboration_id, roles, granted_by_id in sorted(grants, key=lambda g: (str(g[0]), g[1])):
+        collaborations.setdefault(str(name), {})[collaboration_id] = sorted(set(roles or []) & held.get(granted_by_id, set()))
     return collaborations
 
 

@@ -1,3 +1,4 @@
+import uuid
 """End-to-end HTTP tests for the canonical fakts grant.
 
 The flow under test:
@@ -294,7 +295,8 @@ def test_full_hub_grant_returns_tokens_and_hub_config(client):
 
     claims = _decode(token["access_token"])
     assert claims["org"] == str(membership.organization_id)
-    assert claims["hub"] == "hubgrant"
+    # The hub named no uid of its own, so it is named by its label: the same in every organization.
+    assert claims["hub"] == str(uuid.uuid5(uuid.NAMESPACE_URL, "arkitekt-hub:hubgrant"))
     assert claims["aud"] == ["lok"]
 
     # The staged code is burned; continuity is the refresh chain, and the hub

@@ -61,9 +61,8 @@ def test_the_issuer_stays_the_configured_name(client):
 
 @pytest.mark.django_db
 @FOLLOWING
-def test_the_trust_bundle_url_follows_too(rf):
-    from fakts.services.rendering import _hub_keys_base, _jwks_url
+def test_the_jwks_url_follows_too(rf):
+    from fakts.services.rendering import _jwks_url
 
     request = rf.get(WELL_KNOWN, HTTP_HOST="gateway")
-    assert _hub_keys_base(request) == "http://gateway/lok/.well-known/hub-keys/"
     assert _jwks_url(request) == "http://gateway/lok/o/jwks/"

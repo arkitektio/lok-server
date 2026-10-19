@@ -362,11 +362,13 @@ def test_a_guests_token_lists_the_collaborations_of_its_own_instances_only():
     claims = _generator().get_extra_claims(client, "authorization_code", membership, None)
 
     assert claims["org"] == str(organization.pk)
+    # The services are named as their hub names them, and the token says which hub.
+    assert claims["hub"] == str(mikro.hub.uid)
     assert claims["roles"] == []
     assert "objects" not in claims
-    assert claims["collabs"] == {str(mikro.pk): {"12": ["editor"], "9": []}, str(other.pk): {"3": ["viewer"]}}
+    assert claims["collabs"] == {mikro.instance_id: {"12": ["editor"], "9": []}, other.instance_id: {"3": ["viewer"]}}
     assert list(claims["collabs"]) == sorted(claims["collabs"])
-    assert _generator().get_audiences(client, membership, None) == ["lok", *sorted([str(mikro.pk), str(other.pk)])]
+    assert _generator().get_audiences(client, membership, None) == ["lok", *sorted([mikro.instance_id, other.instance_id])]
     assert access_token_expires_in(client, "authorization_code") <= SCOPED_ACCESS_TOKEN_EXPIRES_IN
 
 
@@ -376,7 +378,7 @@ def test_a_token_minted_for_no_instance_lists_no_collaborations():
     membership = redeem_invite(_collaboration_invite(organization, member.user, [_entry(instance, roles=["editor"])]), factories.make_user())
 
     assert _claims(membership)["collabs"] == {}  # grants nothing; never "everything"
-    assert collaboration_grants.live_collaborations(membership, ["lok", "not-an-instance"]) == {}
+    assert collaboration_grants.live_collaborations(membership, []) == {}
 
 
 @pytest.mark.django_db
@@ -385,18 +387,18 @@ def test_a_guests_roles_are_cut_to_what_the_granter_holds_now():
     membership = redeem_invite(
         _collaboration_invite(organization, karl.user, [_entry(instance, "12", ["editor", "viewer"])]), factories.make_user()
     )
-    assert _claims(membership, instance)["collabs"] == {str(instance.pk): {"12": ["editor", "viewer"]}}
+    assert _claims(membership, instance)["collabs"] == {instance.instance_id: {"12": ["editor", "viewer"]}}
 
     karl.roles.remove(_role(organization, "editor"))
-    assert _claims(membership, instance)["collabs"] == {str(instance.pk): {"12": ["viewer"]}}
+    assert _claims(membership, instance)["collabs"] == {instance.instance_id: {"12": ["viewer"]}}
 
     karl.roles.set([_role(organization, "user")])
     # Still a full member: the collaboration stays, view only.
-    assert _claims(membership, instance)["collabs"] == {str(instance.pk): {"12": []}}
+    assert _claims(membership, instance)["collabs"] == {instance.instance_id: {"12": []}}
 
     # And a role given back to the granter comes back to the guest.
     karl.roles.add(_role(organization, "editor"))
-    assert _claims(membership, instance)["collabs"] == {str(instance.pk): {"12": ["editor"]}}
+    assert _claims(membership, instance)["collabs"] == {instance.instance_id: {"12": ["editor"]}}
 
 
 @pytest.mark.django_db
@@ -409,7 +411,7 @@ def test_a_granter_who_left_takes_their_grants_along():
 
     karl.delete()
 
-    assert _claims(membership, instance)["collabs"] == {str(instance.pk): {"2": ["viewer"]}}
+    assert _claims(membership, instance)["collabs"] == {instance.instance_id: {"2": ["viewer"]}}
     anna.delete()
     assert _claims(membership, instance)["collabs"] == {}  # still a guest, of nothing
 
@@ -447,7 +449,7 @@ def test_expired_grants_leave_the_token_but_it_stays_scoped():
         _collaboration_invite(organization, member.user, [_entry(instance, "1"), _entry(instance, "2", ["editor"])]), factories.make_user()
     )
     membership.collaboration_grants.filter(collaboration_id="1").update(expires_at=timezone.now() - timedelta(minutes=1))
-    assert _claims(membership, instance)["collabs"] == {str(instance.pk): {"2": ["editor"]}}
+    assert _claims(membership, instance)["collabs"] == {instance.instance_id: {"2": ["editor"]}}
 
     membership.collaboration_grants.update(expires_at=timezone.now() - timedelta(minutes=1))
     claims = _claims(membership, instance)
@@ -637,7 +639,7 @@ def test_a_guest_approves_an_app_whose_token_carries_only_their_collaborations(c
     claims = _decode(token["access_token"])
     assert claims["sub"] == str(guest.user_id)
     assert claims["roles"] == []
-    assert claims["collabs"] == {str(instance.pk): {"12": ["editor"]}}
+    assert claims["collabs"] == {instance.instance_id: {"12": ["editor"]}}
     app_client = fakts_models.Client.objects.get(client_id=token["client_id"])
     assert app_client.membership == guest
     assert app_client.mappings.get().instance == instance

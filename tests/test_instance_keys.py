@@ -31,13 +31,13 @@ def _instance(name: str, key: OKPKey | None) -> dict:
     return {"identifier": name, "manifest": manifest, "aliases": []}
 
 
-def _enroll(client, organization_membership, instances, identifier="keyhub"):
+def _enroll(client, organization_membership, instances, identifier="keyhub", uid=None):
     """Start, accept (as an org admin) and poll a hub device code; the token response."""
     from api.management.mutations.hub_device_code import AcceptHubDeviceCodeInput, accept_hub_device_code
 
     body = client.post(
         reverse("hub_authorization"),
-        data=json.dumps({"hub": {"identifier": identifier, "instances": instances, "clients": []}}),
+        data=json.dumps({"hub": {"identifier": identifier, **({"uid": uid} if uid else {}), "instances": instances, "clients": []}}),
         content_type="application/json",
     ).json()
     code = models.DeviceCode.objects.get(secret=body["device_code"])
@@ -58,20 +58,16 @@ def admin():
 
 
 @pytest.mark.django_db
-def test_the_manifest_keys_become_the_hubs_trust_bundle(client, admin):
-    mikro, rekuest = OKPKey.generate_key("Ed25519"), OKPKey.generate_key("Ed25519")
-    hub, token = _enroll(client, admin, [_instance("mikro", mikro), _instance("rekuest", rekuest), _instance("nokey", None)])
+def test_the_manifest_keys_are_what_apps_check_an_instance_by(client, admin):
+    """A hub's services trust each other through the hub's own bundle: lok keeps each public key
+    only to hand it to apps, which check an alias by it (``challenge_key``)."""
+    mikro = OKPKey.generate_key("Ed25519")
+    hub, token = _enroll(client, admin, [_instance("mikro", mikro), _instance("nokey", None)])
 
-    assert token["self"]["hub_keys_url"].endswith(f"/.well-known/hub-keys/{hub.pk}")
-    bundle = client.get(reverse("hub_keys", kwargs={"hub_id": hub.pk})).json()
-    by_service = {k["service"]: k for k in bundle["keys"]}
-    assert set(by_service) == {"live.arkitekt.mikro", "live.arkitekt.rekuest"}  # the keyless one is not vouched for
-    assert by_service["live.arkitekt.mikro"]["kid"] == mikro.thumbprint()
-    assert by_service["live.arkitekt.mikro"]["x"] == mikro.as_dict(private=False)["x"]
-    assert "d" not in by_service["live.arkitekt.mikro"]  # never a private part
-
-    only_rekuest = client.get(reverse("hub_keys", kwargs={"hub_id": hub.pk}), {"service": "live.arkitekt.rekuest"}).json()
-    assert [k["kid"] for k in only_rekuest["keys"]] == [rekuest.thumbprint()]
+    assert "hub_keys_url" not in token["self"]
+    keyed, keyless = hub.instances.get(instance_id="mikro"), hub.instances.get(instance_id="nokey")
+    assert keyed.public_key == _raw(mikro)
+    assert keyless.public_key in (None, "")
 
 
 @pytest.mark.django_db
@@ -80,9 +76,7 @@ def test_reauthorizing_with_a_new_key_rotates_it(client, admin):
     hub, _ = _enroll(client, admin, [_instance("mikro", first)])
     hub_again, _ = _enroll(client, admin, [_instance("mikro", second)])
     assert hub_again.pk == hub.pk
-
-    bundle = client.get(reverse("hub_keys", kwargs={"hub_id": hub.pk})).json()
-    assert [k["kid"] for k in bundle["keys"]] == [second.thumbprint()]
+    assert hub.instances.get().public_key == _raw(second)
 
 
 @pytest.mark.django_db
@@ -91,6 +85,31 @@ def test_a_malformed_key_is_refused(client, admin):
         _enroll(client, admin, [{"identifier": "mikro", "manifest": {"identifier": "live.arkitekt.mikro", "version": "1.0.0", "challenge_key": base64.b64encode(b"short").decode()}, "aliases": []}])
 
 
+def test_lok_publishes_no_trust_bundle():
+    from django.urls import NoReverseMatch
+
+    with pytest.raises(NoReverseMatch):
+        reverse("hub_keys", kwargs={"hub_id": 1})
+
+
 @pytest.mark.django_db
-def test_an_unknown_hub_has_an_empty_bundle(client):
-    assert client.get(reverse("hub_keys", kwargs={"hub_id": 999999})).json() == {"keys": []}
+def test_authorized_again_under_its_uid_a_hub_is_replaced_by_what_it_says_now(client, admin):
+    """The hub names itself: the same uid is the same hub, with the services it names now."""
+    uid = "0192f3c4-7a2b-7c1d-9e8f-1a2b3c4d5e6f"
+    hub, _ = _enroll(client, admin, [_instance("mikro", None), _instance("kraph", None)], uid=uid, identifier="first-label")
+    again, _ = _enroll(client, admin, [_instance("mikro", None)], uid=uid, identifier="renamed")
+    assert again.pk == hub.pk and str(again.uid) == uid
+    assert again.identifier == "renamed"
+    assert sorted(again.instances.values_list("instance_id", flat=True)) == ["mikro"]
+
+
+@pytest.mark.django_db
+def test_two_organizations_may_each_hold_the_same_hub(client, admin):
+    """A kommunity partner's one deployment, authorized in two organizations: one uid, the same names."""
+    uid = "0192f3c4-0000-7000-8000-000000000001"
+    other_org = factories.make_organization()
+    other_admin = factories.make_membership(user=other_org.owner, organization=other_org)
+    first, _ = _enroll(client, admin, [_instance("mikro", None)], uid=uid)
+    second, _ = _enroll(client, other_admin, [_instance("mikro", None)], uid=uid)
+    assert first.pk != second.pk and first.uid == second.uid
+    assert first.instances.get().instance_id == second.instances.get().instance_id == "mikro"

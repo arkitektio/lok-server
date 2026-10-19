@@ -579,17 +579,3 @@ class HubDeleteView(View):
                 message="Error deleting hub",
             )
         return JsonResponse({"status": "deleted", "message": "Hub deleted"})
-
-
-def hub_keys(request, hub_id: int) -> JsonResponse:
-    """A hub's trust bundle: the public keys of its service instances, as a JWKS.
-
-    Public on purpose — it holds only public keys, which the hub's services fetch to verify
-    each other's signed requests. ``?service=<identifier>`` narrows it to one service (how a
-    provenance issuer trusts rekuest's key and only rekuest's).
-    """
-    from fakts.services.instance_keys import hub_keys as render
-
-    response = JsonResponse(render(hub_id, request.GET.get("service") or None))
-    response["Cache-Control"] = "public, max-age=60"
-    return response

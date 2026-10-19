@@ -66,7 +66,7 @@ def start_device_code(start_grant: base_models.DeviceCodeStartRequest) -> models
         code=create_device_code(),
         secret=create_challenge_code(),
         client=client,
-        staging_manifest=manifest.model_dump(),
+        staging_manifest=manifest.model_dump(mode="json"),
         expires_at=_expires_at(start_grant.expiration_time_seconds),
         request_auth_key=start_grant.request_auth_key,
     )
@@ -108,7 +108,7 @@ def start_hub_device_code(start_grant: base_models.HubStartRequest) -> models.De
         code=create_device_code(),
         secret=create_challenge_code(),
         client=client,
-        staging_manifest=manifest.model_dump(),
+        staging_manifest=manifest.model_dump(mode="json"),
         expires_at=_expires_at(start_grant.expiration_time_seconds),
     )
 

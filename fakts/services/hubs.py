@@ -186,16 +186,20 @@ def create_hub_from_manifest(
     who knew the hub name and org slug, and /f/claimhub/ hands out instance
     private keys against it.
     """
+    # The hub named itself (a partner, once, in lok's config): the same uid in every organization
+    # it serves, so one deployment's services name one hub whoever they serve.
     hub, created = models.Hub.objects.update_or_create(
-        identifier=manifest.identifier,
+        uid=manifest.uid,
         organization=organization,
         defaults={
+            "identifier": manifest.identifier,
             "name": manifest.identifier or "Unnamed Hub",
             "description": manifest.description or "Auto-configured hub",
             "organization": organization,
             "creator": organization.owner,
         },
     )
+    hub.instances.exclude(instance_id__in=[instance_request.name for instance_request in manifest.instances]).delete()
     if created:
         # Only on create — rotating on every re-configure would break running
         # hub servers. (Existing derivable uuid5 tokens are rotated once by
@@ -212,14 +216,14 @@ def create_hub_from_manifest(
 
         release, _ = models.ServiceRelease.objects.get_or_create(service=service, version=service_manifest.version)
 
-        # One instance of a service per hub and instance_id: configured again with another
-        # release, it is the same instance, and keeps its id.
+        # One service of a name per hub: configured again with another release, it is the same
+        # instance.
         instance, inst_created = models.ServiceInstance.objects.update_or_create(
             hub=hub,
-            service=service,
-            instance_id=instance_request.identifier,
+            instance_id=instance_request.name,
             defaults={
-                "token": instance_request.identifier,
+                "service": service,
+                "token": instance_request.name,
                 "steward": organization.owner,
                 "release": release,
                 "organization": organization,

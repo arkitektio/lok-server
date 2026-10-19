@@ -1,10 +1,8 @@
-"""A hub's instance claims say which instance each is: its id and its service.
+"""A hub's instance claims say which of its services each is: the name the hub gave it, and its service.
 
-The hub server keys its config by the claim's opaque ``identifier`` (the instance token),
-which names no service. A service verifies tokens for its own instance: the ``aud`` a token
-composed for it carries, and the key a guest's ``collabs`` lists its collaborations under,
-are both the instance's id. The claim carries that id, and the service it is an instance of,
-by which the hub tells which of its services the claim is for.
+The hub names its services itself (``mikro``), so the claims are keyed by those names, and a
+claim's ``id`` is the same name: the ``aud`` a token composed for it carries (with the hub's own
+uid as ``hub``), and the key a guest's ``collabs`` lists its collaborations under.
 """
 
 import pytest
@@ -24,17 +22,17 @@ def admin():
 
 
 @pytest.mark.django_db
-def test_each_instance_claim_carries_its_id_and_service(client, admin):
+def test_each_instance_claim_is_keyed_by_the_name_the_hub_gave_it(client, admin):
     hub, token = _enroll(client, admin, [_instance("mikro", None), _instance("rekuest", None)])
 
     claims = token["instances"]
     assert len(claims) == 2
     by_service = {claim["service"]: claim for claim in claims.values()}
     assert set(by_service) == {"live.arkitekt.mikro", "live.arkitekt.rekuest"}
+    assert set(claims) == {"mikro", "rekuest"}  # as the hub named them
     for key, claim in claims.items():
-        instance = hub.instances.get(token=key)
-        assert claim["identifier"] == instance.token
-        assert claim["id"] == str(instance.pk)
+        instance = hub.instances.get(instance_id=key)
+        assert claim["identifier"] == claim["id"] == key
         assert claim["service"] == instance.release.service.identifier
 
 

@@ -106,14 +106,14 @@ async def test_change_organization_owner_works():
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_accept_hub_device_code_with_an_existing_identifier_reauthorizes_that_hub():
-    """A known identifier re-authorizes the hub in place instead of erroring or duplicating it."""
+async def test_accept_hub_device_code_with_an_existing_uid_reauthorizes_that_hub():
+    """A known uid re-authorizes the hub in place instead of erroring or duplicating it."""
     def _setup():
         org, context = _owner_setup()
         hub = factories.make_hub(organization=org, identifier="dup")
         dc = factories.make_device_code(
             kind="hub",
-            staging_manifest={"identifier": "dup", "instances": [], "clients": []},
+            staging_manifest={"uid": str(hub.uid), "identifier": "dup", "instances": [], "clients": []},
         )
         return org, context, dc, hub
 

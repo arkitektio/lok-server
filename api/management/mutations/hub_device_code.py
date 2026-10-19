@@ -75,18 +75,24 @@ def accept_hub_device_code(info: Info, input: AcceptHubDeviceCodeInput) -> types
 
 
 def _provision_hub(info: Info, input: AcceptHubDeviceCodeInput, device_code, organization, manifest, user) -> fakts_models.Hub:
+    # The hub names itself: authorized again under the same uid, it is the same hub, and what it
+    # says now replaces what was known of it (its label, its services and their keys).
     hub, created = fakts_models.Hub.objects.select_for_update().get_or_create(
         organization=organization,
-        identifier=manifest.identifier,
+        uid=manifest.uid,
         defaults={
+            "identifier": manifest.identifier,
             "name": manifest.identifier,
             "description": manifest.description or "",
             "creator": user,
         },
     )
-    if not created and manifest.description:
-        hub.description = manifest.description
-        hub.save(update_fields=["description"])
+    if not created:
+        hub.identifier, hub.name = manifest.identifier, manifest.identifier
+        hub.description = manifest.description or hub.description
+        hub.save(update_fields=["identifier", "name", "description"])
+    # A service the hub no longer runs goes, with the grants that were listed under it.
+    hub.instances.exclude(instance_id__in=[servicer.name for servicer in manifest.instances]).delete()
 
     for servicer in manifest.instances:
         service_manifest = servicer.manifest
@@ -100,18 +106,17 @@ def _provision_hub(info: Info, input: AcceptHubDeviceCodeInput, device_code, org
             service=service,
             version=service_manifest.version,
         )
-        # One instance of a service per hub and instance_id: authorized again (by another admin,
-        # with another release, from another device), it is the same instance, and keeps its id,
-        # which tokens name and guests' collaborations are listed under.
-        instance = fakts_models.ServiceInstance.objects.filter(hub=hub, service=service, instance_id=service_manifest.instance_id).first()
+        # One service of a name per hub: authorized again (by another admin, with another
+        # release, from another device), it is the same instance, named as the hub names it.
+        instance = fakts_models.ServiceInstance.objects.filter(hub=hub, instance_id=servicer.name).first()
         if instance is None:
             instance = fakts_models.ServiceInstance.objects.create(
                 release=release,
                 device=device,
                 steward=user,
-                token=logic.create_api_token(),
+                token=servicer.name,
                 hub=hub,
-                instance_id=service_manifest.instance_id,
+                instance_id=servicer.name,
                 organization=organization,
             )
         elif (instance.release, instance.device, instance.steward) != (release, device, user):

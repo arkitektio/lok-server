@@ -1,7 +1,13 @@
+import re
+import uuid
 from pydantic import AliasChoices, BaseModel, Field, SecretStr, field_validator, model_validator
 from typing import Dict, List, Optional, Literal, Union
 from django.conf import settings
 from fakts import enums
+
+
+#: A service's name in its hub: what tokens for it name as their audience.
+NAME_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,99}$")
 
 
 class Layer(BaseModel):
@@ -388,10 +394,21 @@ class InstanceRequest(BaseModel):
     """
 
     identifier: str
+    """A human-readable name for the instance (the catalogue's: "Mikro")."""
+    name: str = Field(default="", description="The service's name in the hub (`mikro`): unique there, and the audience tokens for it name. Left out, the last part of its manifest's identifier (`live.arkitekt.mikro` -> `mikro`).")
     description: Optional[str] = None
     """A human readable description of the request."""
     manifest: ServiceManifest
     aliases: List[StagingAlias] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def named_in_the_hub(self):
+        """The name defaults to the service's kind, and is a plain lowercase name either way."""
+        if not self.name:
+            self.name = self.manifest.identifier.rsplit(".", 1)[-1].lower()
+        if not NAME_RE.match(self.name):
+            raise ValueError(f"'{self.name}' is not a service name: lowercase letters, digits, '_' and '-' (at most 100)")
+        return self
 
 
 class ClientRequest(BaseModel):
@@ -416,13 +433,24 @@ class ClientRequest(BaseModel):
 class HubManifest(BaseModel):
     """A Hub Request allows to request seting up a hub of clients and services."""
 
-    identifier: str = Field(..., description="A unique identifier for the hub WITHIN the organization.")
+    uid: Optional[uuid.UUID] = Field(default=None, description="The hub's identity: a uuid it generated for itself. Authorized again under the same uid, it replaces what was known of it; tokens for its services carry it as `hub`. Left out (a partner's config may), it is derived from the label, the same in every organization.")
+    identifier: str = Field(..., description="The hub's label: a human-readable name, not an identity.")
     description: Optional[str] = None
     """A human readable description of the hub."""
     logo: Optional[str] = None
     instances: List[InstanceRequest] = Field(default_factory=list)
     clients: List[ClientRequest] = Field(default_factory=list)
     request_auth_key: bool = False
+
+    @model_validator(mode="after")
+    def named_by_itself(self):
+        """A hub that names no uid is named by its label, so it is the same hub wherever it is configured."""
+        if self.uid is None:
+            self.uid = uuid.uuid5(uuid.NAMESPACE_URL, f"arkitekt-hub:{self.identifier}")
+        names = [instance.name for instance in self.instances]
+        if len(set(names)) != len(names):
+            raise ValueError(f"A hub names each of its services once: {sorted(n for n in set(names) if names.count(n) > 1)}")
+        return self
 
 
 class HubStartRequest(BaseModel):
@@ -464,7 +492,6 @@ class LinkingRequest(BaseModel):
     is_secure: bool = False
     jwks_url: Optional[str] = None
     """The issuer's JWKS endpoint (the `jwks_uri` openid-configuration advertises)."""
-    hub_keys_base: Optional[str] = None
     """Where hubs' trust bundles live (issuer-anchored); a hub's is `<base><hub pk>`."""
 
 
@@ -524,7 +551,7 @@ class InstanceClaim(BaseModel):
     service: str
     """The service is the service that will be used to fill the key, it will be used to find the correct instance. It needs to fullfill"""
     identifier: str
-    """The identifier is a unique string that identifies the instance."""
+    """The service's name in its hub (``mikro``): the audience the app's token carries for it."""
     aliases: List[Alias] = Field(default_factory=list)
     challenge_key: Optional[Dict] = None
     """Ed25519 public key for verifying signed alias challenges: {"kind": "ed25519", "key": "<base64 raw 32 bytes>"}. Absent when the instance has no registered key."""
@@ -535,9 +562,6 @@ class SelfClaim(BaseModel):
     alias: Alias
     jwks_url: Optional[str] = None
     """Where to fetch the keys that sign this deployment's access tokens."""
-    hub_keys_url: Optional[str] = None
-    """Where to fetch the hub's trust bundle: the public keys of its service instances (a JWKS;
-    each key names its `service`). Services verify each other's signed requests against it."""
     sub: Optional[str] = None
     """The id of the user the client acts for: the access token's `sub` claim."""
     organization: Optional[str] = None
@@ -586,11 +610,10 @@ class HubInstanceClaim(BaseModel):
     """
 
     identifier: str
+    """The service's name in the hub (``mikro``): the audience a token composed for it carries."""
     private_key: str | None = None
     id: str | None = None
-    """The instance's id: the ``aud`` a token composed for it carries, and the key
-    a guest's ``collabs`` lists its collaborations under. A service verifies tokens
-    for this audience."""
+    """The same name, under the key konstruktor reads it by."""
     service: str | None = None
     """What the instance is registered as (its manifest's identifier), which tells
     a hub which of its services this instance is: the identifier is an opaque token."""

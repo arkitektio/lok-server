@@ -224,11 +224,12 @@ class ServiceRelease(models.Model):
 
 
 class ServiceInstance(models.Model):
-    """One service running in a hub: a hub runs one instance of a service per ``instance_id``.
+    """One service running in a hub, named by its name there (``instance_id``: ``mikro``).
 
-    Its id is what a token composed for it names (``aud``) and what a guest's collaborations are
-    listed under, so it must not change when the hub is authorized again by another admin or
-    upgraded to another release of the service: those are updated on the instance, in place.
+    The hub names its services itself: the name is unique within the hub, and with the hub's own
+    uuid (``Hub.uid``) it is what a token composed for the service says (``aud: [mikro]``,
+    ``hub: <uid>``) and what a guest's collaborations are listed under. Authorized again, by
+    another admin or with another release, it is the same instance, updated in place.
     """
 
     hub = models.ForeignKey("Hub", on_delete=models.CASCADE, related_name="instances")
@@ -240,7 +241,7 @@ class ServiceInstance(models.Model):
     )
     release = models.ForeignKey(ServiceRelease, on_delete=models.CASCADE, related_name="instances")
     logo = models.ForeignKey(MediaStore, on_delete=models.CASCADE, null=True)
-    instance_id = models.CharField(max_length=1000, default="default")
+    instance_id = models.CharField(max_length=1000, help_text="The service's name in its hub (`mikro`): unique there, and what tokens for it name as their audience.")
     private_key = models.TextField(help_text="The private key of the instance, used for signing claims.", null=True, blank=True)
     steward = models.ForeignKey(
         get_user_model(),
@@ -277,8 +278,8 @@ class ServiceInstance(models.Model):
     class Meta:
         constraints = [
             models.UniqueConstraint(
-                fields=["hub", "service", "instance_id"],
-                name="one_instance_of_a_service_per_hub_and_instance_id",
+                fields=["hub", "instance_id"],
+                name="one_service_of_a_name_per_hub",
             ),
             models.UniqueConstraint(
                 fields=["token", "hub"],
@@ -302,7 +303,7 @@ class ServiceInstance(models.Model):
 
         return base_models.InstanceClaim(
             service=self.release.service.identifier,
-            identifier=str(self.id),
+            identifier=self.instance_id,
             aliases=urls,
             challenge_key=challenge_key,
         )
@@ -622,6 +623,11 @@ class Hub(models.Model):
     # Unique: it is a bearer secret looked up by value at /f/claimhub/, so it
     # must identify exactly one hub (and the lookup is an index hit, not a scan).
     token = models.CharField(max_length=1000, unique=True, default=uuid.uuid4)
+    uid = models.UUIDField(
+        default=uuid.uuid4,
+        help_text="The hub's identity: a uuid the hub generated for itself and sends when it is authorized (a kommunity partner, in lok's config). "
+        "Tokens for its services carry it (`hub`); the same hub authorized in another organization keeps it.",
+    )
     auth_key = models.ForeignKey(
         IonscaleAuthKey,
         on_delete=models.SET_NULL,
@@ -639,8 +645,8 @@ class Hub(models.Model):
     class Meta:
         constraints = [
             models.UniqueConstraint(
-                fields=["organization", "identifier"],
-                name="Only one hub identifier per organization",
+                fields=["organization", "uid"],
+                name="one_hub_of_a_uid_per_organization",
             )
         ]
 

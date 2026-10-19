@@ -142,6 +142,7 @@ def make_service_instance(hub: fmodels.Hub | None = None, release: fmodels.Servi
     kw.setdefault("organization", hub.organization)
     kw.setdefault("steward", hub.creator)
     kw.setdefault("template", "{}")
+    kw.setdefault("instance_id", f"service-{_n()}")
     kw.setdefault("token", f"instance-token-{_n()}")
     return fmodels.ServiceInstance.objects.create(hub=hub, release=release, **kw)
 

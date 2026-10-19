@@ -136,6 +136,7 @@ class MyJWTBearerTokenGenerator(JWTBearerTokenGenerator):
 
         fakts_client = self._get_app_client(client)
         hub = self._get_hub(client)
+        token_hub = hub or self._app_hub(fakts_client)
 
         # The organization *pk*, not its slug. A slug is a user-chosen, mutable
         # handle; keying the tenancy boundary on it meant the boundary moved
@@ -149,7 +150,7 @@ class MyJWTBearerTokenGenerator(JWTBearerTokenGenerator):
             from karakter.collaboration_grants import live_collaborations
 
             scope_claims["roles"] = []
-            scope_claims["collabs"] = live_collaborations(membership, self._instance_audiences(client))
+            scope_claims["collabs"] = live_collaborations(membership, self._instance_pks(client))
         else:
             scope_claims["roles"] = [role.identifier for role in membership.roles.all()]
 
@@ -165,44 +166,54 @@ class MyJWTBearerTokenGenerator(JWTBearerTokenGenerator):
             "client_release": fakts_client.release.version if fakts_client and fakts_client.release else None,
             "client_device": fakts_client.node.node_id if fakts_client and fakts_client.node else None,
             "client_role": fakts_client.role if fakts_client else None,
-            "hub": hub.identifier if hub else None,
+            # The hub the token is for: its own uuid. A service names itself only within its
+            # hub (`aud: mikro`), so this is what tells two hubs' services apart. An app's token
+            # is for the hub its client was composed for, a hub's for the hub itself.
+            "hub": str(token_hub.uid) if token_hub is not None else None,
             # RFC 8693 §4.1: the client acts as the grantor, but was provisioned by
             # the mandate's agent app — resource servers can tell who started it.
             **_actor_claim(fakts_client),
         }
 
-    def _instance_audiences(self, client: Any) -> list[str]:
-        """The ServiceInstance ids a token for ``client`` is composed for, sorted.
+    @staticmethod
+    def _app_hub(fakts_client: Any) -> Any:
+        """The hub an app's token is for: its client's, else the one hub its services run in."""
+        if fakts_client is None:
+            return None
+        if fakts_client.hub_id:
+            return fakts_client.hub
+        from fakts.models import Hub
 
-        Those of a fakts client's granted instance mappings; none for any other
-        client. ``get_audiences`` puts them in ``aud``, and a guest's ``collaborations``
-        lists only these instances.
+        hubs = Hub.objects.filter(instances__mappings__client=fakts_client).distinct()[:2]
+        return hubs[0] if len(hubs) == 1 else None
+
+    def _instance_pks(self, client: Any) -> list[int]:
+        """The ServiceInstance pks a token for ``client`` is composed for: a guest's collaborations are listed for these."""
+        fakts_client = self._get_app_client(client)
+        if fakts_client is None:
+            return []
+        return sorted(set(fakts_client.mappings.values_list("instance_id", flat=True)))
+
+    def _instance_audiences(self, client: Any) -> list[str]:
+        """The names of the services a token for ``client`` is composed for, sorted: its ``aud``.
+
+        A fakts client is composed for the services of one hub (its own), each named as that hub
+        names it (``mikro``); none for any other client.
         """
         fakts_client = self._get_app_client(client)
         if fakts_client is None:
             return []
-        # `instance_id` is the FK column already on the mapping row, so this
-        # needs no join at all (it previously select_related through three
-        # tables to reach the service identifier).
-        return sorted({str(pk) for pk in fakts_client.mappings.values_list("instance_id", flat=True)})
+        return sorted(set(fakts_client.mappings.values_list("instance__instance_id", flat=True)))
 
     def get_audiences(self, client: Any, user: Any, scope: Optional[str]) -> str | list[str]:
         """Return the audience claim(s) for the token.
 
-        For a fakts client the audiences are the **ServiceInstance ids** of its
-        granted instance mappings — the resource servers this token was actually
-        composed for — plus ``lok`` itself (lok consumes its own tokens, e.g. at
-        ``/f/report/``). For non-fakts clients (plain OIDC relying parties) the
-        audience is the client itself, per RFC 9068 practice.
-
-        These used to be ``Service.identifier`` strings, which are unique only
-        *per organization* (see the "Only one service identifier per
-        organization" constraint on ``fakts.Service``). Two tenants both running
-        e.g. ``@mikro/mikro`` therefore minted tokens carrying the *same*
-        audience, so a resource server checking ``aud`` against its own
-        identifier would accept a token issued for another tenant's instance. An
-        instance id is globally unique, so the audience now names exactly one
-        resource server.
+        For a fakts client the audiences are the **names of the services** it was composed for,
+        as its hub names them (``mikro``), plus ``lok`` itself (lok consumes its own tokens, e.g.
+        at ``/f/report/``). A name is unique only within its hub, so the token's ``hub`` claim
+        (the hub's own uuid) is what makes it name exactly one service: a service accepts a token
+        whose ``aud`` holds its name *and* whose ``hub`` is its hub's. For non-fakts clients
+        (plain OIDC relying parties) the audience is the client itself, per RFC 9068 practice.
         """
         if self._get_app_client(client) is not None:
             return ["lok", *self._instance_audiences(client)]
