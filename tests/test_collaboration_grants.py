@@ -975,3 +975,59 @@ def test_the_migration_drops_object_grants_without_leaving_full_members_behind(b
     # The object invite cannot be redeemed as an ordinary one; the ordinary one is untouched.
     assert Invite.objects.get(pk=object_invite.pk).status == models.Invite.Status.CANCELLED
     assert Invite.objects.get(pk=ordinary.pk).status == models.Invite.Status.PENDING
+
+
+HUBS = "query { hubs { id name organization { id } instances { id } clients { id } } }"
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_a_guest_sees_the_hubs_their_collaborations_run_on_to_approve_an_app_into(client):
+    def _setup():
+        organization, member, instance = _org_with_member()
+        factories.make_service_instance(hub=factories.make_hub(organization=organization))  # a hub of no grant of theirs
+        guest = _guest(organization, member, instance)
+        context = build_auth_context(guest.user, organization, factories.make_client(membership=guest), roles=())
+        return guest, instance, context
+
+    guest, instance, context = await sync_to_async(_setup)()
+
+    result = await management_schema.execute(HUBS, context_value=context)
+
+    assert not result.errors, result.errors
+    # What the hub is, to pick it; nothing of what runs on it.
+    assert result.data["hubs"] == [{"id": str(instance.hub_id), "name": instance.hub.name, "organization": {"id": str(instance.hub.organization_id)}, "instances": [], "clients": []}]
+
+    await sync_to_async(lambda: guest.collaboration_grants.update(expires_at=timezone.now() - timedelta(minutes=1)))()
+    lapsed = await management_schema.execute(HUBS, context_value=context)
+    assert lapsed.data["hubs"] == []
+
+
+VALIDATE = """
+    query ($deviceCode: ID!, $hub: ID!, $code: String!) {
+        validateDeviceCode(deviceCode: $deviceCode, hub: $hub, code: $code) { __typename }
+    }
+"""
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_a_guest_dry_runs_an_app_approval_into_their_hub_only(client):
+    def _setup():
+        organization, member, instance = _org_with_member()
+        other = factories.make_service_instance(hub=factories.make_hub(organization=organization))
+        guest = _guest(organization, member, instance)
+        body = _start_app(client, instance, request_auth_key=False)
+        device_code = fakts_models.DeviceCode.objects.get(secret=body["device_code"])
+        context = build_auth_context(guest.user, organization, factories.make_client(membership=guest), roles=())
+        return instance, other, device_code, context
+
+    instance, other, device_code, context = await sync_to_async(_setup)()
+
+    def run(hub):
+        return management_schema.execute(VALIDATE, variable_values={"deviceCode": str(device_code.id), "hub": str(hub), "code": device_code.code}, context_value=context)
+
+    ok = await run(instance.hub_id)
+    assert not ok.errors, ok.errors
+    refused = await run(other.hub_id)
+    assert refused.errors and "Not found" in refused.errors[0].message

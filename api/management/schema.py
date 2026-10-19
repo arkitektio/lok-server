@@ -14,7 +14,7 @@ from karakter import link_previews
 from fakts import models as fakts_models
 from .datalayer import DatalayerExtension
 from .extensions import RequireAuthenticationExtension
-from .authz import DENIED, assert_member, get_or_denied, get_scoped_lookup, is_owner_or_admin
+from .authz import DENIED, assert_member, assert_member_or_guest, get_or_denied, get_scoped_lookup, is_owner_or_admin
 from .device_code_authz import resolve_device_code_with_proof
 from allauth.socialaccount import models as smodels
 from strawberry.schema.config import StrawberryConfig
@@ -123,10 +123,15 @@ class Query:
         ``code`` is the user code the device displayed (proof of possession): it
         is what stops a caller who guessed a sequential id from reading another
         tenant's pending manifest. The hub must belong to an organization the
-        caller is a member of — the same bar as ``acceptDeviceCode``.
+        caller is a member of, or, for a guest, run one of their live
+        collaborations — the same bar as ``acceptDeviceCode``.
         """
+        from karakter.collaboration_grants import live_grants
+
         hub_obj = get_or_denied(fakts_models.Hub.objects, id=hub)
-        assert_member(info, hub_obj.organization)
+        membership = assert_member_or_guest(info, hub_obj.organization)
+        if membership.is_scoped and not live_grants(membership).filter(instance__hub=hub_obj).exists():
+            raise GraphQLError(DENIED)
         device_code_obj = resolve_device_code_with_proof(
             fakts_models.DeviceCode, device_code_id=device_code, code=code, kind="app"
         )

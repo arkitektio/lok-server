@@ -1088,7 +1088,17 @@ class ManagementHub:
 
     @classmethod
     def get_queryset(cls, queryset, info: Info):
-        return queryset.filter(full_member_q("organization", info.context.request.user)).distinct()
+        # A full member sees the organization's hubs. A guest sees the hubs their live
+        # collaborations run on, to approve an app into one: of a hub they read only what
+        # it is, since its instances, clients and mandates are gated on full membership by
+        # their own types.
+        from karakter.collaboration_grants import live_grants
+
+        user = info.context.request.user
+        guest_hubs = set()
+        for membership in models.Membership.objects.filter(user=user, collaboration_grants__isnull=False).distinct():
+            guest_hubs |= set(live_grants(membership).filter(instance__hub__isnull=False).values_list("instance__hub_id", flat=True))
+        return queryset.filter(full_member_q("organization", user) | Q(pk__in=guest_hubs)).distinct()
 
 
 @strawberry.type(description="The health one instance reported in a hub health report.")
