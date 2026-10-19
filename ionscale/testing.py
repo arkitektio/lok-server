@@ -94,6 +94,7 @@ class FakeIonscaleRepository:
         self.tailnets = [t for t in self.tailnets if t.name != tailnet]
         self.policies.pop(tailnet, None)
         self.users_by_tailnet.pop(tailnet, None)
+        self.machines_by_tailnet.pop(tailnet, None)
 
     def list_users(self, tailnet: str) -> List[TailnetUser]:
         self._maybe_fail("list_users")

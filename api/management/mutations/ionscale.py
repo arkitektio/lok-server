@@ -5,7 +5,7 @@ from api.management import types
 import kante
 from fakts import models as fakts_models
 from ionscale.repo import get_ionscale_repo
-from ionscale.manager import ensure_org_mesh, apply_dns_config
+from ionscale.manager import ensure_org_mesh, apply_dns_config, replace_org_mesh
 from ionscale.sync import schedule_teardown
 from api.management.authz import DENIED, assert_owner_or_admin, get_or_denied
 from graphql import GraphQLError
@@ -120,6 +120,39 @@ def delete_ionscale_layer(info: Info, input: DeleteIonscaleLayerInput) -> strawb
         schedule_teardown(tailnet_name)
 
     return input.id
+
+
+@kante.input
+class ReplaceIonscaleLayerInput:
+    """Input for replacing an organization's mesh with a fresh, empty tailnet."""
+
+    id: strawberry.ID = strawberry.field(description="The mesh to replace.")
+    confirm: str = strawberry.field(
+        description="The mesh's tailnet name, typed out to confirm. Every machine on the "
+        "mesh is removed and has to rejoin."
+    )
+
+
+def replace_ionscale_layer(info: Info, input: ReplaceIonscaleLayerInput) -> types.ManagementLayer:
+    """Replace the organization's mesh with a fresh tailnet of the same name.
+
+    The way out of a mesh that can no longer be administered, such as a tailnet
+    lock whose signing key and disablement secrets are lost. Every machine,
+    auth key and the tailnet lock go with the old tailnet; app and hub
+    sidecars rejoin by renewing their mesh key, member devices log in again.
+    See `replace_org_mesh`.
+    """
+    layer = get_or_denied(fakts_models.IonscaleLayer.objects, id=input.id)
+
+    assert_owner_or_admin(info, layer.organization)
+
+    if input.confirm != layer.tailnet_name:
+        raise GraphQLError(f"Type the mesh's name ({layer.tailnet_name}) to confirm replacing it.")
+
+    try:
+        return replace_org_mesh(layer)
+    except Exception as exc:
+        raise GraphQLError(f"Could not replace the mesh: {exc}. Retrying the replace is safe.")
 
 
 @kante.input

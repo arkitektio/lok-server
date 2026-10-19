@@ -26,7 +26,7 @@ def resolve_hub_mesh_host(hub: models.Hub) -> str | None:
     if hub.online and hub.mesh_connected is not None:
         return (hub.mesh_host or None) if hub.mesh_connected else None
 
-    key = f"hub-mesh-host:{hub.pk}"
+    key = _cache_key(hub.pk)
     cached = cache.get(key)
     if cached is not None:
         return cached or None
@@ -42,6 +42,15 @@ def resolve_hub_mesh_host(hub: models.Hub) -> str | None:
 
     cache.set(key, host or _MISS, MESH_HOST_CACHE_SECONDS)
     return host
+
+
+def forget_hub_mesh_hosts(hub_pks) -> None:
+    """Drop the cached lookups of these hubs, e.g. after their tailnet was replaced."""
+    cache.delete_many([_cache_key(pk) for pk in hub_pks])
+
+
+def _cache_key(hub_pk) -> str:
+    return f"hub-mesh-host:{hub_pk}"
 
 
 def _lookup(hub: models.Hub) -> str | None:

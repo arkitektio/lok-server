@@ -98,6 +98,75 @@ def ensure_org_mesh(organization) -> IonscaleLayer | None:
         return None
 
 
+def replace_org_mesh(layer: IonscaleLayer) -> IonscaleLayer:
+    """Wipe the mesh's tailnet on ionscale and recreate it empty, keeping the layer.
+
+    The way out of a mesh that can no longer be administered, e.g. a tailnet lock
+    whose signing key and disablement secrets are lost: every machine, auth key,
+    tailnet user and key-authority record goes with the old tailnet. The new one
+    has the same name and organization binding, so nothing that addresses the
+    mesh by name changes.
+
+    The layer row, and with it every app enrollment and hub key row, is kept on
+    purpose: they still mark who was granted the mesh, so the ACL keeps its
+    sidecar rules and apps and hubs get a key for the new tailnet from
+    ``POST /f/meshkey/`` without re-approval. The key values themselves died
+    with the old tailnet.
+
+    A node that kept its tailscaled state from a locked tailnet still holds the
+    old key authority and stays locked out after rejoining until it runs
+    ``tailscale lock local-disable``; nodes with fresh state are unaffected
+    (ionskale ``tests/tailnet_lock_test.go``).
+
+    The delete runs synchronously (the recreate would collide with it
+    otherwise), and a tailnet that is already gone counts as deleted, so a
+    replace that failed halfway can simply be retried. Unlike provisioning,
+    every failure raises: in particular a fresh tailnet without lok's ACL is
+    allow-all.
+    """
+    from .acl import apply_acl_policy
+    from .errors import IonscaleError
+
+    if not ionscale_configured():
+        raise RuntimeError("ionscale is not configured on this deployment")
+
+    organization = layer.organization
+    repo = get_ionscale_repo()
+
+    try:
+        repo.delete_tailnet(layer.tailnet_name, force=True)
+    except IonscaleError as exc:
+        if exc.code != "not_found":
+            raise
+
+    repo.create_tailnet(
+        base_models.TailnetCreate(
+            name=layer.tailnet_name,
+            organization=str(organization.pk),
+        )
+    )
+    sync(layer)
+    apply_dns_config(layer, raise_on_error=True)
+    if not apply_acl_policy(organization.pk):
+        raise RuntimeError(f"Could not apply the ACL policy to the new tailnet {layer.tailnet_name}")
+
+    from fakts.models import Hub
+    from fakts.services.mesh import forget_hub_mesh_hosts
+
+    # Keys no hub or enrollment points at (hand-made keys, keys whose revoke
+    # failed on rotation) are dead now and nothing would ever clean them up.
+    layer.auth_keys.filter(hubs__isnull=True, app_mesh_enrollments__isnull=True).delete()
+
+    # The hubs' last reported mesh hosts point into the old tailnet; drop them
+    # (and the cached lookups) until the hubs report from the new one.
+    hubs = Hub.objects.filter(organization=organization)
+    forget_hub_mesh_hosts(hubs.values_list("pk", flat=True))
+    hubs.update(mesh_connected=None, mesh_host="")
+
+    logger.warning("Replaced the mesh tailnet %s of organization %s", layer.tailnet_name, organization)
+    return layer
+
+
 def sync(layer: IonscaleLayer) -> IonscaleLayer:
     """Push the organization's membership list to the mesh's IAM policy.
 

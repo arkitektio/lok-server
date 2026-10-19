@@ -562,6 +562,9 @@ class Mutation:
     delete_ionscale_layer = strawberry_django.mutation(
         resolver=mutations.delete_ionscale_layer,
     )
+    replace_ionscale_layer = strawberry_django.mutation(
+        resolver=mutations.replace_ionscale_layer,
+    )
     update_ionscale_layer = strawberry_django.mutation(
         resolver=mutations.update_ionscale_layer,
     )
