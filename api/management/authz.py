@@ -9,9 +9,45 @@ returned when the caller is allowed to see it, and returns a not-found error
 otherwise (rather than leaking existence).
 """
 
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, Any, Protocol, TypeVar, cast
+
 from django.core.exceptions import ObjectDoesNotExist, ValidationError
-from django.db.models import Q
+from django.db.models import Manager, Model, Q, QuerySet
 from graphql import GraphQLError
+
+from karakter import roles
+
+if TYPE_CHECKING:
+    from kante.context import User as Principal
+    from kante.types import Info
+
+    from api.management.types import ManagementOrganization
+    from karakter.models import Membership, Organization
+
+    #: An organization as a policy is handed one: the model, or a resolver's ``self``, which
+    #: strawberry types as the GraphQL type though it is the model.
+    OrganizationArg = Organization | ManagementOrganization | None
+
+M = TypeVar("M", bound=Model)
+
+
+class Scoped(Protocol):
+    """A type that says which rows of its model the caller may see: a strawberry-django type's
+    ``get_queryset(queryset, info)``, the policy its list fields apply. :func:`get_scoped` holds a
+    single-object lookup to the same policy."""
+
+    @classmethod
+    def get_queryset(cls, queryset: QuerySet[Any], info: Info, /) -> QuerySet[Any]: ...
+
+
+T = TypeVar("T", bound=Scoped)
+
+
+def _organization(organization: OrganizationArg) -> Organization | None:
+    return cast("Organization | None", organization)
+
 
 # Reused for every authorization denial. Deliberately identical to the not-found
 # message so a caller cannot use the error text to probe whether an id exists in
@@ -26,7 +62,7 @@ DENIED = "Not found, or you are not authorized to access it."
 HUB_ADMIN_REQUIRED = "Only organization admins can add a hub. Ask an admin of this organization to do it."
 
 
-def get_user(info):
+def get_user(info: Info) -> Principal:
     """Return the authenticated caller.
 
     ``RequireAuthenticationExtension`` already rejects anonymous callers on every
@@ -40,50 +76,39 @@ def get_user(info):
         user = None
     if user is None or not getattr(user, "is_authenticated", False):
         raise GraphQLError("Authentication required to access the management API.")
-    return user
+    return cast("Principal", user)
 
 
-def is_owner(user, organization) -> bool:
+def is_owner(user: Principal, organization: OrganizationArg) -> bool:
     """Whether ``user`` owns ``organization``. False for a missing organization."""
-    if organization is None:
-        return False
-    return organization.owner_id == user.id
+    held = _organization(organization)
+    return held is not None and held.owner_id == user.id
 
 
-def is_owner_or_admin(user, organization) -> bool:
+def is_owner_or_admin(user: Principal, organization: OrganizationArg) -> bool:
     """Whether ``user`` owns ``organization`` or holds its ``admin`` role.
 
     The predicate behind :func:`assert_owner_or_admin`, exposed separately so
     resolvers that want to raise their own domain-specific message can share the
     check rather than re-deriving it. This is the bar for privileged operations
-    (role grants, membership changes, deletes, minting credentials).
+    (role grants, membership changes, deletes, minting credentials). Who is an
+    admin is :mod:`karakter.roles`' to say.
     """
-    if organization is None:
-        return False
-    if is_owner(user, organization):
-        return True
-    return organization.memberships.filter(user=user, roles__identifier="admin").exists()
+    return roles.is_owner_or_admin(user, _organization(organization))
 
 
-def owner_or_admin_q(user, prefix: str) -> Q:
+def owner_or_admin_q(user: Principal, prefix: str) -> Q:
     """Queryset analogue of :func:`is_owner_or_admin`, for ``get_queryset`` policies.
 
     ``prefix`` is the lookup path from the queryset's model to the Organization
-    (e.g. ``"membership__organization"``). Both membership conditions live in the
-    *same* ``Q`` so Django keeps them on one joined row — split across two filter
-    calls they would match a user who is a member and *someone else* who holds
-    ``admin``. Callers must ``.distinct()``: the admin branch joins memberships.
+    (e.g. ``"membership__organization"``). Callers must ``.distinct()``: the admin
+    branch joins memberships. See :func:`karakter.roles.owner_or_admin_q`.
     """
-    return Q(**{f"{prefix}__owner": user}) | Q(
-        **{
-            f"{prefix}__memberships__user": user,
-            f"{prefix}__memberships__roles__identifier": "admin",
-        }
-    )
+    return roles.owner_or_admin_q(user, prefix)
 
 
-def assert_member(info, organization) -> None:
-    """Require that the caller belongs to ``organization``.
+def assert_member(info: Info, organization: OrganizationArg) -> Membership:
+    """Require that the caller is a full member of ``organization``; return their membership.
 
     ``organization`` is ``None`` for objects that hang off a *global* (org-less)
     parent — e.g. ``ServiceInstance.organization`` is nullable for instances shared
@@ -92,22 +117,25 @@ def assert_member(info, organization) -> None:
     closed rather than dereferencing ``None`` (a 500) or filtering on it (which
     would match and *allow*).
     """
-    if organization is None:
+    held = _organization(organization)
+    if held is None:
         raise GraphQLError(DENIED)
     user = get_user(info)
     # A full member: a guest of some collaborations (a scoped membership) does
     # not act for the organization.
-    if not organization.memberships.filter(user=user, collaboration_grants__isnull=True).exists():
+    membership = held.memberships.filter(user=user, collaboration_grants__isnull=True).first()
+    if membership is None:
         raise GraphQLError(DENIED)
+    return membership
 
 
-def assert_owner(info, organization) -> None:
+def assert_owner(info: Info, organization: OrganizationArg) -> None:
     """Require that the caller owns ``organization``."""
     if not is_owner(get_user(info), organization):
         raise GraphQLError(DENIED)
 
 
-def assert_owner_or_admin(info, organization) -> None:
+def assert_owner_or_admin(info: Info, organization: OrganizationArg) -> None:
     """Require that the caller owns ``organization`` or holds its ``admin`` role.
 
     This is the bar for privileged operations (role grants, deletes, minting
@@ -117,16 +145,20 @@ def assert_owner_or_admin(info, organization) -> None:
         raise GraphQLError(DENIED)
 
 
-def get_scoped(type_cls, queryset, info):
-    """Return the single object in ``queryset`` visible to the caller.
+def get_scoped(type_cls: type[T], queryset: QuerySet[Any], info: Info) -> T:
+    """Return the single object in ``queryset`` visible to the caller, as ``type_cls``.
 
     ``type_cls`` is the strawberry-django type whose ``get_queryset(qs, info)``
-    encodes the tenant-scoping policy. If the type has no such method the
-    queryset is used as-is. Raises if nothing visible matches.
+    encodes the tenant-scoping policy (:class:`Scoped`). A type without one is
+    refused rather than read unscoped: an object no policy covers is never handed
+    out by accident. The row is the type's at runtime, as strawberry-django
+    resolves it, so a resolver returning ``type_cls`` returns this as it is.
+    Raises if nothing visible matches.
     """
     get_queryset = getattr(type_cls, "get_queryset", None)
-    if get_queryset is not None:
-        queryset = get_queryset(queryset, info)
+    if not callable(get_queryset):
+        raise TypeError(f"{type_cls.__name__} says no get_queryset: a scoped lookup needs the policy of the type it returns")
+    queryset = cast("QuerySet[Any]", get_queryset(queryset, info))
 
     try:
         obj = queryset.first()
@@ -135,10 +167,10 @@ def get_scoped(type_cls, queryset, info):
         raise GraphQLError(DENIED)
     if obj is None:
         raise GraphQLError(DENIED)
-    return obj
+    return cast(T, obj)
 
 
-def get_scoped_lookup(type_cls, manager, info, **lookup):
+def get_scoped_lookup(type_cls: type[T], manager: Manager[Any] | QuerySet[Any], info: Info, **lookup: object) -> T:
     """:func:`get_scoped` for a ``manager.filter(**lookup)`` built here.
 
     Django validates lookup values when the filter is *built*, so
@@ -153,7 +185,7 @@ def get_scoped_lookup(type_cls, manager, info, **lookup):
     return get_scoped(type_cls, queryset, info)
 
 
-def get_or_denied(manager, **lookup):
+def get_or_denied(manager: Manager[M] | QuerySet[M], **lookup: object) -> M:
     """``manager.get(**lookup)`` that fails closed with :data:`DENIED`.
 
     A bare ``Model.objects.get(id=...)`` in a resolver turns a miss into a 500 and
@@ -172,7 +204,7 @@ def get_or_denied(manager, **lookup):
         raise GraphQLError(DENIED)
 
 
-def assert_member_or_guest(info, organization):
+def assert_member_or_guest(info: Info, organization: OrganizationArg) -> Membership:
     """Require that the caller belongs to ``organization``, as a full member or a guest; return their membership.
 
     For the few things a guest of some collaborations (a scoped membership,
@@ -185,10 +217,11 @@ def assert_member_or_guest(info, organization):
     """
     from karakter.collaboration_grants import live_grants
 
-    if organization is None:
+    held = _organization(organization)
+    if held is None:
         raise GraphQLError(DENIED)
     user = get_user(info)
-    membership = organization.memberships.filter(user=user).first()
+    membership = held.memberships.filter(user=user).first()
     if membership is None:
         raise GraphQLError(DENIED)
     if membership.is_scoped and not live_grants(membership).exists():

@@ -54,8 +54,9 @@ contract = Contract(
         "ensureusers": Job(("ensureusers",), "Create the accounts the config names"),
         "ensureorganizations": Job(("ensureorganizations",), "Create the organizations the config names, with the hubs their partners bring"),
         "ensurememberships": Job(("ensurememberships",), "Put the accounts into their organizations"),
+        "syncadmins": Job(("syncadmins",), "Recompute which members are admins from their roles"),
         "ensuremandates": Job(("ensuremandates",), "Keep the mandate keys the config names, and revoke the ones it dropped"),
         "reconcile_meshes": Job(("reconcile_meshes",), "Repair drift between the meshes and ionscale: --dry-run, --organization, --revoke-orphans, --sidecars"),
     },
-    setup=("ensurepartners", "ensureopenid", "ensureusers", "ensureorganizations", "ensurememberships", "ensuremandates"),
+    setup=("ensurepartners", "ensureopenid", "ensureusers", "ensureorganizations", "ensurememberships", "syncadmins", "ensuremandates"),
 )

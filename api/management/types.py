@@ -789,11 +789,7 @@ class ManagementInvite:
         """
         user = info.context.request.user
         return queryset.filter(
-            Q(created_for__owner=user)
-            | Q(
-                created_for__memberships__user=user,
-                created_for__memberships__roles__identifier="admin",
-            )
+            owner_or_admin_q(user, "created_for")
             # Whoever granted collaborations sees the invites they granted them with.
             | Q(created_by=user, shared_collaborations__isnull=False, created_for__memberships__user=user, created_for__memberships__collaboration_grants__isnull=True)
         ).distinct()

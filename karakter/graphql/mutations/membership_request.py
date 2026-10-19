@@ -78,7 +78,7 @@ def _store_request(user, organization_id, reason) -> None:
 
     admins = list(
         models.Membership.objects.filter(
-            Q(user=organization.owner) | Q(roles__identifier="admin"), organization=organization
+            Q(user=organization.owner) | Q(is_admin=True), organization=organization
         )
         .distinct()
         .select_related("user")

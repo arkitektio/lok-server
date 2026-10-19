@@ -10,6 +10,7 @@ import kante
 from .type_gen import create_stats_type
 from django.db.models import Q
 from karakter.authz import build_prescoped_queryset, get_organization, get_user
+from karakter.roles import owner_or_admin_q
 
 
 def build_prescoper(field="organization"):
@@ -478,11 +479,7 @@ class Invite:
         organization = get_organization(info)
         return queryset.filter(
             Q(created_for=organization),
-            Q(created_for__owner=user)
-            | Q(
-                created_for__memberships__user=user,
-                created_for__memberships__roles__identifier="admin",
-            )
+            owner_or_admin_q(user, "created_for")
             | Q(
                 created_by=user,
                 shared_collaborations__isnull=False,
@@ -518,11 +515,7 @@ class MembershipRequest:
         organization = get_organization(info)
         return queryset.filter(
             Q(organization=organization),
-            Q(organization__owner=user)
-            | Q(
-                organization__memberships__user=user,
-                organization__memberships__roles__identifier="admin",
-            ),
+            owner_or_admin_q(user, "organization"),
         ).distinct()
 
 

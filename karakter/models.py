@@ -1,6 +1,6 @@
 import logging
 import secrets
-from typing import Optional, List, Tuple
+from typing import TYPE_CHECKING, Any, Optional, List, Tuple
 
 import requests
 from django.conf import settings
@@ -11,6 +11,9 @@ from django.utils import timezone
 import uuid
 from karakter import fields, datalayer
 from karakter.deeplinks import default_deeplink_apps
+
+if TYPE_CHECKING:
+    from django.db.models.fields.related_descriptors import RelatedManager
 
 logger = logging.getLogger(__name__)
 
@@ -97,6 +100,18 @@ class Organization(models.Model):
     Each organization has a unique name and can have multiple users associated with it.
     """
 
+    if TYPE_CHECKING:
+        # What Django adds, said for the type checker (it does not run django-stubs' plugin).
+        @property
+        def owner_id(self) -> int:
+            """The owner's primary key."""
+            ...
+
+        @property
+        def memberships(self) -> "RelatedManager[Membership]":
+            """Who belongs to the organization: its members and its guests."""
+            ...
+
     slug = models.CharField(max_length=1000, null=True, blank=True, unique=True)
     name = models.CharField(max_length=1000, null=True, blank=True)
     description = models.CharField(max_length=4000, null=True, blank=True)
@@ -155,6 +170,12 @@ class Organization(models.Model):
 
 
 class Role(models.Model):
+    if TYPE_CHECKING:
+        @property
+        def memberships(self) -> "RelatedManager[Membership]":
+            """The memberships that hold this role."""
+            ...
+
     identifier = models.CharField(max_length=1000, null=True, blank=True)
     description = models.CharField(max_length=4000, null=True, blank=True)
     organization = models.ForeignKey(Organization, on_delete=models.CASCADE, related_name="roles")
@@ -203,6 +224,13 @@ class Membership(models.Model):
     user = models.ForeignKey("User", on_delete=models.CASCADE, related_name="memberships")
     organization = models.ForeignKey(Organization, on_delete=models.CASCADE, related_name="memberships")
     roles = models.ManyToManyField(Role, related_name="memberships", blank=True)
+    is_admin = models.BooleanField(
+        default=False,
+        db_default=False,
+        editable=False,
+        help_text="Whether the member holds the organization's admin role: recomputed from `roles` "
+        "whenever they change (karakter.roles), never set by hand.",
+    )
     created_through = models.ForeignKey("Invite", on_delete=models.SET_NULL, null=True, related_name="created_memberships")
     brand_hue = models.FloatField(
         null=True,
@@ -240,6 +268,14 @@ class Membership(models.Model):
 
     def get_user_id(self):
         return str(self.user.pk)
+
+    def save(self, *args: Any, **kwargs: Any) -> None:
+        """Save the membership, never its ``is_admin``: that is recomputed from the roles
+        (``karakter.roles``), and a membership loaded before its roles changed would write the
+        old value back."""
+        if self.pk is not None and not kwargs.get("force_insert") and kwargs.get("update_fields") is None:
+            kwargs["update_fields"] = [field.name for field in self._meta.concrete_fields if not field.primary_key and field.name != "is_admin"]
+        super().save(*args, **kwargs)
 
     def notify(self, title: str, message: str) -> List[Tuple[Optional[int], str]]:
         """Send an organization notification to this member's devices.

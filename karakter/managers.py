@@ -3,6 +3,7 @@ import logging
 from django.db import IntegrityError, transaction
 
 from .models import Organization, Role, Membership, User, Scope
+from .roles import ADMIN
 
 logger = logging.getLogger(__name__)
 
@@ -24,7 +25,7 @@ def create_scope(organization: Organization, identifier: str):
 
 
 def create_default_roles_for_org(org: Organization):
-    for identifier in ["admin", "guest", "user", "bot", "viewer", "editor", "contributor", "manager", "owner", "labeler"]:
+    for identifier in [ADMIN, "guest", "user", "bot", "viewer", "editor", "contributor", "manager", "owner", "labeler"]:
         create_role(org, identifier)
 
 
@@ -38,7 +39,7 @@ def ensure_owner_is_admin(org: Organization):
     Ensure that the admin user is added to the admin group of the organization.
     """
     membership, _ = Membership.objects.get_or_create(user=org.owner, organization=org)
-    membership.roles.add(Role.objects.get(identifier="admin", organization=org))
+    membership.roles.add(Role.objects.get(identifier=ADMIN, organization=org))
     membership.save()
 
 

@@ -169,9 +169,7 @@ def hash_key(key: str) -> str:
 
 def is_org_admin(membership: karakter_models.Membership) -> bool:
     """The organization's owner, or a holder of its ``admin`` role."""
-    if membership.organization.owner_id == membership.user_id:
-        return True
-    return membership.roles.filter(identifier="admin").exists()
+    return membership.organization.owner_id == membership.user_id or membership.is_admin
 
 
 def assert_is_agent(mandate: models.Mandate, client: models.Client | None) -> None:
