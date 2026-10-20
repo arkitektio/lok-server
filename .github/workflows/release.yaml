@@ -147,6 +147,14 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
+      # What the service is, stamped into the image as a label: an installer reads it from the
+      # registry instead of pulling the image to run it.
+      - name: Describe the service as an image label
+        id: describe
+        uses: arkitektio/arkitekt-service/.github/actions/describe-label@v7.1.0
+        with:
+          service: lok_server.contract
+
       - name: Build and push
         uses: docker/build-push-action@v5
         with:
@@ -154,7 +162,9 @@ jobs:
           platforms: linux/amd64,linux/arm64
           push: true
           tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
+          labels: |
+            ${{ steps.meta.outputs.labels }}
+            ${{ steps.describe.outputs.label }}
           # Where the image's code came from: `arkitekt-service describe` says it (`source`),
           # so that an installer can run the service from a checkout of this commit.
           build-args: |
