@@ -300,12 +300,14 @@ class ServiceInstance(models.Model):
                 raise errors.InstanceAliasNotFound(f"Error rendering alias {alias}: {str(e)}")
 
         challenge_key = {"kind": "ed25519", "key": self.public_key} if self.public_key else None
+        certificate = self.hub.tls_certificate if self.hub_id else None
 
         return base_models.InstanceClaim(
             service=self.release.service.identifier,
             identifier=self.instance_id,
             aliases=urls,
             challenge_key=challenge_key,
+            tls=base_models.TlsClaim(certificates=[certificate]) if certificate else None,
         )
 
 
@@ -368,6 +370,13 @@ class InstanceAlias(models.Model):
             )
         ]
 
+    @property
+    def reach(self) -> str:
+        """Where the address works, from what is stored (``fakts.services.alias_reach``)."""
+        from fakts.services.alias_reach import reach_of
+
+        return reach_of(self.kind, self.scope, self.host)
+
     def to_url(self, linking: base_models.LinkingContext) -> base_models.Alias | None:
         """Convert the alias to a URL based on the linking context. ``None`` for a
         mesh alias whose hub node cannot currently be resolved."""
@@ -388,6 +397,7 @@ class InstanceAlias(models.Model):
                 challenge=self.challenge,
                 public=self.public,
                 kind=enums.AliasKindChoices.MESH.value,
+                reach=self.reach,
             )
         if self.kind == enums.AliasKindChoices.DOCKER.value:
             # Docker alias: a name on the hub's own docker network. Every client
@@ -401,6 +411,7 @@ class InstanceAlias(models.Model):
                 challenge=self.challenge,
                 public=False,
                 kind=enums.AliasKindChoices.DOCKER.value,
+                reach=self.reach,
             )
         else:
             return base_models.Alias(
@@ -412,6 +423,7 @@ class InstanceAlias(models.Model):
                 challenge=self.challenge,
                 public=self.public,
                 kind=enums.AliasKindChoices.ABSOLUTE.value,
+                reach=self.reach,
             )
 
     def __str__(self) -> str:
@@ -635,6 +647,12 @@ class Hub(models.Model):
         null=True,
         blank=True,
         help_text="The hub's currently live mesh key (rotated on every re-authorization).",
+    )
+    tls_certificate = models.TextField(
+        null=True,
+        blank=True,
+        help_text="The one self-signed certificate (PEM) the hub's gateway serves; apps trust exactly it for the hub's "
+        "aliases (`fakts.services.hub_tls`). Null for a plain-HTTP hub. Replaced on every re-authorization.",
     )
     last_seen_at = models.DateTimeField(null=True, blank=True, help_text="When the hub last reported its health (/f/hubhealth/).")
     last_healthy = models.BooleanField(null=True, blank=True, help_text="Whether the hub's last health report said it was healthy.")

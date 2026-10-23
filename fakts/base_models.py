@@ -351,13 +351,31 @@ class StagingAlias(BaseModel):
     port: Optional[int] = None
     path: Optional[str] = None
     challenge: Optional[str] = None
+    reach: Optional[Literal["loopback", "internal", "lan", "mesh", "public"]] = None
+    """Where the address works (``fakts.services.alias_reach``). Said, it decides ``kind`` and
+    ``scope``, which are then ignored; left out (an older hub), it is derived from them."""
     kind: str = "absolute"
+    """Deprecated: say ``reach``."""
     scope: Literal["local", "network", "public", "ionscale"] = "local"
+    """Deprecated: say ``reach``."""
     public: bool = False
     """If the alias is publicly reachable, the coordination server can also check its health directly (enabling health checks from the kontrol interface)."""
+    lok_checks: Optional[bool] = None
+    """Whether the coordination server may health check the alias itself: ``public``'s new
+    name, which wins over it when said."""
 
     @model_validator(mode="after")
     def _host_unless_mesh(self) -> "StagingAlias":
+        from fakts.services.alias_reach import legacy_of  # a cycle at import time
+
+        if self.reach is not None:
+            from fakts.services.alias_reach import is_loopback_host
+
+            if self.reach == "loopback" and not is_loopback_host(self.host):
+                raise ValueError(f"Alias '{self.id}' says it is loopback, but '{self.host}' is not this machine.")
+            self.kind, self.scope = legacy_of(self.reach, self.host)
+        if self.lok_checks is not None:
+            self.public = self.lok_checks
         if self.kind not in enums.AliasKindChoices.values:
             raise ValueError(f"Alias '{self.id}' has an unknown kind '{self.kind}' (one of: {', '.join(enums.AliasKindChoices.values)}).")
         if self.kind == enums.AliasKindChoices.MESH.value:
@@ -365,8 +383,17 @@ class StagingAlias(BaseModel):
         elif not self.host:
             raise ValueError(f"Alias '{self.id}' needs a host (only kind 'mesh' resolves its own).")
         if self.kind == enums.AliasKindChoices.DOCKER.value and self.public:
-            raise ValueError(f"Alias '{self.id}' is of kind 'docker' and cannot be public: it is only reachable from inside the hub's own docker environment.")
+            raise ValueError(f"Alias '{self.id}' is internal and cannot be checked by the coordination server: it is only reachable from inside the hub's own network.")
         return self
+
+    @property
+    def effective_reach(self) -> str:
+        """The reach as said, or as read off ``kind`` and ``scope`` for a hub that did not say it.
+        Not written back to ``reach``: validated again (as part of a request), the alias must
+        come out the same."""
+        from fakts.services.alias_reach import reach_of
+
+        return self.reach or reach_of(self.kind, self.scope, self.host)
 
 
 class MeshDeviceCodeStartRequest(BaseModel):
@@ -441,6 +468,7 @@ class HubManifest(BaseModel):
     instances: List[InstanceRequest] = Field(default_factory=list)
     clients: List[ClientRequest] = Field(default_factory=list)
     request_auth_key: bool = False
+    tls_certificate: Optional[str] = Field(default=None, description="The one self-signed certificate (PEM) the hub's gateway serves for every host it is reached at. Apps trust exactly it for the hub's aliases (``tls`` on each instance). Left out, the hub is a plain-HTTP hub; authorized again without it, it becomes one again.")
 
     @model_validator(mode="after")
     def named_by_itself(self):
@@ -540,6 +568,20 @@ class Alias(BaseModel):
     mesh sidecar. ``docker`` aliases are only reachable from inside the hub's own
     docker environment: every client gets them, and only one running there passes
     the challenge. Clients that do not know the field ignore it."""
+    reach: Optional[Literal["loopback", "internal", "lan", "mesh", "public"]] = None
+    """Where the address works (``fakts.services.alias_reach``): ``loopback`` this machine,
+    ``internal`` only inside the deployment's own network, ``lan`` the local network, ``mesh``
+    the organization's mesh, ``public`` the internet. What ``kind`` says, and more; ``kind``
+    stays for the clients that predate it."""
+
+
+class TlsClaim(BaseModel):
+    """How an app verifies an instance's TLS aliases: by these certificates, and only these.
+
+    A list so a rotation can hand out the old and the new one side by side."""
+
+    certificates: List[str] = Field(default_factory=list)
+    """PEM certificates, each trusted as itself (no CA, no chain) for the instance's hosts."""
 
 
 class InstanceClaim(BaseModel):
@@ -555,6 +597,10 @@ class InstanceClaim(BaseModel):
     aliases: List[Alias] = Field(default_factory=list)
     challenge_key: Optional[Dict] = None
     """Ed25519 public key for verifying signed alias challenges: {"kind": "ed25519", "key": "<base64 raw 32 bytes>"}. Absent when the instance has no registered key."""
+    tls: Optional[TlsClaim] = None
+    """The certificate(s) the instance's TLS aliases present, when its hub registered one. An app
+    that knows the field verifies those aliases by them alone and refuses its plain-HTTP aliases
+    that are not on the mesh. Absent for a plain-HTTP hub; apps that do not know it ignore it."""
 
 
 class SelfClaim(BaseModel):

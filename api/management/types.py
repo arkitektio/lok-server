@@ -1137,7 +1137,8 @@ class ManagementInstanceAlias:
     ssl: bool = strawberry.field(description="Is this alias using SSL? If true, the alias will be accessed via https:// instead of http://.")
     challenge: str = strawberry.field(description="The challenge of the alias. This is used to verify that the alias is reachable.")
     usages: list["ManagementUsedAlias"] = strawberry_django.field(description="The usages of this alias by clients.")
-    scope: str = strawberry.field(description="The scope of the alias. E.g 'local' means that the alias can only be used within the local network.")
+    scope: str = strawberry.field(description="Deprecated: see `reach`. The scope of the alias. E.g 'local' means that the alias can only be used within the local network.")
+    reach: str = strawberry.field(description="Where the address works: 'loopback' (this machine), 'internal' (only inside the deployment's own network), 'lan' (the local network), 'mesh' (the organization's mesh) or 'public' (the internet).")
     public: bool = strawberry.field(description="Is this alias publicly reachable? If true, the coordination server can also check the alias's health directly, enabling health checks from the kontrol interface.")
 
     @strawberry_django.field(description="The organization that owns this alias (via the instance).")

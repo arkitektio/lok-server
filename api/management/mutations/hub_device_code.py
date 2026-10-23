@@ -15,6 +15,7 @@ from fakts import logic, base_models
 from fakts.services import aliases as alias_services
 from fakts.services import hubs as hub_services
 from fakts.services.instance_keys import validate_challenge_key
+from fakts.services.hub_tls import validate_tls_certificate
 import kante
 from api.management.device_code_authz import resolve_device_code_with_proof
 
@@ -91,6 +92,10 @@ def _provision_hub(info: Info, input: AcceptHubDeviceCodeInput, device_code, org
         hub.identifier, hub.name = manifest.identifier, manifest.identifier
         hub.description = manifest.description or hub.description
         hub.save(update_fields=["identifier", "name", "description"])
+    # What it says now replaces what was known: a new certificate is the rotation, none makes
+    # it a plain-HTTP hub again.
+    hub.tls_certificate = validate_tls_certificate(manifest.tls_certificate) if manifest.tls_certificate else None
+    hub.save(update_fields=["tls_certificate"])
     # A service the hub no longer runs goes, with the grants that were listed under it.
     hub.instances.exclude(instance_id__in=[servicer.name for servicer in manifest.instances]).delete()
 

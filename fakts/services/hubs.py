@@ -16,6 +16,7 @@ from fakts import base_models, enums, models
 from fakts.base_models import HubManifest
 from fakts.services import aliases
 from fakts.services.instance_keys import validate_challenge_key
+from fakts.services.hub_tls import validate_tls_certificate
 from fakts.services.tokens import create_api_token  # noqa: F401  (kept for shim parity)
 from ionscale.repo import get_ionscale_repo
 from ionscale.acl import schedule_acl_apply
@@ -199,6 +200,10 @@ def create_hub_from_manifest(
             "creator": organization.owner,
         },
     )
+    # What it says now replaces what was known: a new certificate is the rotation, none makes
+    # it a plain-HTTP hub again.
+    hub.tls_certificate = validate_tls_certificate(manifest.tls_certificate) if manifest.tls_certificate else None
+    hub.save(update_fields=["tls_certificate"])
     hub.instances.exclude(instance_id__in=[instance_request.name for instance_request in manifest.instances]).delete()
     if created:
         # Only on create — rotating on every re-configure would break running
