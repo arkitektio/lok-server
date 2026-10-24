@@ -81,6 +81,9 @@ class CreateMandateInput:
     agent_device_id: Optional[str] = strawberry.field(default=None, description="Only an agent running on this device may issue.")
     agent_user: Optional[strawberry.ID] = strawberry.field(default=None, description="Only an agent acting as this user may issue.")
     max_clients: Optional[int] = strawberry.field(default=None, description="How many live keys may exist under the mandate at once.")
+    allow_mesh: bool = strawberry.field(
+        default=False, description="Whether a client logging in with a key issued under the mandate may ask for a mesh key. Every child key inherits it."
+    )
     expires_in_days: Optional[int] = strawberry.field(
         default=None, description=f"The mandate (and every key issued under it) stops working after this many days (1–{services.AGENT_MANDATE_MAX_TTL.days}). Null: as long as your app."
     )
@@ -136,6 +139,7 @@ def create_mandate(info: Info, input: CreateMandateInput) -> types.Mandate:
             ),
             expires_at=_expires_at(input.expires_in_days, services.AGENT_MANDATE_MAX_TTL),
             max_clients=input.max_clients,
+            allow_mesh=input.allow_mesh,
         ).mandate
     except services.MandateError as e:
         raise GraphQLError(str(e)) from e

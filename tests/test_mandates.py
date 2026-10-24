@@ -61,7 +61,7 @@ def _ctx(membership, client):
 
 CREATE = """
 mutation ($input: CreateMandateInput!) {
-  createMandate(input: $input) { id claimant origin agentIdentifier attestation maxClients isLive grantor { id } subject { identifier version deviceId scopes requirements { key service } } }
+  createMandate(input: $input) { id claimant origin agentIdentifier attestation maxClients allowMesh isLive grantor { id } subject { identifier version deviceId scopes requirements { key service } } }
 }
 """
 ISSUE_KEY = """
@@ -254,6 +254,31 @@ async def test_only_the_named_agent_app_may_issue_children():
     # The grantor's own orkestrator client is not the agent.
     result = await _run(ISSUE_CHILD, _ctx(w.grantor, w.ui_client), input={"mandate": mandate["id"], "deviceId": "x"})
     assert result.errors and "Not found" in result.errors[0].message
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+@pytest.mark.parametrize("allow_mesh", [True, False])
+async def test_a_child_key_gets_a_mesh_key_only_when_its_mandate_allows_it(ionscale_repo, allow_mesh):
+    w = await sync_to_async(_world)()
+    await sync_to_async(models.IonscaleLayer.objects.create)(
+        organization=w.org, name="Default", kind="ionscale", identifier=w.org.slug, tailnet_name=w.org.slug
+    )
+    mandate = await _create(w, allowMesh=allow_mesh)
+    assert mandate["allowMesh"] is allow_mesh
+    child = (await _child(w, mandate["id"])).data["issueChildMandateKey"]
+
+    manifest = {**SUBJECT, "device_id": "host-a:pod-1"}
+    resp = await sync_to_async(HttpClient().post)(
+        reverse("token"),
+        data={"grant_type": GRANT, "key": child["key"], "manifest": json.dumps(manifest), "request_auth_key": "true"},
+        secure=True,
+    )
+
+    assert resp.status_code == 200, resp.json()
+    assert ("mesh" in resp.json()) is allow_mesh
+    if allow_mesh:
+        assert resp.json()["mesh"]["ionscale_auth_key"] == ionscale_repo.auth_key
 
 
 @pytest.mark.django_db(transaction=True)

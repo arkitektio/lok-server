@@ -28,6 +28,8 @@ A mandate's *claimant* is either a **key** (whoever holds it logs in) or an **ag
 (the app it names may issue keyed children under it — kabinet's release approvals are
 agent mandates). Revoking a mandate revokes every child issued under it and deletes
 their clients; the organization kill switch revokes every mandate of the organization.
+A mandate's `allowMesh` (on `issueMandateKey` and `createMandate`) lets a client that
+logs in with it ask for a mesh key; an agent mandate's children inherit it.
 lok keeps only a key's SHA-256: a key lok mints is shown once, in the answer that
 issued it; a hub or the config proposes its own. A revoked key never works again.
 
