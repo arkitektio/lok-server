@@ -120,9 +120,9 @@ def set_membership_brand_hue(
 
 @strawberry.input
 class RequestMembershipInput:
-    """Input for asking to become a member of an organization, named by its handle"""
+    """Input for asking to become a member of an organization, named by its id"""
 
-    organization: str = strawberry.field(description="The organization's handle (slug).")
+    organization: strawberry.ID = strawberry.field(description="The organization's id: what a shared link carries.")
     reason: str | None = None
 
 
@@ -131,12 +131,11 @@ def request_membership(info: Info, input: RequestMembershipInput) -> bool:
 
     The management-side door to the same request the main schema's
     `requestMembership` stores (its owner and admins are notified, and approve or
-    decline it). It takes the handle rather than the id because that is what
-    someone holding a shared link has; an outsider cannot look the id up.
+    decline it). It takes the organization's id, which is what a shared link carries.
 
     Always answers `true`, for the same reason as there: a foreign organization
     must look exactly like a missing one, so the answer does not depend on
-    whether the handle exists, the caller already belongs, already asked, or was
+    whether the organization exists, the caller already belongs, already asked, or was
     recently declined.
     """
     # Imported here: karakter.graphql pulls in the main schema's types, which
@@ -144,13 +143,7 @@ def request_membership(info: Info, input: RequestMembershipInput) -> bool:
     from karakter.graphql.mutations.membership_request import _store_request
 
     try:
-        organization_id = (
-            models.Organization.objects.filter(slug=(input.organization or "").strip().lower())
-            .values_list("pk", flat=True)
-            .first()
-        )
-        if organization_id is not None:
-            _store_request(info.context.request.user, organization_id, input.reason)
+        _store_request(info.context.request.user, input.organization, input.reason)
     except Exception:
         logger.exception("Could not store a membership request")
     return True

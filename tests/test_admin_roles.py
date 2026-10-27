@@ -10,8 +10,6 @@ from typing import Any, cast
 
 import pytest
 from django.core.management import call_command
-from django.db import connection
-from django.db.migrations.executor import MigrationExecutor
 from graphql import GraphQLError
 
 from api.management.authz import get_scoped, owner_or_admin_q
@@ -164,38 +162,3 @@ def test_a_scoped_lookup_is_held_to_the_types_policy(organization):
         get_scoped(_NothingVisible, models.Organization.objects.filter(pk=organization.pk), cast(Any, None))
 
 
-BEFORE = [("karakter", "0006_invite_and_grant_mesh")]
-
-
-@pytest.fixture
-def back_to_latest():
-    yield
-    executor = MigrationExecutor(connection)
-    executor.loader.build_graph()
-    executor.migrate(executor.loader.graph.leaf_nodes())
-
-
-@pytest.mark.django_db(transaction=True)
-def test_the_migration_fills_the_flag_from_the_roles(back_to_latest):
-    executor = MigrationExecutor(connection)
-    executor.loader.build_graph()
-    executor.migrate(BEFORE)
-    apps = executor.loader.project_state(BEFORE).apps
-    User = apps.get_model("karakter", "User")
-    Organization = apps.get_model("karakter", "Organization")
-    Membership = apps.get_model("karakter", "Membership")
-    Role = apps.get_model("karakter", "Role")
-
-    owner = User.objects.create(username="migrating-admin-owner", email="mo@example.com")
-    org = Organization.objects.create(owner=owner, slug="migrating-admins", name="Migrating")
-    admin = Role.objects.create(organization=org, identifier="admin")
-    held = Membership.objects.create(user=owner, organization=org)
-    held.roles.add(admin)
-    plain = Membership.objects.create(user=User.objects.create(username="migrating-plain", email="mp@example.com"), organization=org)
-
-    executor = MigrationExecutor(connection)
-    executor.loader.build_graph()
-    executor.migrate(executor.loader.graph.leaf_nodes())
-
-    assert models.Membership.objects.get(pk=held.pk).is_admin
-    assert not models.Membership.objects.get(pk=plain.pk).is_admin

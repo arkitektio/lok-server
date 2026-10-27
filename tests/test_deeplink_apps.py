@@ -246,7 +246,7 @@ def quiet_notifications(monkeypatch):
 
 
 def _outsider_setup():
-    """An outsider signed into their own organization, and a target with a handle."""
+    """An outsider signed into their own organization, and a target a link names by its id."""
     outsider = factories.make_membership()
     target = factories.make_organization()
     target.slug = "target-lab"
@@ -264,12 +264,12 @@ def _requests(**lookup):
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_an_outsider_asks_to_join_by_handle(quiet_notifications):
+async def test_an_outsider_asks_to_join_by_the_links_id(quiet_notifications):
     outsider, target, context = await sync_to_async(_outsider_setup)()
 
     result = await management_schema.execute(
         REQUEST_MEMBERSHIP,
-        variable_values={"input": {"organization": "Target-Lab", "reason": "I was sent a link"}},
+        variable_values={"input": {"organization": str(target.id), "reason": "I was sent a link"}},
         context_value=context,
     )
     assert not result.errors, result.errors
@@ -283,7 +283,7 @@ async def test_an_outsider_asks_to_join_by_handle(quiet_notifications):
 
     # Asking twice stores nothing new and answers the same.
     result = await management_schema.execute(
-        REQUEST_MEMBERSHIP, variable_values={"input": {"organization": "target-lab"}}, context_value=context
+        REQUEST_MEMBERSHIP, variable_values={"input": {"organization": str(target.id)}}, context_value=context
     )
     assert result.data == {"requestMembership": True}
     assert len(await sync_to_async(_requests)(organization=target)) == 1
@@ -291,11 +291,11 @@ async def test_an_outsider_asks_to_join_by_handle(quiet_notifications):
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_an_unknown_handle_answers_the_same_and_stores_nothing(quiet_notifications):
+async def test_an_unknown_organization_answers_the_same_and_stores_nothing(quiet_notifications):
     _, _, context = await sync_to_async(_outsider_setup)()
 
     result = await management_schema.execute(
-        REQUEST_MEMBERSHIP, variable_values={"input": {"organization": "no-such-org"}}, context_value=context
+        REQUEST_MEMBERSHIP, variable_values={"input": {"organization": "987654321"}}, context_value=context
     )
     assert not result.errors, result.errors
     assert result.data == {"requestMembership": True}

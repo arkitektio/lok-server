@@ -18,7 +18,7 @@ def _mesh(slug: str, *, tailnet_name: str | None = None) -> fakts_models.Ionscal
     each test decides what ionscale knows."""
     owner = User.objects.create(username=f"{slug}-owner")
     organization = Organization.objects.create(slug=slug, owner=owner)
-    tailnet_name = tailnet_name or slug
+    tailnet_name = tailnet_name or str(organization.pk)
     return fakts_models.IonscaleLayer.objects.create(
         organization=organization,
         name="Default",
@@ -53,7 +53,7 @@ def test_in_sync_mesh_only_repushes_members_and_dns(ionscale_repo):
     assert len(ionscale_repo.updated_policies) == 1
     _, policy = ionscale_repo.updated_policies[0]
     assert policy["subs"] == [str(layer.organization.owner.pk)]
-    assert [t for t, _ in ionscale_repo.dns_configs] == ["steady"]
+    assert [t for t, _ in ionscale_repo.dns_configs] == [str(layer.organization.pk)]
 
 
 @pytest.mark.django_db
@@ -64,7 +64,7 @@ def test_missing_tailnet_is_created_and_bound_to_the_organization(ionscale_repo)
 
     assert report.created_tailnet and report.changed
     (created,) = ionscale_repo.created_tailnets
-    assert created.name == "fresh"
+    assert created.name == str(layer.organization.pk)
     assert created.organization == str(layer.organization.pk)
     assert len(ionscale_repo.updated_policies) == 1
 
@@ -78,26 +78,28 @@ def test_dry_run_reports_without_writing(ionscale_repo):
 
     assert report.created_tailnet and report.changed
     assert not report.synced and not report.dns_applied
-    assert "creating 'plan-only'" in out.getvalue()
+    assert f"creating '{layer.organization.pk}'" in out.getvalue()
     assert ionscale_repo.created_tailnets == []
     assert ionscale_repo.updated_policies == []
     assert ionscale_repo.dns_configs == []
 
 
 @pytest.mark.django_db
-def test_renamed_organization_renames_tailnet_and_layer(ionscale_repo):
-    layer = _mesh("new-slug", tailnet_name="old-slug")
+def test_a_tailnet_not_named_by_the_organizations_id_is_renamed(ionscale_repo):
+    """A tailnet once named after the slug: renaming the slug never moves it again."""
+    layer = _mesh("renamed", tailnet_name="old-slug")
     _seed_tailnet(ionscale_repo, layer, name="old-slug")
+    wanted = str(layer.organization.pk)
 
     report = reconcile_layer(layer)
 
     assert report.renamed_from == "old-slug"
-    assert ionscale_repo.updated_tailnets == [("old-slug", {"name": "new-slug"})]
+    assert ionscale_repo.updated_tailnets == [("old-slug", {"name": wanted})]
     layer.refresh_from_db()
-    assert layer.tailnet_name == "new-slug"
-    assert layer.identifier == "new-slug"
+    assert layer.tailnet_name == wanted
+    assert layer.identifier == wanted
     # members are pushed to the tailnet under its new name
-    assert [t for t, _ in ionscale_repo.updated_policies] == ["new-slug"]
+    assert [t for t, _ in ionscale_repo.updated_policies] == [wanted]
 
 
 @pytest.mark.django_db
@@ -105,7 +107,8 @@ def test_rename_collision_keeps_current_name_with_a_warning(ionscale_repo):
     layer = _mesh("taken", tailnet_name="taken-old")
     _seed_tailnet(ionscale_repo, layer, name="taken-old")
     # an unrelated tailnet already owns the wanted name
-    ionscale_repo.tailnets.append(Tailnet(id="9", name="taken", dns_name="taken", organization=None))
+    wanted = str(layer.organization.pk)
+    ionscale_repo.tailnets.append(Tailnet(id="9", name=wanted, dns_name=wanted, organization=None))
 
     report = reconcile_layer(layer)
 
@@ -120,12 +123,12 @@ def test_rename_collision_keeps_current_name_with_a_warning(ionscale_repo):
 def test_layer_follows_tailnet_name_when_only_lok_drifted(ionscale_repo):
     """ionscale already carries the right name; only the layer is stale."""
     layer = _mesh("correct", tailnet_name="stale")
-    _seed_tailnet(ionscale_repo, layer, name="correct")
+    _seed_tailnet(ionscale_repo, layer, name=str(layer.organization.pk))
 
     reconcile_layer(layer)
 
     layer.refresh_from_db()
-    assert layer.tailnet_name == "correct"
+    assert layer.tailnet_name == str(layer.organization.pk)
     assert ionscale_repo.updated_tailnets == []
 
 
@@ -158,7 +161,7 @@ def test_revoke_orphans_only_touches_non_members(ionscale_repo):
     _seed_tailnet(ionscale_repo, layer)
     member = User.objects.create(username="member")
     Membership.objects.create(user=member, organization=layer.organization)
-    ionscale_repo.users_by_tailnet["orphans"] = [
+    ionscale_repo.users_by_tailnet[layer.tailnet_name] = [
         TailnetUser(id="1", name="owner", external_id=str(layer.organization.owner.pk)),
         TailnetUser(id="2", name="member", external_id=str(member.pk)),
         TailnetUser(id="3", name="gone", external_id="99999"),
@@ -179,7 +182,7 @@ def test_revoke_orphans_only_touches_non_members(ionscale_repo):
 def test_revoke_orphans_refuses_to_guess_without_external_ids(ionscale_repo):
     layer = _mesh("blind")
     _seed_tailnet(ionscale_repo, layer)
-    ionscale_repo.users_by_tailnet["blind"] = [TailnetUser(id="3", name="who", external_id=None)]
+    ionscale_repo.users_by_tailnet[layer.tailnet_name] = [TailnetUser(id="3", name="who", external_id=None)]
 
     report = reconcile_layer(layer, revoke_orphans=True)
 
@@ -215,7 +218,7 @@ def test_orphaned_tailnets_are_bound_tailnets_without_a_layer(ionscale_repo):
 @pytest.mark.django_db
 def test_command_reconciles_every_mesh_and_reports_orphans(ionscale_repo):
     a = _mesh("cmd-a")
-    _mesh("cmd-b")  # missing on ionscale -> created
+    b = _mesh("cmd-b")  # missing on ionscale -> created
     _seed_tailnet(ionscale_repo, a)
     ionscale_repo.tailnets.append(Tailnet(id="7", name="stray", dns_name="s", organization="424242"))
     out = io.StringIO()
@@ -227,7 +230,7 @@ def test_command_reconciles_every_mesh_and_reports_orphans(ionscale_repo):
     assert "[cmd-b] changed" in text
     assert "orphan tailnet 'stray'" in text
     assert "2 mesh(es), 1 changed, 0 failed" in text
-    assert [t.name for t in ionscale_repo.created_tailnets] == ["cmd-b"]
+    assert [t.name for t in ionscale_repo.created_tailnets] == [str(b.organization.pk)]
 
 
 @pytest.mark.django_db
@@ -244,15 +247,15 @@ def test_command_dry_run_writes_nothing(ionscale_repo):
 
 @pytest.mark.django_db
 def test_command_scopes_to_one_organization(ionscale_repo):
-    _mesh("cmd-one")
+    one = _mesh("cmd-one")
     other = _mesh("cmd-other")
     out = io.StringIO()
 
     call_command("reconcile_meshes", "--organization", "cmd-one", stdout=out)
-    assert [t.name for t in ionscale_repo.created_tailnets] == ["cmd-one"]
+    assert [t.name for t in ionscale_repo.created_tailnets] == [str(one.organization.pk)]
 
     call_command("reconcile_meshes", "--organization", str(other.organization.pk), stdout=out)
-    assert [t.name for t in ionscale_repo.created_tailnets] == ["cmd-one", "cmd-other"]
+    assert [t.name for t in ionscale_repo.created_tailnets] == [str(one.organization.pk), str(other.organization.pk)]
 
     with pytest.raises(CommandError):
         call_command("reconcile_meshes", "--organization", "no-such-org")

@@ -16,7 +16,7 @@ from karakter.models import Membership
 
 from . import base_models
 from .errors import IonscaleError
-from .manager import apply_dns_config, sync
+from .manager import apply_dns_config, desired_tailnet_name, sync
 from .repo import get_ionscale_repo
 
 logger = logging.getLogger(__name__)
@@ -37,11 +37,6 @@ class ReconcileReport:
         return bool(self.created_tailnet or self.renamed_from or self.revoked)
 
 
-def desired_tailnet_name(organization) -> str:
-    """The tailnet is named after the organization (see ``ensure_org_mesh``)."""
-    return str(organization.slug or organization.pk)
-
-
 def reconcile_layer(
     layer: IonscaleLayer,
     *,
@@ -52,7 +47,7 @@ def reconcile_layer(
     """Bring one mesh in line with ionscale.
 
     - the organization's tailnet exists (created when missing);
-    - it is named after the organization's current slug (renamed on drift, and
+    - it is named after the organization's id (renamed on drift, and
       the layer's ``tailnet_name``/``identifier`` follow);
     - its IAM ``subs`` and DNS config match lok;
     - with ``revoke_orphans``, ionscale users whose subject is no longer a
@@ -73,7 +68,7 @@ def reconcile_layer(
 
     if tailnet is None:
         report.created_tailnet = True
-        say(f"[{org.slug}] tailnet missing on ionscale; creating {wanted!r}")
+        say(f"[{org.pk}] tailnet missing on ionscale; creating {wanted!r}")
         if not dry_run:
             try:
                 tailnet = repo.create_tailnet(
@@ -85,14 +80,14 @@ def reconcile_layer(
                 # Raced with another creator, or the name is taken by an
                 # unbound tailnet: report, do not steal it.
                 report.warnings.append(f"could not create tailnet {wanted!r}: {exc.message}")
-                say(f"[{org.slug}] WARNING {report.warnings[-1]}")
+                say(f"[{org.pk}] WARNING {report.warnings[-1]}")
                 tailnet = repo.get_tailnet_by_organization(str(org.pk))
                 if tailnet is None:
                     return report
 
     if tailnet is not None and tailnet.name != wanted:
         report.renamed_from = tailnet.name
-        say(f"[{org.slug}] tailnet {tailnet.name!r} -> {wanted!r}")
+        say(f"[{org.pk}] tailnet {tailnet.name!r} -> {wanted!r}")
         if not dry_run:
             try:
                 tailnet = repo.update_tailnet(tailnet.name, name=wanted)
@@ -100,11 +95,11 @@ def reconcile_layer(
                 if exc.code != "already_exists":
                     raise
                 report.warnings.append(f"cannot rename tailnet to {wanted!r}: name taken on ionscale")
-                say(f"[{org.slug}] WARNING {report.warnings[-1]}")
+                say(f"[{org.pk}] WARNING {report.warnings[-1]}")
                 wanted = tailnet.name
 
     if tailnet is not None and (layer.tailnet_name != tailnet.name or layer.identifier != tailnet.name):
-        say(f"[{org.slug}] layer tailnet_name {layer.tailnet_name!r} -> {tailnet.name!r}")
+        say(f"[{org.pk}] layer tailnet_name {layer.tailnet_name!r} -> {tailnet.name!r}")
         if not dry_run:
             try:
                 with transaction.atomic():
@@ -115,7 +110,7 @@ def reconcile_layer(
                 report.warnings.append(
                     f"another layer already uses tailnet_name {tailnet.name!r}; left unchanged"
                 )
-                say(f"[{org.slug}] WARNING {report.warnings[-1]}")
+                say(f"[{org.pk}] WARNING {report.warnings[-1]}")
 
     if dry_run or tailnet is None:
         return report
@@ -137,11 +132,11 @@ def reconcile_layer(
                 report.warnings.append(
                     f"ionscale does not report external ids for {layer.tailnet_name!r}; cannot detect orphans"
                 )
-                say(f"[{org.slug}] WARNING {report.warnings[-1]}")
+                say(f"[{org.pk}] WARNING {report.warnings[-1]}")
                 break
             if user.external_id in member_pks:
                 continue
-            say(f"[{org.slug}] revoking orphan {user.name!r} (sub {user.external_id})")
+            say(f"[{org.pk}] revoking orphan {user.name!r} (sub {user.external_id})")
             repo.revoke_account(user.external_id, str(org.pk))
             report.revoked.append(user.external_id)
 
@@ -208,7 +203,7 @@ def reconcile_sidecars(
     for enrollment in AppMeshEnrollment.objects.filter(organization=org):
         if enrollment_is_retained(enrollment.membership_id, enrollment.app_id, enrollment.device_id):
             continue
-        say(f"[{org.slug}] reaping {enrollment.tag}: no client with a session")
+        say(f"[{org.pk}] reaping {enrollment.tag}: no client with a session")
         report.reaped_enrollments.append(enrollment.tag)
         if not dry_run:
             reap_enrollment(enrollment.membership_id, enrollment.app_id, enrollment.device_id)
@@ -218,7 +213,7 @@ def reconcile_sidecars(
         if hub_identity_is_retained(hub):
             live_hubs.add(hub.mesh_tag)
         elif hub.auth_key_id:
-            say(f"[{org.slug}] reaping {hub.mesh_tag}: the hub identity has no session")
+            say(f"[{org.pk}] reaping {hub.mesh_tag}: the hub identity has no session")
             report.reaped_hubs.append(hub.mesh_tag)
             if not dry_run:
                 reap_hub_sidecar(hub)
@@ -236,7 +231,7 @@ def reconcile_sidecars(
         if not (orphan or stale_tag):
             continue
         reason = "orphaned sidecar" if orphan else "sidecar still tagged " + mesh_tag(org.pk)
-        say(f"[{org.slug}] deleting node {machine.name} ({machine.id}): {reason}")
+        say(f"[{org.pk}] deleting node {machine.name} ({machine.id}): {reason}")
         report.deleted_machines.append(machine.id)
         if not dry_run:
             repo.delete_machine(machine.id)

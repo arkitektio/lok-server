@@ -77,7 +77,8 @@ redis:
   channel_prefix: lok
 
 organizations:
-- name: Default
+- id: 1
+  name: Default
   identifier: default
 
 users:

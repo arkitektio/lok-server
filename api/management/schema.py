@@ -207,7 +207,7 @@ class Query:
         description="What a link page may show to anyone holding a link: the organization it leads into and who shared it. Public, and strictly opt-in: a part is null unless its subject chose to be shown."
     )
     def link_preview(
-        self, info: Info, organization: str, user: strawberry.ID | None = None
+        self, info: Info, organization: strawberry.ID, user: strawberry.ID | None = None
     ) -> types.ManagementLinkPreview:
         return link_previews.build_link_preview(organization, user)
 

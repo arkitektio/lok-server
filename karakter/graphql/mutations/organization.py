@@ -34,9 +34,10 @@ def update_organization(info: Info, input: UpdateOrganizationInput) -> types.Org
     """Update an organization's details including name, description, slug, and avatar.
 
     Requires the caller to own the organization, matching `updateOrganization` on the
-    management API. The `slug` is part of an organization's identity — it appears in
-    URLs and in token `active_org` claims — so letting any authenticated principal
-    rewrite it (or rename any tenant) would be a cross-tenant defacement.
+    management API. The `slug` is lok's handle for an organization — it appears in lok's
+    URLs and invites (tokens and every other service name it by its id) — so letting any
+    authenticated principal rewrite it (or rename any tenant) would be a cross-tenant
+    defacement.
     """
     organization = models.Organization.objects.filter(pk=input.id).first()
     assert_owner(info, organization)

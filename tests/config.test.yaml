@@ -69,7 +69,8 @@ openid_apps:
   redirect_uris:
   - http://localhost:3000/auth/callback
 organizations:
-- identifier: default
+- id: 1
+  identifier: default
   name: Default
   owner: demo
 postgres:

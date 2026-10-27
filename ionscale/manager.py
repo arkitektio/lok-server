@@ -7,6 +7,11 @@ from karakter.models import Membership
 from . import base_models
 from .repo import get_ionscale_repo
 
+
+def desired_tailnet_name(organization) -> str:
+    """The tailnet is named after the organization: its id, which a rename never changes (see ``ensure_org_mesh``)."""
+    return str(organization.pk)
+
 logger = logging.getLogger(__name__)
 
 # Kept as a literal (matches api.management.enums.LayerKind.IONSCALE) so this
@@ -66,8 +71,8 @@ def ensure_org_mesh(organization) -> IonscaleLayer | None:
         return None
 
     # There is exactly one network per organization, so the tailnet is named after
-    # the organization itself (its slug) rather than a "<slug>-default" variant.
-    tailnet_name = str(organization.slug or organization.pk)
+    # the organization itself: its id, which a rename of its slug never changes.
+    tailnet_name = desired_tailnet_name(organization)
     try:
         get_ionscale_repo().create_tailnet(
             base_models.TailnetCreate(

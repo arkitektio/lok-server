@@ -1,6 +1,6 @@
 """What kontrol's link pages may show to someone who merely holds a link.
 
-A link (`/deeplink/<org>/...`, `/smartlink/<org>/...`, optionally with
+A link (`/deeplink/<org id>/...`, `/smartlink/<org id>/...`, optionally with
 `?user_id=<id>` naming who shared it) is opened by people who are not members
 of the organization, often not even signed in. By default they learn nothing
 from it. Two opt-ins change that:
@@ -18,12 +18,16 @@ Everything that is not opted in looks exactly like something that does not exist
 from karakter import models
 
 
-def build_link_preview(organization_slug: str, user_id=None):
+def build_link_preview(organization_id, user_id=None):
     # Imported here: the management types import the models' app registry.
     from api.management import types
 
+    try:
+        organization_pk = int(organization_id)
+    except (TypeError, ValueError):
+        return types.ManagementLinkPreview(organization=None, inviter=None)
     organization = (
-        models.Organization.objects.filter(slug=(organization_slug or "").strip().lower(), public_link_preview=True)
+        models.Organization.objects.filter(pk=organization_pk, public_link_preview=True)
         .select_related("profile__avatar")
         .first()
     )

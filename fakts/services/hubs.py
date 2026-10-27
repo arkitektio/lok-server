@@ -55,7 +55,6 @@ def run_partner_pre_authorize_hook(
         },
         "organization": {
             "id": str(organization.pk),
-            "slug": organization.slug,
             "name": organization.name,
         },
         "hub": {

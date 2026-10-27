@@ -17,7 +17,7 @@ from tests import factories
 from tests.conftest import build_auth_context
 
 PREVIEW = """
-    query ($organization: String!, $user: ID) {
+    query ($organization: ID!, $user: ID) {
         linkPreview(organization: $organization, user: $user) {
             organization { slug name description }
             inviter { name }
@@ -65,7 +65,7 @@ async def _preview(organization, user=None):
 async def test_nothing_is_shown_by_default():
     organization, sharer, _ = await sync_to_async(_setup)(org_public=False, user_public=False)
 
-    assert await _preview(organization.slug, sharer.id) == EMPTY
+    assert await _preview(str(organization.id), sharer.id) == EMPTY
 
 
 @pytest.mark.django_db(transaction=True)
@@ -73,7 +73,7 @@ async def test_nothing_is_shown_by_default():
 async def test_a_public_organization_and_sharer_are_shown_to_an_anonymous_visitor():
     organization, sharer, _ = await sync_to_async(_setup)(org_public=True, user_public=True)
 
-    assert await _preview(organization.slug.upper(), sharer.id) == {
+    assert await _preview(str(organization.id), sharer.id) == {
         "linkPreview": {
             "organization": {
                 "slug": organization.slug,
@@ -90,7 +90,7 @@ async def test_a_public_organization_and_sharer_are_shown_to_an_anonymous_visito
 async def test_a_private_sharer_is_not_named_even_in_a_public_organization():
     organization, sharer, _ = await sync_to_async(_setup)(org_public=True, user_public=False)
 
-    data = await _preview(organization.slug, sharer.id)
+    data = await _preview(str(organization.id), sharer.id)
     assert data["linkPreview"]["organization"]["slug"] == organization.slug
     assert data["linkPreview"]["inviter"] is None
 
@@ -102,7 +102,7 @@ async def test_a_public_sharer_is_not_named_for_a_private_organization():
     not to be seen."""
     organization, sharer, _ = await sync_to_async(_setup)(org_public=False, user_public=True)
 
-    assert await _preview(organization.slug, sharer.id) == EMPTY
+    assert await _preview(str(organization.id), sharer.id) == EMPTY
 
 
 @pytest.mark.django_db(transaction=True)
@@ -110,7 +110,7 @@ async def test_a_public_sharer_is_not_named_for_a_private_organization():
 async def test_a_link_cannot_claim_a_public_user_who_is_not_a_member():
     organization, _, outsider = await sync_to_async(_setup)(org_public=True, user_public=True)
 
-    data = await _preview(organization.slug, outsider.id)
+    data = await _preview(str(organization.id), outsider.id)
     assert data["linkPreview"]["organization"] is not None
     assert data["linkPreview"]["inviter"] is None
 
@@ -122,7 +122,7 @@ async def test_unknown_handles_and_junk_user_ids_answer_empty(user):
     organization, _, _ = await sync_to_async(_setup)(org_public=True, user_public=True)
 
     assert await _preview("no-such-org", user) == EMPTY
-    assert (await _preview(organization.slug, user))["linkPreview"]["inviter"] is None
+    assert (await _preview(str(organization.id), user))["linkPreview"]["inviter"] is None
 
 
 # --------------------------------------------------------------------------- #
@@ -159,6 +159,6 @@ async def test_the_owner_opts_the_organization_in_and_a_user_opts_themselves_in(
     assert not result.errors, result.errors
     assert result.data["updateProfile"]["publicLinkPreview"] is True
 
-    data = await _preview(organization.slug, organization.owner_id)
+    data = await _preview(str(organization.id), organization.owner_id)
     assert data["linkPreview"]["organization"]["slug"] == organization.slug
     assert data["linkPreview"]["inviter"] is not None

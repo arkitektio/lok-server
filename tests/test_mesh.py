@@ -857,7 +857,7 @@ def test_signup_gives_the_personal_organization_a_mesh(ionscale_repo, settings):
     organization = Organization.objects.get(owner=user)
     mesh = get_org_mesh(organization)
     assert mesh is not None
-    assert mesh.tailnet_name == organization.slug
+    assert mesh.tailnet_name == str(organization.pk)
 
 
 @pytest.mark.django_db(transaction=True)

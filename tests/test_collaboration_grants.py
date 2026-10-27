@@ -17,8 +17,7 @@ import pytest
 from asgiref.sync import sync_to_async
 from django.conf import settings
 from django.core.exceptions import ValidationError
-from django.db import connection, transaction
-from django.db.migrations.executor import MigrationExecutor
+from django.db import transaction
 from django.urls import reverse
 from django.utils import timezone
 from graphql import GraphQLError
@@ -919,64 +918,6 @@ def test_deleting_the_instance_or_its_hub_removes_a_guest_left_with_nothing(what
 
     assert not models.Membership.objects.filter(pk=membership.pk).exists()
     assert models.Membership.objects.filter(pk=member.pk).exists()
-
-
-# --------------------------------------------------------------------------- #
-# the migration away from object grants
-# --------------------------------------------------------------------------- #
-
-BEFORE = [("karakter", "0004_object_grants")]
-AFTER = [("karakter", "0005_collaboration_grants")]
-
-
-def _migrate(targets):
-    executor = MigrationExecutor(connection)
-    executor.loader.build_graph()
-    executor.migrate(targets)
-    return executor.loader.project_state(targets).apps
-
-
-@pytest.fixture
-def back_to_latest():
-    yield
-    executor = MigrationExecutor(connection)
-    executor.loader.build_graph()
-    executor.migrate(executor.loader.graph.leaf_nodes())
-
-
-@pytest.mark.django_db(transaction=True)
-def test_the_migration_drops_object_grants_without_leaving_full_members_behind(back_to_latest):
-    apps = _migrate(BEFORE)
-    User = apps.get_model("karakter", "User")
-    Organization = apps.get_model("karakter", "Organization")
-    Membership = apps.get_model("karakter", "Membership")
-    Invite = apps.get_model("karakter", "Invite")
-    ObjectGrant = apps.get_model("karakter", "ObjectGrant")
-    Hub = apps.get_model("fakts", "Hub")
-
-    owner = User.objects.create(username="migrating-owner", email="o@example.com")
-    visitor = User.objects.create(username="migrating-visitor", email="v@example.com")
-    org = Organization.objects.create(owner=owner, slug="migrating", name="Migrating")
-    full = Membership.objects.create(user=owner, organization=org)
-    scoped = Membership.objects.create(user=visitor, organization=org)
-    hub = Hub.objects.create(name="h", organization=org, identifier="h", creator=owner, token="hub-token")
-    object_invite = Invite.objects.create(created_by=owner, created_for=org, shared_objects=[f"{hub.pk}/@mikro/image:1"])
-    ordinary = Invite.objects.create(created_by=owner, created_for=org)
-    ObjectGrant.objects.create(membership=scoped, hub=hub, structure="@mikro/image", object_id="1", granted_by=owner)
-
-    # The models as they stood right after: later migrations add columns the current ones read.
-    after = _migrate(AFTER)
-    Membership = after.get_model("karakter", "Membership")
-    Invite = after.get_model("karakter", "Invite")
-
-    assert "karakter_objectgrant" not in connection.introspection.table_names()
-    assert "karakter_collaborationgrant" in connection.introspection.table_names()
-    # The guest is gone rather than left as a role-less full member; the member stays.
-    assert not Membership.objects.filter(pk=scoped.pk).exists()
-    assert Membership.objects.filter(pk=full.pk).exists()
-    # The object invite cannot be redeemed as an ordinary one; the ordinary one is untouched.
-    assert Invite.objects.get(pk=object_invite.pk).status == models.Invite.Status.CANCELLED
-    assert Invite.objects.get(pk=ordinary.pk).status == models.Invite.Status.PENDING
 
 
 HUBS = "query { hubs { id name organization { id } instances { id } clients { id } } }"

@@ -250,11 +250,11 @@ def test_create_ionscale_layer_syncs_existing_members(ionscale_repo, commit_call
     )
 
     assert len(ionscale_repo.created_tailnets) == 1
-    assert ionscale_repo.created_tailnets[0].name == "ionscale-create-org"
+    assert ionscale_repo.created_tailnets[0].name == str(organization.pk)
     assert ionscale_repo.created_tailnets[0].organization == str(organization.pk)
-    assert layer.tailnet_name == "ionscale-create-org"
+    assert layer.tailnet_name == str(organization.pk)
     assert ionscale_repo.updated_policies == [
-        ("ionscale-create-org", {"subs": [str(first_user.pk), str(second_user.pk)]}),
+        (str(organization.pk), {"subs": [str(first_user.pk), str(second_user.pk)]}),
     ]
 
 

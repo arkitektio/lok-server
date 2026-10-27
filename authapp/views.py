@@ -224,7 +224,7 @@ def authorize(request: HttpRequest) -> HttpResponse:
     ``POST`` (the consent decision, session-authenticated and CSRF-protected —
     the kontrol page submits a real form so the browser follows the resulting
     302 to the relying party): carries the original authorize parameters plus
-    ``organization`` (slug) and ``allow``. The granted subject is the user's
+    ``organization`` (its id) and ``allow``. The granted subject is the user's
     *membership* in that organization, so every code — like every token — is
     org-scoped at the database level.
     """
