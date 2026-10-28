@@ -450,6 +450,8 @@ class ManagementRole:
     organization: "ManagementOrganization"
     creating_instance: Optional["ManagementServiceInstance"]
     is_builtin: bool = strawberry.field(description="If this role is a built-in role that cannot be deleted (admin)")
+    is_admin_role: bool = strawberry.field(description="The role lets a member do everything in the service declaring it. Lok gives it to the organization's owner and admins.")
+    is_default_role: bool = strawberry.field(description="Every full member holds the role, unless an admin took it away.")
     memberships: List["ManagementMembership"] = strawberry_django.field(description="The memberships that have this role")
     used_by: List["ManagementServiceInstance"] = strawberry_django.field(description="The service instances that use this role")
 
@@ -481,6 +483,7 @@ class ManagementScope:
     organization: "ManagementOrganization"
     creating_instance: Optional["ManagementServiceInstance"]
     is_builtin: bool = strawberry.field(description="If this scope is a built-in scope that cannot be deleted (admin)")
+    is_all_scope: bool = strawberry.field(description="The scope grants an app everything the service declaring it offers.")
     used_by: List["ManagementServiceInstance"] = strawberry_django.field(description="The service instances that use this scope")
 
     @kante.django_field()

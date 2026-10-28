@@ -325,6 +325,8 @@ class Role:
     id: strawberry.ID
     identifier: str
     organization: "Organization"
+    is_admin_role: bool = strawberry.field(description="The role lets a member do everything in the service declaring it. Lok gives it to the organization's owner and admins.")
+    is_default_role: bool = strawberry.field(description="Every full member holds the role, unless an admin took it away.")
 
     @kante.django_field()
     def description(self, info: Info) -> "str":

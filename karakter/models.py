@@ -181,6 +181,16 @@ class Role(models.Model):
     organization = models.ForeignKey(Organization, on_delete=models.CASCADE, related_name="roles")
     creating_instance = models.ForeignKey("fakts.ServiceInstance", on_delete=models.CASCADE, null=True, blank=True)
     is_builtin = models.BooleanField(default=False, help_text="If this role is a built-in role that cannot be deleted (admin)")
+    is_admin_role = models.BooleanField(
+        default=False,
+        db_default=False,
+        help_text="The role that lets a member do everything in the service declaring it. Lok gives it to the organization's owner and admins (karakter.service_roles).",
+    )
+    is_default_role = models.BooleanField(
+        default=False,
+        db_default=False,
+        help_text="The role every full member holds in the service declaring it, unless an admin took it away (karakter.service_roles).",
+    )
     used_by = models.ManyToManyField("fakts.ServiceInstance", related_name="roles", blank=True)
 
     class Meta:
@@ -212,6 +222,11 @@ class Scope(models.Model):
     organization = models.ForeignKey(Organization, on_delete=models.CASCADE, related_name="scopes")
     creating_instance = models.ForeignKey("fakts.ServiceInstance", on_delete=models.CASCADE, null=True, blank=True)
     is_builtin = models.BooleanField(default=False, help_text="If this scope is a built-in scope that cannot be deleted (admin)")
+    is_all_scope = models.BooleanField(
+        default=False,
+        db_default=False,
+        help_text="The scope that grants an app everything the service declaring it offers.",
+    )
     used_by = models.ManyToManyField("fakts.ServiceInstance", related_name="scopes", blank=True)
 
     class Meta:
@@ -232,6 +247,18 @@ class Membership(models.Model):
         "whenever they change (karakter.roles), never set by hand.",
     )
     created_through = models.ForeignKey("Invite", on_delete=models.SET_NULL, null=True, related_name="created_memberships")
+    automatic_roles = models.ManyToManyField(
+        Role,
+        related_name="automatically_held_by",
+        blank=True,
+        help_text="The roles of `roles` lok gave by itself (a service's admin or default role): the ones it takes back when they stop applying (karakter.service_roles).",
+    )
+    withheld_roles = models.ManyToManyField(
+        Role,
+        related_name="withheld_from",
+        blank=True,
+        help_text="Default roles an admin took away from this member: lok does not give them back.",
+    )
     brand_hue = models.FloatField(
         null=True,
         blank=True,

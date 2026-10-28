@@ -15,6 +15,7 @@ from django.utils import timezone
 from fakts import base_models, enums, models
 from fakts.base_models import HubManifest
 from fakts.services import aliases
+from fakts.services.permissions import register_permissions
 from fakts.services.instance_keys import validate_challenge_key
 from fakts.services.hub_tls import validate_tls_certificate
 from fakts.services.tokens import create_api_token  # noqa: F401  (kept for shim parity)
@@ -242,19 +243,9 @@ def create_hub_from_manifest(
         counts["instances"] += 1
         logger.debug("%s instance %s", "Created" if inst_created else "Updated", instance.token)
 
-        if service_manifest.roles:
-            for role_config in service_manifest.roles:
-                role, role_created = karakter_models.Role.objects.get_or_create(organization=organization, identifier=role_config.key, defaults={"description": role_config.description, "creating_instance": instance})
-                role.used_by.add(instance)
-                counts["roles"] += 1
-                logger.debug("%s role %s", "Created" if role_created else "Updated", role.identifier)
-
-        if service_manifest.scopes:
-            for scope_config in service_manifest.scopes:
-                scope, scope_created = karakter_models.Scope.objects.get_or_create(organization=organization, identifier=scope_config.key, defaults={"description": scope_config.description, "creating_instance": instance})
-                scope.used_by.add(instance)
-                counts["scopes"] += 1
-                logger.debug("%s scope %s", "Created" if scope_created else "Updated", scope.identifier)
+        register_permissions(instance, service_manifest)
+        counts["roles"] += len(service_manifest.roles or [])
+        counts["scopes"] += len(service_manifest.scopes or [])
 
         for alias in instance_request.aliases:
             alias_obj, alias_created = aliases.upsert_instance_alias(instance, alias)

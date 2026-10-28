@@ -273,12 +273,18 @@ class Role(BaseModel):
     key: str
     description: Optional[str] = None
     """ The description is a human readable description of the role. Will be show to the user when asking for the requirement."""
+    is_admin_role: bool = False
+    """ The role lets a member do everything in the service: lok gives it to the organization's owner and admins."""
+    is_default_role: bool = False
+    """ Every full member holds the role, unless an admin took it away."""
 
 
 class Scope(BaseModel):
     key: str
     description: Optional[str] = None
     """ The description is a human readable description of the scope. Will be show to the user when asking for the requirement."""
+    is_all_scope: bool = False
+    """ The scope grants an app everything the service offers."""
 
 
 class ServiceManifest(BaseModel):

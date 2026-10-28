@@ -3,7 +3,7 @@ from asgiref.sync import sync_to_async
 
 from lok_server.schema import schema
 from kante.context import HttpContext
-from karakter.models import Membership, Organization, User
+from karakter.models import Membership, Organization, Role, User
 
 ADD_USER = """
     mutation AddUserToOrganization($input: AddUserToOrganizationInput!) {
@@ -50,12 +50,14 @@ async def test_admin_can_add_user_to_organization(db, authenticated_context: Htt
     caller = await sync_to_async(User.objects.get)(username="fart")
     await sync_to_async(_grant_admin)(caller, org)
 
+    # A role a service registered: lok itself makes only `admin` and `guest`.
+    await sync_to_async(Role.objects.get_or_create)(identifier="mikro_labeler", organization=org)
     target = await sync_to_async(User.objects.create)(username="newcomer")
     await sync_to_async(_invite)(target, org)
-    result = await _add_user(authenticated_context, target.id, org.id, ["labeler"])
+    result = await _add_user(authenticated_context, target.id, org.id, ["mikro_labeler"])
 
     assert result.data, result.errors
-    assert result.data["addUserToOrganization"]["roles"][0]["identifier"] == "labeler"
+    assert result.data["addUserToOrganization"]["roles"][0]["identifier"] == "mikro_labeler"
 
 
 @pytest.mark.django_db(transaction=True)

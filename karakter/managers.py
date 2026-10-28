@@ -24,8 +24,14 @@ def create_scope(organization: Organization, identifier: str):
     return role
 
 
+#: The roles lok makes in every organization: ``admin`` (who administers it, and lok) and
+#: ``guest`` (an invitee who has no role of a service yet). Every other role is a service's own
+#: (``mikro_editor``), registered with its hub (karakter.service_roles hands some out).
+DEFAULT_ROLES = (ADMIN, "guest")
+
+
 def create_default_roles_for_org(org: Organization):
-    for identifier in [ADMIN, "guest", "user", "bot", "viewer", "editor", "contributor", "manager", "owner", "labeler"]:
+    for identifier in DEFAULT_ROLES:
         create_role(org, identifier)
 
 
@@ -41,6 +47,10 @@ def ensure_owner_is_admin(org: Organization):
     membership, _ = Membership.objects.get_or_create(user=org.owner, organization=org)
     membership.roles.add(Role.objects.get(identifier=ADMIN, organization=org))
     membership.save()
+    # A new owner administers every service of the organization (karakter.service_roles).
+    from karakter.service_roles import sync_organization
+
+    sync_organization(org)
 
 
 def add_user_roles(user: User, organization: Organization, roles: list[str]):

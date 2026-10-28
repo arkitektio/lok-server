@@ -15,6 +15,7 @@ from fakts import logic, base_models
 from fakts.services import aliases as alias_services
 from fakts.services import hubs as hub_services
 from fakts.services.instance_keys import validate_challenge_key
+from fakts.services.permissions import register_permissions
 from fakts.services.hub_tls import validate_tls_certificate
 import kante
 from api.management.device_code_authz import resolve_device_code_with_proof
@@ -134,29 +135,7 @@ def _provision_hub(info: Info, input: AcceptHubDeviceCodeInput, device_code, org
             instance.public_key = validate_challenge_key(service_manifest.challenge_key)
             instance.save(update_fields=["public_key"])
 
-        for role in service_manifest.roles or []:
-            r, _ = models.Role.objects.get_or_create(
-                identifier=role.key,
-                organization=organization,
-                defaults={
-                    "description": role.description or "",
-                    "creating_instance": instance,
-                },
-            )
-
-            r.used_by.add(instance)
-
-        for scope in service_manifest.scopes or []:
-            sc, _ = models.Scope.objects.get_or_create(
-                identifier=scope.key,
-                organization=organization,
-                defaults={
-                    "description": scope.description or "",
-                    "creating_instance": instance,
-                },
-            )
-
-            sc.used_by.add(instance)
+        register_permissions(instance, service_manifest)
 
         for alias in servicer.aliases:
             alias_services.upsert_instance_alias(instance, alias)
