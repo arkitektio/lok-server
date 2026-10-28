@@ -171,3 +171,15 @@ def test_a_pin_never_has_to_name_the_oidc_scopes():
     pin.check(manifest)
     with pytest.raises(Exception, match="kabinet_deploy"):
         pin.check(base_models.Manifest(identifier="plugin_engine", version="1.0.0", scopes=["openid", "kabinet_deploy"]))
+
+
+def test_a_requirement_is_the_service_whatever_key_it_is_listed_under():
+    """Orkestrator lists the object store as `datalayer`, the Python clients as `s3`: one service."""
+    issuer = base_models.MandatePin(requirements=[{"key": "datalayer", "service": "live.arkitekt.s3"}])
+    child = base_models.MandatePin(requirements=[{"key": "s3", "service": "live.arkitekt.s3"}])
+    child.assert_within(issuer)
+    issuer.check(base_models.Manifest(identifier="app", version="1.0.0", requirements=[base_models.Requirement(key="s3", service="live.arkitekt.s3")]))
+
+    stranger = base_models.MandatePin(requirements=[{"key": "s3", "service": "live.arkitekt.mikro"}])
+    with pytest.raises(base_models.MandatePinMismatch, match="exceed the issuer's"):
+        stranger.assert_within(issuer)

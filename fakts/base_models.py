@@ -203,10 +203,13 @@ class MandatePin(BaseModel):
     def is_open(self) -> bool:
         return self.identifier is None
 
-    def _requirement_pairs(self) -> set[tuple[str, str]] | None:
+    def _required_services(self) -> set[str] | None:
+        """The services this pin lets an app require. The key a requirement is listed under is
+        only the name the app looks its alias up by (``s3``, ``datalayer``): what a mandate
+        grants is the service, so that is what is compared."""
         if self.requirements is None:
             return None
-        return {(r.key, r.service) for r in self.requirements}
+        return {r.service for r in self.requirements}
 
     def check(self, manifest: "Manifest") -> None:
         """Raise :class:`MandatePinMismatch` unless the pin covers ``manifest``."""
@@ -222,9 +225,9 @@ class MandatePin(BaseModel):
             extra_scopes = sorted(set(manifest.scopes or []) - set(self.scopes) - set(BASE_OIDC_SCOPES))
             if extra_scopes:
                 raise MandatePinMismatch(f"This mandate does not authorize the scope(s) {', '.join(extra_scopes)}.")
-        pairs = self._requirement_pairs()
-        if pairs is not None:
-            extra = sorted(f"{r.key}={r.service}" for r in manifest.requirements or [] if (r.key, r.service) not in pairs)
+        services = self._required_services()
+        if services is not None:
+            extra = sorted(f"{r.key}={r.service}" for r in manifest.requirements or [] if r.service not in services)
             if extra:
                 raise MandatePinMismatch(f"This mandate does not authorize the requirement(s) {', '.join(extra)}.")
 
@@ -240,12 +243,11 @@ class MandatePin(BaseModel):
             extra_scopes = sorted(set(self.scopes) - set(ceiling.scopes) - set(BASE_OIDC_SCOPES))
             if extra_scopes:
                 raise MandatePinMismatch(f"The scope(s) {', '.join(extra_scopes)} exceed the issuer's.")
-        ceiling_pairs = ceiling._requirement_pairs()
-        if ceiling_pairs is not None:
-            own = self._requirement_pairs()
-            if own is None:
+        ceiling_services = ceiling._required_services()
+        if ceiling_services is not None:
+            if self.requirements is None:
                 raise MandatePinMismatch("Requirements must be pinned, as the issuing mandate pins them.")
-            extra = sorted(f"{key}={service}" for key, service in own - ceiling_pairs)
+            extra = sorted(f"{r.key}={r.service}" for r in self.requirements if r.service not in ceiling_services)
             if extra:
                 raise MandatePinMismatch(f"The requirement(s) {', '.join(extra)} exceed the issuer's.")
 
