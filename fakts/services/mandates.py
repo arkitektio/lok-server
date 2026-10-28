@@ -32,6 +32,7 @@ from fakts import enums, models
 from fakts.base_models import MandateKeyGrantRequest, MandatePin, MandatePinMismatch
 from karakter import models as karakter_models
 from karakter.hashers import hash_device_id
+from karakter.scopes import LOK_SCOPES
 
 logger = logging.getLogger(__name__)
 
@@ -205,12 +206,31 @@ def _assert_known_scopes(organization: karakter_models.Organization, pin: Mandat
         raise UnknownMandateScope(f"Scope(s) {', '.join(unknown)} are not available in organization '{organization.slug}'.")
 
 
+def _covered_scopes(held: list[karakter_models.Scope]) -> set[str]:
+    """The scopes ``held`` stand for: themselves, and what each catch-all among them covers.
+
+    A service's catch-all (``is_all_scope``) covers every scope the instances declaring it declare
+    in the organization; lok's own (``lok_all``, declared by no instance) covers lok's.
+    """
+    covered = {scope.identifier for scope in held}
+    for catch_all in (scope for scope in held if scope.is_all_scope):
+        if catch_all.creating_instance_id is None:
+            covered |= {lok_scope.key for lok_scope in LOK_SCOPES}
+            continue
+        covered |= set(
+            karakter_models.Scope.objects.filter(organization_id=catch_all.organization_id, used_by__in=catch_all.used_by.all())
+            .values_list("identifier", flat=True)
+            .distinct()
+        )
+    return covered
+
+
 def _client_ceiling(client: models.Client) -> MandatePin:
-    """What an app may hand out as itself: its own scopes and requirements."""
+    """What an app may hand out as itself: its own scopes (a catch-all with all it covers) and requirements."""
     manifest_requirements = (client.manifest or {}).get("requirements") or []
     return MandatePin.model_validate(
         {
-            "scopes": sorted(client.scopes.values_list("identifier", flat=True)),
+            "scopes": sorted(_covered_scopes(list(client.scopes.all()))),
             "requirements": [{"key": r["key"], "service": r["service"]} for r in manifest_requirements],
         }
     )

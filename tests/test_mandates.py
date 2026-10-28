@@ -170,6 +170,39 @@ async def test_an_app_cannot_grant_more_than_it_holds():
     assert more_requirements.errors and "mikro=live.arkitekt.mikro" in more_requirements.errors[0].message
 
 
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_an_app_holding_a_catch_all_may_grant_what_it_covers():
+    """Pokket holds `rekuest_all` and provisions a board asking for rekuest's own scopes."""
+
+    def setup():
+        w = _world()
+        rekuest = factories.make_service_instance(hub=w.hub)
+        mikro = factories.make_service_instance(hub=w.hub)
+        for key, instance, is_all in [
+            ("rekuest_all", rekuest, True),
+            ("rekuest_agent", rekuest, False),
+            ("rekuest_read", rekuest, False),
+            ("mikro_write", mikro, False),
+        ]:
+            scope = Scope.objects.create(identifier=key, organization=w.org, creating_instance=instance, is_all_scope=is_all)
+            scope.used_by.add(instance)
+        lok_all, _ = Scope.objects.get_or_create(identifier="lok_all", organization=w.org, defaults={"is_all_scope": True, "is_builtin": True})
+        Scope.objects.get_or_create(identifier="lok_mandates", organization=w.org, defaults={"is_builtin": True})
+        w.ui_client.scopes.add(Scope.objects.get(identifier="rekuest_all", organization=w.org), lok_all)
+        return w
+
+    w = await sync_to_async(setup)()
+    ctx = _ctx(w.grantor, w.ui_client)
+
+    covered = await _run(CREATE, ctx, input={"agent": AGENT, "manifest": {**SUBJECT, "scopes": ["rekuest_agent", "rekuest_read", "lok_mandates"]}})
+    assert not covered.errors
+    assert covered.data["createMandate"]["subject"]["scopes"] == ["lok_mandates", "rekuest_agent", "rekuest_read"]
+
+    other_service = await _run(CREATE, ctx, input={"agent": AGENT, "manifest": {**SUBJECT, "scopes": ["rekuest_agent", "mikro_write"]}})
+    assert other_service.errors and "mikro_write" in other_service.errors[0].message
+
+
 @pytest.mark.django_db
 def test_a_client_logged_in_with_a_key_cannot_issue_mandates(client):
     w = _world()
