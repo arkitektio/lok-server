@@ -237,6 +237,14 @@ class HeadlessFrontendUrls(BaseModel):
 class AccountSettings(BaseModel):
     """django-allauth account/MFA behavior."""
 
+    allow_signup: bool = Field(
+        default=True,
+        description="Whether anybody who reaches lok can create an account — with a password or "
+        "through a social provider. False closes signup: accounts are made by an administrator "
+        "(the admin site, `users` in this config), and everybody else can only log in. An "
+        "invite is accepted by an account that exists, so it is unaffected. The headless "
+        "config reports it as `account.is_open_for_signup`.",
+    )
     email_verification: str = Field(default="none", description="ACCOUNT_EMAIL_VERIFICATION (none/optional/mandatory).")
     social_email_verification: Optional[Literal["none", "optional", "mandatory"]] = Field(
         default=None,

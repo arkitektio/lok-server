@@ -272,6 +272,10 @@ MFA_WEBAUTHN_RP_ID = conf.account.mfa_webauthn_rp_id
 MFA_TOTP_ISSUER = conf.account.mfa_totp_issuer or DEPLOYMENT_NAME
 
 MFA_ADAPTER = "lok_server.mfa_adapter.LokMFAAdapter"
+# Whether anybody may sign up (`account.allow_signup`): read by the account adapter, which
+# allauth's social adapter defers to as well.
+ACCOUNT_ADAPTER = "lok_server.account_adapter.LokAccountAdapter"
+LOK_ALLOW_SIGNUP = conf.account.allow_signup
 
 # Privacy policy for integrated login widgets (Google One Tap et al.). The custom
 # headless config view reports this to the SPA, which gates the One Tap widget on

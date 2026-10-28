@@ -214,6 +214,7 @@ django-allauth flows. All optional with sensible defaults.
 
 | Key | Env var | Type | Default | Description |
 |---|---|---|---|---|
+| `allow_signup` | `ACCOUNT__ALLOW_SIGNUP` | bool | `true` | Whether anybody who reaches lok can create an account, with a password or through a social provider. `false` closes signup: accounts are made by an administrator (the admin site, `users`), everybody else can only log in, and accepting an invite as an existing account is unaffected. Reported to the frontend as `account.is_open_for_signup`. |
 | `email_verification` | `ACCOUNT__EMAIL_VERIFICATION` | str | `none` | `ACCOUNT_EMAIL_VERIFICATION` (`none` / `optional` / `mandatory`). Governs **local** email/password accounts. |
 | `social_email_verification` | `ACCOUNT__SOCIAL_EMAIL_VERIFICATION` | str \| null | `null` | `SOCIALACCOUNT_EMAIL_VERIFICATION` — verification policy for **social/OIDC** logins, independent of `email_verification`. `null` inherits `email_verification`; set `none` to admit IdP-authenticated users without our own confirmation (see below). |
 | `social_email_required` | `ACCOUNT__SOCIAL_EMAIL_REQUIRED` | bool \| null | `null` | `SOCIALACCOUNT_EMAIL_REQUIRED` — whether an email must be present to sign up via a social provider. `null` inherits allauth's derivation; set `false` to admit providers that release no email (e.g. ORCID). |
