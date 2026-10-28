@@ -10,6 +10,11 @@ from fakts import enums
 NAME_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,99}$")
 
 
+
+#: The scopes every client of lok holds, whatever it asked for: it logs a user in (OIDC). A pin
+#: never has to name them, and an app asking for them asks for nothing a pin could withhold.
+BASE_OIDC_SCOPES = ["openid", "profile", "email"]
+
 class Layer(BaseModel):
     identifier: str
     kind: Union[Literal["WEB"], Literal["TAILSCALE"]]
@@ -214,7 +219,7 @@ class MandatePin(BaseModel):
         if self.device_id is not None and manifest.device_id != self.device_id:
             raise MandatePinMismatch("This mandate is pinned to a different device than the one the manifest names.")
         if self.scopes is not None:
-            extra_scopes = sorted(set(manifest.scopes or []) - set(self.scopes))
+            extra_scopes = sorted(set(manifest.scopes or []) - set(self.scopes) - set(BASE_OIDC_SCOPES))
             if extra_scopes:
                 raise MandatePinMismatch(f"This mandate does not authorize the scope(s) {', '.join(extra_scopes)}.")
         pairs = self._requirement_pairs()
@@ -232,7 +237,7 @@ class MandatePin(BaseModel):
         if ceiling.scopes is not None:
             if self.scopes is None:
                 raise MandatePinMismatch("Scopes must be pinned, as the issuing mandate pins them.")
-            extra_scopes = sorted(set(self.scopes) - set(ceiling.scopes))
+            extra_scopes = sorted(set(self.scopes) - set(ceiling.scopes) - set(BASE_OIDC_SCOPES))
             if extra_scopes:
                 raise MandatePinMismatch(f"The scope(s) {', '.join(extra_scopes)} exceed the issuer's.")
         ceiling_pairs = ceiling._requirement_pairs()

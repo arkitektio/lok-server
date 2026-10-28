@@ -163,3 +163,11 @@ def test_a_new_owner_holds_every_admin_role(django_capture_on_commit_callbacks):
     organization.owner = heir.user
     organization.save()
     assert "mikro_admin" in _roles(heir)
+
+
+def test_a_pin_never_has_to_name_the_oidc_scopes():
+    pin = base_models.MandatePin(identifier="plugin_engine", scopes=["kabinet_read"])
+    manifest = base_models.Manifest(identifier="plugin_engine", version="1.0.0", scopes=["openid", "kabinet_read"])
+    pin.check(manifest)
+    with pytest.raises(Exception, match="kabinet_deploy"):
+        pin.check(base_models.Manifest(identifier="plugin_engine", version="1.0.0", scopes=["openid", "kabinet_deploy"]))

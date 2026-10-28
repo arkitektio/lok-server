@@ -15,7 +15,7 @@ from django.db import transaction
 from django.db.models import Q
 
 from fakts import base_models, enums, models
-from fakts.base_models import Manifest
+from fakts.base_models import BASE_OIDC_SCOPES, Manifest
 from fakts.models import generate_client_id
 from fakts.services.rendering import auto_compose
 from karakter import models as karakter_models
@@ -30,11 +30,6 @@ logger = logging.getLogger(__name__)
 # Clients that log in with a mandate key are registered for that grant only
 # (see fakts.services.mandates).
 FAKTS_CLIENT_GRANT_TYPES = "urn:ietf:params:oauth:grant-type:device_code refresh_token authorization_code"
-
-# OIDC base scopes every fakts client may request on top of its granted
-# organization scopes.
-BASE_OIDC_SCOPES = ["openid", "profile", "email"]
-
 
 class DeviceAuthRequired(Exception):
     """Raised when an organization requires device authentication but the client
@@ -86,7 +81,8 @@ def finalize_client_scope(client: models.Client) -> str:
     scopes (``Client.scopes`` M2M) on top of the OIDC base scopes. This is the
     scope unification point — issued JWTs carry these instead of silently
     falling back to the OIDC defaults."""
-    scope = " ".join(BASE_OIDC_SCOPES + sorted(client.scopes.values_list("identifier", flat=True)))
+    granted = sorted(set(client.scopes.values_list("identifier", flat=True)) - set(BASE_OIDC_SCOPES))
+    scope = " ".join(BASE_OIDC_SCOPES + granted)
     client.scope = scope
     client.save(update_fields=["scope"])
     return scope
