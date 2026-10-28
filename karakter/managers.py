@@ -4,6 +4,7 @@ from django.db import IntegrityError, transaction
 
 from .models import Organization, Role, Membership, User, Scope
 from .roles import ADMIN
+from .scopes import LOK_SCOPES
 
 logger = logging.getLogger(__name__)
 
@@ -38,6 +39,13 @@ def create_default_roles_for_org(org: Organization):
 def create_default_scopes_for_org(org: Organization):
     for identifier in ["openid", "profile", "email", "roles", "groups"]:
         create_scope(org, identifier)
+    # lok's own: what an app may do at lok itself (karakter.scopes), built in and described.
+    for scope in LOK_SCOPES:
+        Scope.objects.update_or_create(
+            identifier=scope.key,
+            organization=org,
+            defaults={"description": scope.description, "is_all_scope": scope.is_all_scope, "is_builtin": True},
+        )
 
 
 def ensure_owner_is_admin(org: Organization):

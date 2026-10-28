@@ -40,7 +40,7 @@ def _restore_static_tokens():
     settings_obj.static_tokens.update(original)
 
 
-def build_auth_context(user, organization, oauth2_client, roles=("admin",)) -> HttpContext:
+def build_auth_context(user, organization, oauth2_client, roles=("admin",), scope="openid lok_all") -> HttpContext:
     """Build an authenticated ``HttpContext`` via a static token.
 
     authentikate authenticates by decoding the ``Authorization`` header, so
@@ -66,6 +66,8 @@ def build_auth_context(user, organization, oauth2_client, roles=("admin",)) -> H
         org=str(organization.pk),
         client_id=oauth2_client.client_id,
         roles=list(roles),
+        # An app granted all of lok unless a test says otherwise (karakter.scopes).
+        scope=scope,
     )
     request = UniversalRequest(_extensions={})
     # Populate the request principal directly. On the main schema the
