@@ -48,7 +48,6 @@ from authlib.oauth2 import OAuth2Error
 from authlib.oauth2.rfc6749.errors import (
     InvalidGrantError,
     InvalidRequestError,
-    InvalidScopeError,
 )
 from authlib.oauth2.rfc8628 import DeviceCodeGrant
 
@@ -262,8 +261,6 @@ class FaktsMandateKeyGrant(FaktsEnvelopeMixin, BaseGrant, TokenEndpointMixin):
             grant = mandates.authenticate_key(request)
         except (mandates.MandateError, MandatePinMismatch, client_services.DeviceAuthRequired) as e:
             raise InvalidGrantError(description=str(e))
-        except client_services.UnknownScope as e:
-            raise InvalidScopeError(description=str(e))
         except OAuth2Error:
             raise
         except Exception as e:

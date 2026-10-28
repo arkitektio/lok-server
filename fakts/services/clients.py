@@ -36,14 +36,6 @@ class DeviceAuthRequired(Exception):
     manifest carries no ``device_id``."""
 
 
-class UnknownScope(Exception):
-    """Raised when a manifest requests a scope the organization does not define.
-
-    A clean domain error (instead of ``Scope.DoesNotExist`` leaking out of the
-    token endpoint as a 500) so the OAuth grants can map it to ``invalid_scope``.
-    """
-
-
 def hash_manifest(manifest: Manifest) -> str:
     """Return a stable SHA-256 hash of a manifest for change detection."""
     return hashlib.sha256(
@@ -233,12 +225,17 @@ def bind_client(
 
     client = auto_compose(client, manifest, user, organization, device=node, declined_requirements=declined_requirements)
 
+    # What the app asks for and the organization has. A scope no service of the organization
+    # declares grants nothing to grant: an app that knows many services (Orkestrator asks for
+    # each one's all-scope) still logs in where only some of them run. A mandate's pin is
+    # stricter: it refuses a scope the organization does not define (fakts.services.mandates).
     client.scopes.clear()
-    for scope in manifest.scopes or []:
-        try:
-            client.scopes.add(karakter_models.Scope.objects.get(identifier=scope, organization=organization))
-        except karakter_models.Scope.DoesNotExist:
-            raise UnknownScope(f"Scope '{scope}' is not available in organization '{organization.slug}'")
+    requested = set(manifest.scopes or [])
+    held = list(karakter_models.Scope.objects.filter(identifier__in=requested, organization=organization))
+    client.scopes.add(*held)
+    absent = sorted(requested - {scope.identifier for scope in held})
+    if absent:
+        logger.info("Client %s asked for scopes %s that %s does not define; not granted", client.client_id, ", ".join(absent), organization.slug)
 
     finalize_client_scope(client)
 

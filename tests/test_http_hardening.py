@@ -8,7 +8,7 @@ Covers the browser- and machine-facing surface hardened in one pass:
   a granted challenge after the first successful poll (single-use);
 - ``report_client`` never applies an alias id from another organization;
 - the token endpoint turns every domain failure of the mandate-key grant into an
-  OAuth error (``invalid_scope`` / ``invalid_grant``), never a 500/HTML page;
+  OAuth error (``invalid_grant``), never a 500/HTML page;
 - an unknown ``requested_client_role`` is a ``400 invalid_request`` both at app
   authorization and in the mandate-key grant;
 - no published JWKS (``/o/jwks/``, the bearer validator) carries private members;
@@ -280,20 +280,21 @@ def _login(client, key, manifest, **extra):
 
 
 @pytest.mark.django_db
-def test_a_key_login_with_an_unknown_scope_is_an_oauth_error(client):
+def test_a_key_login_asking_for_a_scope_the_organization_lacks_is_granted_what_it_has(client):
+    """An app that knows many services logs in where only some run: what is absent is not granted."""
+    from fakts.models import Client
+
     _, key = factories.make_mandate_key()
     manifest = {
         "identifier": "com.example.scoped",
         "version": "1.0.0",
-        "scopes": ["definitely-not-a-scope-of-this-org"],
+        "scopes": ["openid", "definitely-not-a-scope-of-this-org"],
         "requirements": [],
     }
     resp = _login(client, key, manifest)
-    assert resp.status_code == 400, resp.content
-    assert resp["Content-Type"].startswith("application/json")
-    body = resp.json()
-    assert body["error"] == "invalid_scope"
-    assert "definitely-not-a-scope-of-this-org" in body["error_description"]
+    assert resp.status_code == 200, resp.content
+    registered = Client.objects.get(release__app__identifier="com.example.scoped")
+    assert list(registered.scopes.values_list("identifier", flat=True)) == ["openid"]
 
 
 @pytest.mark.django_db
