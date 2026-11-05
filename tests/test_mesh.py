@@ -343,6 +343,28 @@ def test_hub_auth_key_needs_opted_in_mesh(ionscale_repo):
     assert ionscale_repo.created_auth_keys[-1]["tailnet"] == get_org_mesh(org).tailnet_name
 
 
+@pytest.mark.django_db
+def test_a_hub_the_deployment_runs_gets_its_mesh_key_in_a_file(ionscale_repo, tmp_path):
+    """A self-contained deployment's sidecar joins with the key the setup job writes."""
+    from fakts.services.hubs import write_hub_mesh_keys
+
+    hub = factories.make_hub()
+    other = factories.make_hub()
+    ensure_org_mesh(hub.organization)
+    ensure_org_mesh(other.organization)
+    path = tmp_path / "mesh" / "hub.key"
+
+    with override_settings(IONSCALE_HUB_KEY_FILES={hub.identifier: str(path), other.identifier: str(tmp_path / "other.key")}):
+        written: set[str] = set()
+        assert write_hub_mesh_keys(hub.organization, written) == [hub.identifier]
+
+    hub.refresh_from_db()
+    assert path.read_text() == hub.auth_key.key
+    assert ionscale_repo.created_auth_keys[-1]["tags"] == [hub.mesh_tag]
+    # Only the hubs of the organization at hand.
+    assert not (tmp_path / "other.key").exists()
+
+
 # ---------------------------------------------------------------------------
 # Mesh device-code flow ("meshconfigure"): a machine requests to join the org
 # mesh, a human member authorizes, and a per-machine pre-auth key is minted.

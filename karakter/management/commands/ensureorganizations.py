@@ -5,7 +5,7 @@ from django.conf import settings
 from django.db import connection
 from karakter.base_models import OrganizationConfig
 from karakter.models import Organization
-from fakts.logic import auto_configure_kommunity_partners
+from fakts.logic import auto_configure_kommunity_partners, write_hub_mesh_keys
 
 User = get_user_model()
 
@@ -15,6 +15,7 @@ class Command(BaseCommand):
 
     def handle(self, *args, **kwargs):
         organizations = settings.ENSURE_ORGANIZATIONS
+        hub_keys_written: set[str] = set()
 
         for lokuser in organizations:
             org_config = OrganizationConfig(**lokuser)
@@ -58,3 +59,7 @@ class Command(BaseCommand):
             # Apply auto-configure kommunity partners for new organizations
             if org_config.auto_configure:
                 auto_configure_kommunity_partners(organization=org)
+
+            # The hubs this deployment runs the sidecar of get the key it joins with.
+            for identifier in write_hub_mesh_keys(org, hub_keys_written):
+                self.stdout.write(self.style.SUCCESS(f"Wrote the mesh key of hub {identifier}"))

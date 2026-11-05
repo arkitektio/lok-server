@@ -170,6 +170,13 @@ class IonscaleSettings(BaseModel):
         description="Automatically provision the mesh for each new organization on creation. "
         "Requires ionscale to be configured; when disabled, meshes are only created on explicit opt-in.",
     )
+    hub_key_files: Dict[str, str] = Field(
+        default_factory=dict,
+        description="Hubs whose own mesh node this deployment runs, by hub identifier, and the file "
+        "`ensureorganizations` writes each one's mesh key to (its tailscale sidecar joins with it). "
+        "For a self-contained deployment, whose hub never goes through the hub device-code flow. "
+        "A hub in several organizations joins the mesh of the first.",
+    )
 
     @model_validator(mode="after")
     def _require_a_credential(self) -> "IonscaleSettings":
