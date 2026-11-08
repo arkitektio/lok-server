@@ -61,7 +61,7 @@ def create_invite(info: Info, input: CreateInviteInput) -> types.Invite:
         if organization is None or not _may_share(get_user(info), organization):
             raise GraphQLError("Only members of the organization can grant its collaborations.")
         try:
-            shared_collaborations = collaboration_grants.normalize_collaborations(collaboration_entries(input.collaborations), organization)
+            shared_collaborations = collaboration_grants.normalize_collaborations(collaboration_entries(input.collaborations, info), organization)
         except ValidationError as e:
             raise GraphQLError(" ".join(e.messages))
         if input.roles:

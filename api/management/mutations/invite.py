@@ -16,7 +16,10 @@ from karakter.invites import InviteError, redeem_invite
 class SharedCollaborationInput:
     """One collaboration of a service instance to grant, with the roles that hold inside it."""
 
-    instance: strawberry.ID = strawberry.field(description="The service instance the collaboration lives in (on a hub of the organization).")
+    instance: strawberry.ID = strawberry.field(
+        description="The service instance the collaboration lives in (on a hub of the organization): its id, or, when called "
+        "from an app, the app's own requirement key for it (e.g. 'mikro'), resolved through the app's service mappings."
+    )
     collaboration: str = strawberry.field(description="The collaboration's id in that service.")
     roles: list[str] = strawberry.field(
         default_factory=list,
@@ -24,9 +27,43 @@ class SharedCollaborationInput:
     )
 
 
-def collaboration_entries(collaborations: list[SharedCollaborationInput]) -> list[dict]:
-    """The input as the entries ``karakter.collaboration_grants`` validates."""
-    return [{"instance": str(s.instance), "collaboration": s.collaboration, "roles": list(s.roles or [])} for s in collaborations]
+def _calling_client(info: Info | None):
+    if info is None:
+        return None
+    try:
+        return info.context.request.client
+    except (ValueError, AttributeError):
+        return None
+
+
+def _resolve_instance(instance: str, client) -> str:
+    """An instance id as given, or the calling app's requirement key for one, as the id it maps to.
+
+    An app knows its services by the keys of its manifest (``mikro``), not by lok
+    ids. The key resolves only through the caller's own ``ServiceInstanceMapping``s,
+    so it names nothing the app was not configured with; whether that instance
+    belongs to the organization is still checked by ``normalize_collaborations``.
+    """
+    instance = instance.strip()
+    if instance.isdigit():
+        return instance
+    if client is None:
+        raise GraphQLError(f"'{instance}' is not a service instance id.")
+    from fakts.models import ServiceInstanceMapping
+
+    instance_id = ServiceInstanceMapping.objects.filter(client__client_id=client.client_id, key=instance).values_list("instance_id", flat=True).first()
+    if instance_id is None:
+        raise GraphQLError(f"'{instance}' is neither a service instance id nor a requirement key of this app.")
+    return str(instance_id)
+
+
+def collaboration_entries(collaborations: list[SharedCollaborationInput], info: Info | None = None) -> list[dict]:
+    """The input as the entries ``karakter.collaboration_grants`` validates, with app requirement keys resolved to instance ids."""
+    client = _calling_client(info)
+    return [
+        {"instance": _resolve_instance(str(s.instance), client), "collaboration": s.collaboration, "roles": list(s.roles or [])}
+        for s in collaborations
+    ]
 
 
 @kante.input
@@ -92,7 +129,7 @@ def create_invite(info: Info, input: CreateInviteInput) -> types.ManagementInvit
         if not _may_share(user, organization):
             raise GraphQLError("Only members of the organization can grant its collaborations.")
         try:
-            shared_collaborations = collaboration_grants.normalize_collaborations(collaboration_entries(input.collaborations), organization)
+            shared_collaborations = collaboration_grants.normalize_collaborations(collaboration_entries(input.collaborations, info), organization)
         except ValidationError as e:
             raise GraphQLError(" ".join(e.messages))
         if input.roles:

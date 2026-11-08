@@ -974,3 +974,37 @@ async def test_a_guest_dry_runs_an_app_approval_into_their_hub_only(client):
     assert not ok.errors, ok.errors
     refused = await run(other.hub_id)
     assert refused.errors and "Not found" in refused.errors[0].message
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_an_app_names_the_instance_by_its_own_requirement_key():
+    """An app knows its services by manifest key (``mikro``); lok resolves it through that app's mappings only."""
+    from lok_server.schema import schema as token_schema
+
+    def setup():
+        organization, member, instance = _org_with_member()
+        other = factories.make_service_instance(hub=factories.make_hub(organization=organization))
+        app = factories.make_client(membership=member)
+        fakts_models.ServiceInstanceMapping.objects.create(client=app, instance=instance, key="mikro")
+        # Another app of the same member maps `mikro` elsewhere: it must not leak into this one.
+        elsewhere = factories.make_client(membership=member)
+        fakts_models.ServiceInstanceMapping.objects.create(client=elsewhere, instance=other, key="kabinet")
+        return organization, instance, build_auth_context(member.user, organization, app, roles=MEMBER_ROLES)
+
+    organization, instance, context = await sync_to_async(setup)()
+
+    created = await token_schema.execute(
+        TOKEN_CREATE_INVITE,
+        variable_values={"input": {"organization": str(organization.pk), "collaborations": [{"instance": "mikro", "collaboration": "12"}]}},
+        context_value=context,
+    )
+    assert not created.errors, created.errors
+    assert created.data["createInvite"]["collaborations"] == [{"instance": str(instance.pk), "collaboration": "12", "roles": []}]
+
+    unknown = await token_schema.execute(
+        TOKEN_CREATE_INVITE,
+        variable_values={"input": {"organization": str(organization.pk), "collaborations": [{"instance": "kabinet", "collaboration": "12"}]}},
+        context_value=context,
+    )
+    assert unknown.errors and "requirement key" in unknown.errors[0].message
