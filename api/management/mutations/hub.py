@@ -45,3 +45,18 @@ def delete_hub(info: Info, input: DeleteHubInput) -> strawberry.ID:
     assert_owner_or_admin(info, hub.organization)
     hub.delete()
     return input.id
+
+
+@strawberry.input
+class ProbeHubInput:
+    id: strawberry.ID
+
+
+def probe_hub(info: Info, input: ProbeHubInput) -> types.ManagementHub:
+    """Probe the hub's public aliases now (their signed challenge), instead of waiting for the next sweep."""
+    from fakts.services.alias_probe import probe_hub as run_probe
+
+    hub = get_or_denied(fakts_models.Hub.objects, pk=input.id)
+    assert_owner_or_admin(info, hub.organization)
+    run_probe(hub)
+    return hub

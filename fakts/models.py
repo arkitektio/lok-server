@@ -359,6 +359,20 @@ class InstanceAlias(models.Model):
     )
     path = models.CharField(max_length=1000, null=True, blank=True, help_text="The path of the alias,")
     scope = models.CharField(max_length=20, default="local", help_text="The scope of the alias. 'local' means that the alias is only available within the local network. 'network' means that the alias is available within the organization's network.")
+    probe_status = TextChoicesField(
+        choices_enum=enums.AliasProbeStatusChoices,
+        null=True,
+        blank=True,
+        help_text="The outcome of lok's last probe of this alias's signed challenge (public aliases only). Null if never probed.",
+    )
+    probed_at = models.DateTimeField(null=True, blank=True, help_text="When lok last probed this alias.")
+    probe_http_status = models.IntegerField(null=True, blank=True, help_text="The HTTP status the last probe got, if it got one.")
+    probe_latency_ms = models.IntegerField(null=True, blank=True, help_text="How long the last probe's request took, in milliseconds.")
+    last_verified_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="When a probe last got a valid signature from the instance (up, and proven to be it).",
+    )
 
     class Meta:
         """Meta class for InstanceAlias model."""
@@ -367,7 +381,12 @@ class InstanceAlias(models.Model):
             models.UniqueConstraint(
                 fields=["instance", "host", "port", "ssl", "path", "kind"],
                 name="Only one alias per instance host port ssl path kind",
-            )
+            ),
+            # lok probes public aliases from the internet: only over https.
+            models.CheckConstraint(
+                condition=~models.Q(public=True, ssl=False),
+                name="public_alias_requires_ssl",
+            ),
         ]
 
     @property
@@ -680,6 +699,23 @@ class Hub(models.Model):
             return False
         interval = getattr(settings, "HUB_HEALTH_INTERVAL", 60)
         return (timezone.now() - self.last_seen_at).total_seconds() <= 3 * interval
+
+    @property
+    def last_verified_at(self):
+        """When lok last proved one of the hub's public aliases up and authentic (a signed probe)."""
+        return InstanceAlias.objects.filter(instance__hub=self, public=True).aggregate(latest=models.Max("last_verified_at"))["latest"]
+
+    @property
+    def reachable(self) -> bool:
+        """lok verified one of the hub's public aliases within the last three probe intervals.
+
+        Independent of ``online`` (the hub calling in): a hosted hub that never reports
+        is still reachable when its instances answer lok's signed challenge."""
+        latest = self.last_verified_at
+        if latest is None:
+            return False
+        interval = getattr(settings, "HUB_PROBE_INTERVAL", 60)
+        return (timezone.now() - latest).total_seconds() <= 3 * interval
 
     def __str__(self):
         return f"{self.name} ({self.organization})"

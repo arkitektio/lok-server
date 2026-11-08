@@ -482,6 +482,10 @@ class Mutation:
     delete_hub = strawberry_django.mutation(
         resolver=mutations.delete_hub,
     )
+    probe_hub = strawberry_django.mutation(
+        resolver=mutations.probe_hub,
+        description="Check the hub's public aliases from lok now: each must answer a fresh nonce with its instance key's signature to count as verified.",
+    )
     # Device Code Mutations
     accept_device_code = strawberry_django.mutation(
         resolver=mutations.accept_device_code,

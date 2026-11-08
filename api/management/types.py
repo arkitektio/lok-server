@@ -1085,6 +1085,19 @@ class ManagementHub:
     def online(self) -> bool:
         return self.online
 
+    @strawberry_django.field(description="Whether lok proved one of the hub's public aliases up and authentic (a signed challenge) within the last three probe intervals. Independent of `online`: a hosted hub that never reports its own health can still be reachable.")
+    def reachable(self) -> bool:
+        return self.reachable
+
+    @strawberry_django.field(description="When lok last proved one of the hub's public aliases up and authentic. Null if it never has.")
+    def last_verified_at(self) -> Optional[datetime.datetime]:
+        return self.last_verified_at
+
+    @strawberry_django.field(description="The hub's public aliases: the ones lok probes itself, with each one's last probe outcome.")
+    def public_aliases(self, info: Info) -> list["ManagementInstanceAlias"]:
+        queryset = fakts_models.InstanceAlias.objects.filter(instance__hub=self, public=True).select_related("instance__release__service")
+        return list(ManagementInstanceAlias.get_queryset(queryset, info).order_by("id"))
+
     @classmethod
     def get_queryset(cls, queryset, info: Info):
         # A full member sees the organization's hubs. A guest sees the hubs their live
@@ -1143,6 +1156,15 @@ class ManagementInstanceAlias:
     scope: str = strawberry.field(description="Deprecated: see `reach`. The scope of the alias. E.g 'local' means that the alias can only be used within the local network.")
     reach: str = strawberry.field(description="Where the address works: 'loopback' (this machine), 'internal' (only inside the deployment's own network), 'lan' (the local network), 'mesh' (the organization's mesh) or 'public' (the internet).")
     public: bool = strawberry.field(description="Is this alias publicly reachable? If true, the coordination server can also check the alias's health directly, enabling health checks from the kontrol interface.")
+    probe_status: Optional[str] = strawberry.field(
+        description="The outcome of lok's last probe of this alias's signed challenge: 'verified' (up, and proven to be the instance), "
+        "'no_key', 'unsigned', 'bad_signature', 'unhealthy', 'invalid_response', 'unreachable', 'tls_failed', 'timeout', "
+        "'non_public_address' or 'not_probeable'. Null if lok never probed it (only public aliases are probed)."
+    )
+    probed_at: Optional[datetime.datetime] = strawberry.field(description="When lok last probed this alias.")
+    probe_http_status: Optional[int] = strawberry.field(description="The HTTP status of lok's last probe, if it got one.")
+    probe_latency_ms: Optional[int] = strawberry.field(description="How long lok's last probe took, in milliseconds.")
+    last_verified_at: Optional[datetime.datetime] = strawberry.field(description="When a probe last got a valid signature from the instance.")
 
     @strawberry_django.field(description="The organization that owns this alias (via the instance).")
     def organization(self) -> "ManagementOrganization":

@@ -20,6 +20,26 @@ class AliasKindChoices(TextChoices):
     DOCKER = "docker", "DOCKER (only reachable from inside the hub's own docker environment)"
 
 
+class AliasProbeStatusChoices(TextChoices):
+    """The outcome of lok probing a ``public`` alias's signed challenge (``fakts.services.alias_probe``).
+
+    Only ``verified`` proves the instance is up *and* is who lok was told it is: a 200 alone
+    could be anyone answering at that address.
+    """
+
+    VERIFIED = "verified", "The instance answered the nonce with a valid signature of its key"
+    NO_KEY = "no_key", "The instance has no challenge key, so its identity cannot be proven"
+    UNSIGNED = "unsigned", "The alias answered 200 without signing the nonce"
+    BAD_SIGNATURE = "bad_signature", "The signature does not verify against the instance's key"
+    UNHEALTHY = "unhealthy", "The alias answered with a non-200 status"
+    INVALID_RESPONSE = "invalid_response", "The answer was not a signed challenge response"
+    UNREACHABLE = "unreachable", "No connection could be made"
+    TLS_FAILED = "tls_failed", "The TLS handshake or certificate verification failed"
+    TIMEOUT = "timeout", "The alias did not answer in time"
+    NON_PUBLIC_ADDRESS = "non_public_address", "The host does not resolve to a public address"
+    NOT_PROBEABLE = "not_probeable", "The alias is not a public https alias with a host"
+
+
 class ClientKindChoices(TextChoices):
     """What kind of principal a (unified) Client row is."""
 

@@ -19,11 +19,14 @@ def _host_for(kind: str, host: str | None) -> str | None:
     return host
 
 
-def _public_for(kind: str, public: bool) -> bool:
+def _public_for(kind: str, public: bool, ssl: bool = True) -> bool:
     """A docker alias is only reachable from inside its hub's docker environment,
-    so the coordination server could never health-check it."""
+    so the coordination server could never health-check it. A public alias is
+    probed by lok over the internet, so it must be served over https."""
     if public and kind == fakts_enums.AliasKindChoices.DOCKER.value:
         raise GraphQLError("An alias of kind 'docker' cannot be public.")
+    if public and not ssl:
+        raise GraphQLError("A public alias must be served over https.")
     return public
 
 
@@ -85,7 +88,7 @@ def update_alias(info: Info, input: UpdateAliasInput) -> types.ManagementInstanc
     alias.path = input.path
     if input.public is not None:
         alias.public = input.public
-    alias.public = _public_for(input.kind, alias.public)
+    alias.public = _public_for(input.kind, alias.public, alias.ssl)
     alias.save()
 
     return alias

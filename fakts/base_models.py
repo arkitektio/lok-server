@@ -397,6 +397,8 @@ class StagingAlias(BaseModel):
             raise ValueError(f"Alias '{self.id}' needs a host (only kind 'mesh' resolves its own).")
         if self.kind == enums.AliasKindChoices.DOCKER.value and self.public:
             raise ValueError(f"Alias '{self.id}' is internal and cannot be checked by the coordination server: it is only reachable from inside the hub's own network.")
+        if self.public and not self.ssl:
+            raise ValueError(f"Alias '{self.id}' is checked by the coordination server (public / lok_checks), so it must be served over https (ssl: true).")
         return self
 
     @property

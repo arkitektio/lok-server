@@ -43,6 +43,11 @@ CLIENT_REPORT_RETENTION = 5
 HUB_HEALTH_INTERVAL = 60
 # How many of a hub's most recent health reports to retain.
 HUB_HEALTH_RETENTION = 20
+# Seconds between lok's own probes of public aliases (the hub-probe service's loop,
+# `manage.py probe_aliases`); a hub not verified for 3x this is no longer reachable.
+HUB_PROBE_INTERVAL = 60
+# How many distinct alias URLs one probe run fetches at once.
+HUB_PROBE_CONCURRENCY = 8
 # How long an app or hub mesh sidecar is kept after its client's session
 # *expired* (a revoked one goes at once). An expired app loses its ACL rule
 # on the next sweep; re-approving it within the grace resumes the same node.

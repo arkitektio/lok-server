@@ -57,6 +57,7 @@ contract = Contract(
         "syncadmins": Job(("syncadmins",), "Recompute which members are admins from their roles"),
         "ensuremandates": Job(("ensuremandates",), "Keep the mandate keys the config names, and revoke the ones it dropped"),
         "reconcile_meshes": Job(("reconcile_meshes",), "Repair drift between the meshes and ionscale: --dry-run, --organization, --revoke-orphans, --sidecars"),
+        "probe_aliases": Job(("probe_aliases",), "Check every public alias's signed challenge from lok and record whether it is up and authentic: --hub"),
     },
     setup=("ensurepartners", "ensureopenid", "ensureusers", "ensureorganizations", "ensurememberships", "syncadmins", "ensuremandates"),
 )

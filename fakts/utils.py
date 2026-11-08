@@ -32,7 +32,7 @@ def update_nested(d, u):
     return d
 
 
-def _assert_public_url(url: str) -> None:
+def assert_public_https_url(url: str, what: str = "URL") -> None:
     """Reject anything that is not an https URL resolving to a public address.
 
     Every address the host resolves to is checked, not just the first: a name
@@ -42,21 +42,25 @@ def _assert_public_url(url: str) -> None:
     """
     parsed = urlparse(url)
     if parsed.scheme not in LOGO_ALLOWED_SCHEMES:
-        raise ValueError(f"Logo URL must use https, got {parsed.scheme or 'no scheme'!r}")
+        raise ValueError(f"{what} must use https, got {parsed.scheme or 'no scheme'!r}")
     if not parsed.hostname:
-        raise ValueError("Logo URL has no host")
+        raise ValueError(f"{what} has no host")
 
     try:
         resolved = socket.getaddrinfo(parsed.hostname, parsed.port or 443, proto=socket.IPPROTO_TCP)
     except socket.gaierror as exc:
-        raise ValueError(f"Could not resolve logo host {parsed.hostname!r}") from exc
+        raise ValueError(f"Could not resolve {what} host {parsed.hostname!r}") from exc
 
     for family, _type, _proto, _canonname, sockaddr in resolved:
         ip = ipaddress.ip_address(sockaddr[0])
         if not ip.is_global or ip.is_multicast:
             # Covers loopback, RFC1918, link-local (including the 169.254.169.254
             # metadata address), unique-local v6, and the unspecified address.
-            raise ValueError(f"Logo host {parsed.hostname!r} resolves to non-public address {ip}")
+            raise ValueError(f"{what} host {parsed.hostname!r} resolves to non-public address {ip}")
+
+
+def _assert_public_url(url: str) -> None:
+    assert_public_https_url(url, "Logo URL")
 
 
 def download_logo(url: str) -> File:
