@@ -94,6 +94,8 @@ if conf.ionscale is not None:
     IONSCALE_AUTO_CREATE_MESH = conf.ionscale.auto_create_mesh
     # MagicDNS suffix, used to derive a machine's MagicDNS name (<name>.<suffix>).
     IONSCALE_MAGIC_DNS_SUFFIX = conf.ionscale.magic_dns_suffix
+    # Hub identifier -> file the setup job writes that hub's own mesh key to.
+    IONSCALE_HUB_KEY_FILES = conf.ionscale.hub_key_files
 else:
     IONSCALE_SERVER_URL = None
     IONSCALE_SERVICE_TOKEN = None
@@ -105,6 +107,7 @@ else:
     IONSCALE_EAGER_INIT = False
     IONSCALE_AUTO_CREATE_MESH = False
     IONSCALE_MAGIC_DNS_SUFFIX = None
+    IONSCALE_HUB_KEY_FILES = {}
 
 # IONSCALE_REPOSITORY: dotted path to a zero-arg factory returning an
 # ionscale.repo.IonscaleRepo. When None, the HTTP repository is used with

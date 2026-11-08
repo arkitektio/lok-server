@@ -6,6 +6,7 @@ kommunity partners for an organization.
 
 import logging
 import secrets
+from pathlib import Path
 
 import requests
 from django.conf import settings
@@ -481,6 +482,40 @@ def enroll_hub_on_mesh(user: karakter_models.User, hub: models.Hub) -> models.Io
 
     schedule_acl_apply(hub.organization_id)
     return key
+
+
+def write_hub_mesh_keys(organization: karakter_models.Organization, written: set[str]) -> list[str]:
+    """Write the mesh key of every hub ``IONSCALE_HUB_KEY_FILES`` lists that is in ``organization``.
+
+    A self-contained deployment runs its hub's sidecar itself, and that hub never
+    goes through the hub device-code flow that hands a hub its key. The setup job
+    writes it to a file instead, which the sidecar joins with. Each run rotates the
+    key (``enroll_hub_on_mesh``); a node that has joined outlives it.
+
+    ``written`` holds the hubs a key was already written for in this run: one
+    deployment is one node, on the mesh of the first organization that has it.
+    """
+    done = []
+    for identifier, path in (getattr(settings, "IONSCALE_HUB_KEY_FILES", None) or {}).items():
+        hub = models.Hub.objects.filter(organization=organization, identifier=identifier).first()
+        if hub is None:
+            continue
+        if identifier in written:
+            logger.warning("Hub %r is in several organizations; its node stays on the first one's mesh", identifier)
+            continue
+        key = enroll_hub_on_mesh(organization.owner, hub)
+        if key is None:
+            logger.warning("Organization %s has no mesh, so hub %r gets no mesh key", organization.slug, identifier)
+            continue
+        target = Path(path)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        partial = target.with_name(f".{target.name}.partial")
+        partial.write_text(key.key)
+        partial.chmod(0o600)
+        partial.replace(target)
+        written.add(identifier)
+        done.append(identifier)
+    return done
 
 
 def _prune_stale_machines(repo, tailnet: str, tag: str) -> None:

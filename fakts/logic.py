@@ -15,6 +15,7 @@ from fakts.services.clients import (
 from fakts.services.hubs import (
     PartnerPreAuthorizationError,
     auto_configure_kommunity_partners,
+    write_hub_mesh_keys,
     enroll_hub_on_mesh,
     report_hub_health,
     create_hub_from_manifest,
@@ -40,6 +41,7 @@ __all__ = [
     "PartnerPreAuthorizationError",
     "auto_compose",
     "auto_configure_kommunity_partners",
+    "write_hub_mesh_keys",
     "create_api_token",
     "bind_client",
     "enroll_hub_on_mesh",

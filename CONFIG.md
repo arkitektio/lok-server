@@ -426,6 +426,7 @@ and removes orphaned sidecar nodes.
 | `timeout` | `IONSCALE__TIMEOUT` | float | `10.0` | Per-request timeout in seconds (HTTP mode). |
 | `magic_dns_suffix` | `IONSCALE__MAGIC_DNS_SUFFIX` | str | `null` | MagicDNS suffix served by ionskale (mirrors its `dns.magic_dns_suffix`); used to render a machine's MagicDNS name as `<name>.<suffix>`. |
 | `auto_create_mesh` | `IONSCALE__AUTO_CREATE_MESH` | bool | `true` | Provision a mesh (one tailnet, bound to the organization) for every new organization. When `false`, meshes are only created on explicit opt-in. |
+| `hub_key_files` | `IONSCALE__HUB_KEY_FILES` | map | `{}` | Hub identifier → file. `ensureorganizations` mints each listed hub's mesh key (`tag:hub-<id>`) and writes it there, for the hub's tailscale sidecar to join with (`TS_AUTHKEY=file:<path>`). For self-contained deployments; a hub in several organizations joins the first one's mesh. |
 | `repository` | `IONSCALE__REPOSITORY` | str | `null` | Dotted path to an `IonscaleRepo` factory (tests). Satisfies the credential requirement on its own. |
 | `eager_init` | `IONSCALE__EAGER_INIT` | bool | `false` | Build the ionscale client on boot, so a broken configuration fails at startup rather than on first use. |
 
