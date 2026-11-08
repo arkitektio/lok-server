@@ -18,7 +18,7 @@ from karakter.invites import InviteError, redeem_invite
 class CreateInviteInput:
     """Input for creating a single-use magic invite link for an organization"""
 
-    organization: strawberry.ID | None
+    organization: strawberry.ID | None = None
     expires_in_days: int | None = 7
     roles: list[str] | None = None  # Role identifiers to assign
     collaborations: list[SharedCollaborationInput] | None = strawberry.field(
