@@ -1,3 +1,4 @@
+import json
 import logging
 
 from authlib.oauth2.rfc6749 import grants
@@ -232,6 +233,28 @@ class RefreshTokenGrant(FaktsEnvelopeMixin, grants.RefreshTokenGrant):
     def authenticate_user(self, credential: OAuth2Token):
         return credential.user
 
+    def adopt_offered_manifest(self) -> str | None:
+        """A fakts app sends its manifest with a refresh (``manifest``, as JSON):
+        after an update it differs from the one that was approved, and is adopted
+        here when nobody has to be asked (``fakts.services.clients.offer_manifest``).
+        Before the tokens are minted, so they already name the new release. A
+        manifest that cannot be read is ignored: this is an offer, never a
+        condition of the refresh."""
+        raw = self.request.payload.data.get("manifest")
+        if not raw:
+            return None
+        try:
+            from fakts.base_models import Manifest
+            from fakts.services.clients import offer_manifest
+
+            status = offer_manifest(self.request.client, Manifest(**json.loads(raw)))
+            if status == "adopted":
+                self.request.client.refresh_from_db()
+            return status
+        except Exception:
+            logger.warning("Ignoring the manifest client %s sent with its refresh", self.request.client.client_id, exc_info=True)
+            return None
+
     def revoke_old_credential(self, credential: OAuth2Token):
         credential.revoked = True
         credential.save()
@@ -243,7 +266,12 @@ class RefreshTokenGrant(FaktsEnvelopeMixin, grants.RefreshTokenGrant):
         # then append the fakts envelope — a fakts client's hourly refresh
         # re-renders its instances (aliases are host-aware), so configuration
         # drift propagates without re-approval.
+        manifest_status = self.adopt_offered_manifest()
         status, token, headers = super().create_token_response()
+        if status == 200 and manifest_status == "approval_required":
+            # The app changed in a way a person has to approve; it keeps running
+            # as what was approved, and is told so it can ask for the approval.
+            token["manifest_status"] = manifest_status
         if status == 200:
             old_credential = self.request.refresh_token
             OAuth2Token.objects.filter(access_token=token["access_token"]).update(

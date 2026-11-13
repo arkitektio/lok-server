@@ -210,6 +210,8 @@ def bind_client(
     models.Mandate.objects.filter(issuing_client__in=stale).update(issuing_client=client)
     stale.delete()
 
+    _keep_identities(client, release)
+
     client.mandate = mandate
     client.manifest_hash = hash_manifest(manifest)
     client.membership = membership
@@ -245,6 +247,100 @@ def bind_client(
     schedule_acl_apply(organization.pk)
 
     return client
+
+
+def _keep_identities(client: models.Client, release: models.Release) -> None:
+    """Give a client that moves to another release its identity there (``ClientIdentity``).
+
+    Called before the release is written. Nothing happens for a first binding or
+    a re-binding on the same release. On a move, the release it leaves keeps the
+    id it has had in its tokens so far (the client's own, if it never moved), and
+    the release it arrives at gets one of its own, or the one it had there before.
+    """
+    previous_id = client.release_id
+    if previous_id is None or previous_id == release.pk:
+        return
+    models.ClientIdentity.objects.get_or_create(
+        client=client,
+        release_id=previous_id,
+        defaults={"token_client_id": client.token_client_id},
+    )
+    models.ClientIdentity.objects.get_or_create(client=client, release=release)
+
+
+MANIFEST_UNCHANGED = "unchanged"
+MANIFEST_ADOPTED = "adopted"
+MANIFEST_APPROVAL_REQUIRED = "approval_required"
+
+
+def offer_manifest(client: models.Client, manifest: base_models.Manifest) -> str | None:
+    """A running installation says what it is now: adopt it if nobody has to be asked.
+
+    An app sends its manifest with every refresh. Mostly it is the one the client
+    was approved with, and nothing happens. After an update it differs, and then:
+
+    - it asks for nothing more than was approved (the same app on the same
+      device, no scope and no service beyond those of the manifest a person
+      approved): the client is re-bound to it in place. It keeps its session, and
+      moves to the new release under an identity of its own there
+      (``ClientIdentity``), so what it did as the earlier version stays that
+      version's.
+    - it asks for more, or for anything a person has to look at: nothing changes,
+      and the caller is told so (``MANIFEST_APPROVAL_REQUIRED``). The client keeps
+      working as what was approved until someone approves it again.
+
+    Returns None for a client this does not apply to (a hub, a relying party, a
+    client that logs in with a mandate key: that one re-binds in its own grant).
+    Never raises: a refresh must not fail over what it was only offered.
+    """
+    if client.release_id is None or client.membership_id is None or client.mandate_id is not None:
+        return None
+    if client.manifest_hash == hash_manifest(manifest):
+        return MANIFEST_UNCHANGED
+
+    membership = client.membership
+    organization = membership.organization
+    try:
+        approved = base_models.Manifest(**client.manifest)
+    except Exception:
+        return MANIFEST_APPROVAL_REQUIRED
+
+    if manifest.identifier != client.release.app.identifier:
+        return MANIFEST_APPROVAL_REQUIRED
+    held_device = client.node.node_id if client.node_id is not None else None
+    offered_device = hash_device_id(manifest.device_id, organization) if manifest.device_id else None
+    if held_device != offered_device:
+        return MANIFEST_APPROVAL_REQUIRED
+    if organization.require_device_auth and not manifest.device_id:
+        return MANIFEST_APPROVAL_REQUIRED
+    if not set(manifest.scopes or []) <= set(approved.scopes or []) | set(BASE_OIDC_SCOPES):
+        return MANIFEST_APPROVAL_REQUIRED
+    if not {r.service for r in manifest.requirements or []} <= {r.service for r in approved.requirements or []}:
+        return MANIFEST_APPROVAL_REQUIRED
+
+    # Another login of this person already holds the place this client would move
+    # to (the same app version on the same device and hub): binding would delete
+    # it and end its session. Two browsers without a device id are the usual case.
+    taken = models.Client.objects.filter(
+        release__app_id=client.release.app_id,
+        release__version=manifest.version,
+        membership=membership,
+        node_id=client.node_id,
+        hub_id=client.hub_id,
+        mandate__isnull=True,
+    ).exclude(pk=client.pk)
+    if taken.exists():
+        return MANIFEST_APPROVAL_REQUIRED
+
+    # What the person declined when they approved stays declined.
+    declined = [key for key, status in (client.statuses or {}).items() if status == "denied"]
+    try:
+        bind_client(client, manifest, membership, hub=client.hub, declined_requirements=declined)
+    except Exception:
+        logger.exception("Could not adopt the manifest client %s offered", client.client_id)
+        return None
+    logger.info("Client %s moved to %s %s without re-approval", client.client_id, manifest.identifier, manifest.version)
+    return MANIFEST_ADOPTED
 
 
 PRIOR_ACCESS_ACTIVE = "active"

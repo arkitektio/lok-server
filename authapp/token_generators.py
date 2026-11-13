@@ -158,6 +158,10 @@ class MyJWTBearerTokenGenerator(JWTBearerTokenGenerator):
         # some basic user identifiers used by resource servers.
         return {
             **scope_claims,
+            # What the services know this client by: its identity for the release
+            # it runs (fakts.ClientIdentity), which is its own id until it has run
+            # more than one. Overrides the `client_id` authlib put in.
+            **({"client_id": fakts_client.token_client_id} if fakts_client else {}),
             "nickname": membership.user.username,
             "preferred_username": membership.user.username,
             "sub": str(membership.user.id),

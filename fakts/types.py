@@ -316,7 +316,11 @@ class Client:
     id: strawberry.ID
     functional: bool = strawberry_django.field(description="Is this client functional? A functional client is a client that is able to authenticate users. If a client is not functional, it will not be able to authenticate users.")
     release: Release | None = strawberry_django.field(description="The release that this client belongs to. Null for clients that are not bound to an app release (hub identities, relying parties, pending registrations).")
-    client_id: str = strawberry_django.field(description="The OAuth2 client id this client authenticates as.")
+
+    @strawberry_django.field(description="The id the services know this client by: the `client_id` claim of its tokens. It is the client's own OAuth2 client id until the client has run more than one release of its app, and from then on one per release, so that what it did as an earlier version stays that version's. A client can still be looked up by any id it has had.", prefetch_related=["identities"])
+    def client_id(self, info: Info) -> str:
+        return self.token_client_id
+
     mandate: Optional["Mandate"] = strawberry_django.field(description="The mandate this client logs in with, if it logs in with a key.")
     public: bool = strawberry_django.field(description="Is this client public? A public client cannot keep a secret (desktop apps, mobile apps, SPAs, hub identities) and authenticates without one, relying on PKCE / device-code flows instead.")
 
