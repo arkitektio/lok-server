@@ -1,5 +1,7 @@
 from typing import cast
 
+from asgiref.sync import sync_to_async
+
 from authentikate import errors as authentikate_errors
 from authentikate.strawberry.extension import AuthentikateExtension, UserModel, JWTToken
 from django.conf import settings
@@ -96,7 +98,9 @@ class AuthAppExtension(AuthentikateExtension):
     async def aexpand_client_from_token(self, token: JWTToken) -> "Client":
         """Expand a client from the provided JWT token"""
 
-        return cast("Client", await Client.objects.aget(client_id=token.client_id))
+        # The claim is the client's identity for the release it runs
+        # (fakts.ClientIdentity), not always its own client_id.
+        return cast("Client", await sync_to_async(Client.for_token_client_id)(token.client_id))
 
     async def aexpand_organization_from_token(self, token: JWTToken) -> "Organization":
         """Expand an organization from the provided JWT token.

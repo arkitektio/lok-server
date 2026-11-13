@@ -12,7 +12,12 @@ def client(
     if id:
         return get_scoped_or_denied(models.Client.objects, info, id=id)
     if client_id:
-        return get_scoped_or_denied(models.Client.objects, info, client_id=client_id)
+        # The id another service knows the client by: its own, or the identity it
+        # had under any release it has run (fakts.ClientIdentity).
+        from django.db.models import Q
+
+        named = models.Client.objects.filter(Q(client_id=client_id) | Q(identities__token_client_id=client_id)).distinct()
+        return get_scoped_or_denied(named, info)
 
     raise GraphQLError("Either id or clientId must be provided")
 

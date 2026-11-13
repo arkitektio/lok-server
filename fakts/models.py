@@ -1160,6 +1160,26 @@ class Client(models.Model, ClientMixin):
         help_text="SHA-256 of the manifest the client was last bound with: a mandate-key login re-binds only when it changes.",
     )
 
+    @property
+    def token_client_id(self) -> str:
+        """The ``client_id`` claim of this client's tokens: its identity for the
+        release it runs now (``ClientIdentity``), or its own id while it has never
+        changed release."""
+        if self.release_id is None:
+            return self.client_id
+        # `.all()`, filtered here: a list that prefetched the identities asks nothing more.
+        for identity in self.identities.all():
+            if identity.release_id == self.release_id:
+                return identity.token_client_id
+        return self.client_id
+
+    @classmethod
+    def for_token_client_id(cls, token_client_id: str, queryset=None) -> "Client":
+        """The client a token's ``client_id`` claim names: by its own id, or by the
+        identity it had under any release it has run. Raises ``DoesNotExist``."""
+        clients = cls.objects.all() if queryset is None else queryset
+        return clients.filter(Q(client_id=token_client_id) | Q(identities__token_client_id=token_client_id)).distinct().get()
+
     class Meta:
         constraints = [
             # A client's identity is (release, membership, node, hub): the same app
@@ -1380,6 +1400,45 @@ class Report(models.Model):
         self.save(update_fields=["resolved_at", "resolved_by", "resolution_note"])
         if self.is_latest:
             Client.objects.filter(pk=self.client_id).update(latest_report_resolved=False)
+
+
+class ClientIdentity(models.Model):
+    """The id a client is known by, in the tokens it gets, while it runs one release.
+
+    A ``Client`` is one installation: its OAuth ``client_id`` is the credential
+    its refresh chain hangs on, and that never changes while the installation
+    lives. But the services key what they remember about a caller (the history
+    of every change, a rekuest agent) by the ``client_id`` *claim* of the token,
+    together with the release the token named when they first saw it, and never
+    look at the release again. So an installation that moves to another release
+    has to look like another client to them, or everything it did before would
+    read as done by the new version.
+
+    One row per release a client has run, made the first time the client moves
+    off the release it was approved on (``bind_client``). The release it started
+    on keeps the client's own ``client_id`` as its token id, so a client that
+    never changes release has no rows at all and nothing changes for it. Going
+    back to an earlier release finds that release's row again, and with it the
+    identity the services already know.
+    """
+
+    client = models.ForeignKey("Client", on_delete=models.CASCADE, related_name="identities")
+    release = models.ForeignKey(Release, on_delete=models.CASCADE, related_name="client_identities")
+    token_client_id = models.CharField(
+        max_length=48,
+        unique=True,
+        default=generate_client_id,
+        help_text="The `client_id` claim of the tokens this client gets while it runs this release.",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["client", "release"], name="One identity per client and release"),
+        ]
+
+    def __str__(self):
+        return f"{self.client} as {self.token_client_id}"
 
 
 class BugReport(models.Model):
