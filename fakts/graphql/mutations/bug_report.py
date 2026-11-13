@@ -69,8 +69,24 @@ def _parse_screenshot(data_url: str | None) -> tuple[bytes | None, str | None]:
     return raw, content_type
 
 
+# Postgres stores no NUL character, in text or in jsonb: one in a console line
+# a client captured failed the whole report. It is shown as U+FFFD instead.
+NUL_STANDIN = "\ufffd"
+
+
+def _without_nul(value):
+    """``value`` with every NUL character replaced, in keys and strings at any depth."""
+    if isinstance(value, str):
+        return value.replace("\x00", NUL_STANDIN)
+    if isinstance(value, dict):
+        return {_without_nul(str(k)): _without_nul(v) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_without_nul(v) for v in value]
+    return value
+
+
 def _clip(value: str | None, limit: int) -> str | None:
-    value = (value or "").strip()
+    value = _without_nul(value or "").strip()
     return value[:limit] or None
 
 
@@ -94,13 +110,13 @@ def create_bug_report(info: Info, input: CreateBugReportInput) -> types.BugRepor
     if client.organization_id != organization.id:
         raise GraphQLError(DENIED)
 
-    description = (input.description or "").strip()
+    description = _without_nul(input.description or "").strip()
     if not description:
         raise GraphQLError("Say what happened: a bug report needs a description.")
     if len(description) > DESCRIPTION_MAX_CHARS:
         raise GraphQLError("The description is too long.")
 
-    diagnostics = input.diagnostics if input.diagnostics is not None else {}
+    diagnostics = _without_nul(input.diagnostics) if input.diagnostics is not None else {}
     if not isinstance(diagnostics, dict):
         raise GraphQLError("The diagnostics must be an object.")
     if len(json.dumps(diagnostics)) > DIAGNOSTICS_MAX_BYTES:

@@ -264,3 +264,20 @@ async def test_the_management_api_reads_and_triages_what_clients_filed():
     resolved = await management_schema.execute(M_RESOLVE, variable_values={"input": {"id": from_member["id"]}}, context_value=owner)
     assert not resolved.errors, resolved.errors
     assert resolved.data["resolveBugReport"]["isResolved"] is True
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_nul_characters_do_not_fail_a_report():
+    # Postgres refuses NUL in text and jsonb; a captured console line carried one.
+    s = await sync_to_async(_setup)()
+    report = await _create(
+        s["admin"],
+        description="broken\x00page",
+        platform="darwin\x00",
+        diagnostics={"console": [{"text": "control: [v\x00"}], "k\x00": ["\x00"]},
+    )
+    stored = await sync_to_async(models.BugReport.objects.get)(pk=report["id"])
+    assert stored.description == "broken\ufffdpage"
+    assert stored.platform == "darwin\ufffd"
+    assert stored.diagnostics == {"console": [{"text": "control: [v\ufffd"}], "k\ufffd": ["\ufffd"]}
