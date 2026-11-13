@@ -5,6 +5,7 @@ from django.conf import settings
 from django.db.models import Q
 from karakter.datalayer import get_current_datalayer
 import strawberry
+from strawberry.scalars import JSON
 from django.contrib.auth import get_user_model
 import strawberry_django
 from kante.types import Info
@@ -1673,6 +1674,62 @@ class ManagementReport:
     @classmethod
     def get_queryset(cls, queryset, info: Info):
         return queryset.filter(full_member_q("client__organization", info.context.request.user)).distinct()
+
+
+@strawberry_django.type(
+    fakts_models.BugReport,
+    description="A bug a person reported from inside a client, with what the client recorded around it. It belongs to the client it was filed from and remembers that client's release. Owners and admins of an organization see all of its reports; anyone sees the ones they filed.",
+    filters=filters.ManagementBugReportFilter,
+    ordering=filters.ManagementBugReportOrdering,
+    pagination=True,
+)
+class ManagementBugReport:
+    id: strawberry.ID
+    organization: "ManagementOrganization" = strawberry_django.field(description="The organization the report was filed in.")
+    client: Optional["ManagementClient"] = strawberry_django.field(description="The client the report was filed from. Null once that client is gone.")
+    release: Optional[ManagementRelease] = strawberry_django.field(description="The release that client ran when the report was filed.")
+    reporter: Optional["ManagementUser"] = strawberry_django.field(description="Who filed it.")
+    title: str = strawberry_django.field(description="The first line of what the reporter wrote.")
+    description: str = strawberry_django.field(description="What happened, in the reporter's words.")
+    expected: Optional[str] = strawberry_django.field(description="What the reporter expected instead.")
+    route: Optional[str] = strawberry_django.field(description="The page the reporter was on.")
+    app_version: Optional[str] = strawberry_django.field(description="The version the client says it runs.")
+    platform: Optional[str] = strawberry_django.field(description="The operating system the client says it runs on.")
+    diagnostics: JSON = strawberry_django.field(description="What the client recorded: recent errors, failed requests, steps, console. Its shape is the client's.")
+    created_at: datetime.datetime = strawberry_django.field(description="When it was filed.")
+    resolved_at: Optional[datetime.datetime] = strawberry_django.field(description="When an admin closed it; null while it is open.")
+    resolved_by: Optional["ManagementUser"] = strawberry_django.field(description="The admin who closed it.")
+    resolution_note: Optional[str] = strawberry_django.field(description="What the admin noted when closing it.")
+    forwarded_at: Optional[datetime.datetime] = strawberry_django.field(description="When an admin passed it on to the app's issue tracker.")
+    forwarded_by: Optional["ManagementUser"] = strawberry_django.field(description="The admin who passed it on.")
+    forwarded_url: Optional[str] = strawberry_django.field(description="The issue it became, when the admin recorded it.")
+
+    @strawberry_django.field(description="Has an admin closed this report?", only=["resolved_at"])
+    def is_resolved(self, info: Info) -> bool:
+        return self.resolved_at is not None
+
+    @strawberry_django.field(description="The app the report is about: the app of the release it was filed from.", select_related=["release__app"])
+    def app(self, info: Info) -> Optional[ManagementApp]:
+        return self.release.app if self.release_id else None
+
+    @strawberry_django.field(description="Does the report carry a screenshot?", only=["screenshot_content_type"])
+    def has_screenshot(self, info: Info) -> bool:
+        return bool(self.screenshot_content_type)
+
+    @strawberry_django.field(
+        description="The screenshot as a data URL. Kept in the database and served only here, to those who may read the report. Ask for it on one report, not on a list.",
+        only=["screenshot", "screenshot_content_type"],
+    )
+    def screenshot(self, info: Info) -> Optional[str]:
+        import base64
+
+        if not self.screenshot or not self.screenshot_content_type:
+            return None
+        return f"data:{self.screenshot_content_type};base64,{base64.b64encode(bytes(self.screenshot)).decode('ascii')}"
+
+    @classmethod
+    def get_queryset(cls, queryset, info: Info):
+        return fakts_models.BugReport.visible_to(queryset, info.context.request.user)
 
 
 @strawberry_django.type(

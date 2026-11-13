@@ -42,6 +42,8 @@ class Query:
     apps: list[fakts_types.App] = strawberry_django.field(extensions=_needs(READ))
     releases: list[fakts_types.Release] = strawberry_django.field(extensions=_needs(READ))
     clients: list[fakts_types.Client] = strawberry_django.field(extensions=_needs(READ))
+    bug_reports: list[fakts_types.BugReport] = strawberry_django.field(extensions=_needs(READ), description="Bugs people reported from inside a client. Every report of the organization for its admins, your own otherwise. Filter by client, release or app.")
+    bug_report = strawberry_django.field(extensions=_needs(READ), resolver=fakts_queries.bug_report)
     users: list[karakter_types.User] = strawberry_django.field(extensions=_needs(READ))
     roles: list[karakter_types.Role] = strawberry_django.field(extensions=_needs(READ))
     groups: list[karakter_types.Group] = strawberry_django.field(extensions=_needs(READ))
@@ -166,6 +168,13 @@ class Mutation:
         resolver=fakts_mutations.render_hub,
     )
     acknowledge_message = strawberry_django.mutation(extensions=_needs(MESSAGES), resolver=karakter_mutations.acknowledge_message)
+
+    # A person reporting a bug from inside a client, and its triage by the organization's admins.
+    create_bug_report = strawberry_django.mutation(extensions=_needs(MESSAGES), resolver=fakts_mutations.create_bug_report)
+    delete_bug_report = strawberry_django.mutation(extensions=_needs(MESSAGES), resolver=fakts_mutations.delete_bug_report)
+    resolve_bug_report = strawberry_django.mutation(extensions=_needs(ORGANIZATIONS), resolver=fakts_mutations.resolve_bug_report)
+    unresolve_bug_report = strawberry_django.mutation(extensions=_needs(ORGANIZATIONS), resolver=fakts_mutations.unresolve_bug_report)
+    forward_bug_report = strawberry_django.mutation(extensions=_needs(ORGANIZATIONS), resolver=fakts_mutations.forward_bug_report)
 
     create_service_instance = strawberry_django.mutation(extensions=_needs(SERVICES), 
         resolver=fakts_mutations.create_service_instance,

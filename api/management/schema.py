@@ -40,6 +40,7 @@ class Query:
     device_groups: list[types.ManagementDeviceGroup] = kante.django_field()
     used_aliases: list[types.ManagementUsedAlias] = kante.django_field()
     reports: list[types.ManagementReport] = kante.django_field()
+    bug_reports: list[types.ManagementBugReport] = kante.django_field()
     service_releases: list[types.ManagementServiceRelease] = kante.django_field()
     instance_aliases: list[types.ManagementInstanceAlias] = kante.django_field()
     social_accounts: list[types.ManagementSocialAccount] = kante.django_field()
@@ -319,6 +320,10 @@ class Query:
         return get_scoped_lookup(types.ManagementReport, fakts_models.Report.objects, info, id=id)
 
     @kante.django_field()
+    def bug_report(self, info: Info, id: strawberry.ID) -> types.ManagementBugReport:
+        return get_scoped_lookup(types.ManagementBugReport, fakts_models.BugReport.objects, info, id=id)
+
+    @kante.django_field()
     def service_instance_mapping(self, info: Info, id: strawberry.ID) -> types.ManagementServiceInstanceMapping:
         return get_scoped_lookup(types.ManagementServiceInstanceMapping, fakts_models.ServiceInstanceMapping.objects, info, id=id)
 
@@ -458,6 +463,20 @@ class Mutation:
     )
     request_client_report = strawberry_django.mutation(
         resolver=mutations.request_client_report,
+    )
+
+    # Bug Report triage (filing one happens on the main schema, from inside a client)
+    resolve_bug_report = strawberry_django.mutation(
+        resolver=mutations.resolve_bug_report,
+    )
+    unresolve_bug_report = strawberry_django.mutation(
+        resolver=mutations.unresolve_bug_report,
+    )
+    forward_bug_report = strawberry_django.mutation(
+        resolver=mutations.forward_bug_report,
+    )
+    delete_bug_report = strawberry_django.mutation(
+        resolver=mutations.delete_bug_report,
     )
 
     # Hub Device Code Mutations

@@ -1382,6 +1382,85 @@ class Report(models.Model):
             Client.objects.filter(pk=self.client_id).update(latest_report_resolved=False)
 
 
+class BugReport(models.Model):
+    """A bug a person reported from inside a client (Orkestrator's "Report a bug").
+
+    Not a `Report`: that is a client's own configuration report. This is a user
+    saying something went wrong, with what the client recorded around it.
+
+    It hangs on the client that filed it (taken from the token, never from the
+    payload), and remembers that client's release at the time, so an
+    organization can read its reports per client, per release and per app. The
+    release is kept separately because a client can be deleted or move on to a
+    newer release, and the report is about the version it was filed from.
+    """
+
+    organization = models.ForeignKey(Organization, on_delete=models.CASCADE, related_name="bug_reports")
+    client = models.ForeignKey(Client, on_delete=models.SET_NULL, null=True, blank=True, related_name="bug_reports")
+    release = models.ForeignKey(Release, on_delete=models.SET_NULL, null=True, blank=True, related_name="bug_reports")
+    reporter = models.ForeignKey(
+        get_user_model(),
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="bug_reports",
+    )
+    title = models.CharField(max_length=200)
+    description = models.TextField()
+    expected = models.TextField(null=True, blank=True)
+    route = models.CharField(max_length=500, null=True, blank=True, help_text="The page the reporter was on.")
+    app_version = models.CharField(max_length=100, null=True, blank=True, help_text="The version the client says it runs.")
+    platform = models.CharField(max_length=300, null=True, blank=True)
+    diagnostics = models.JSONField(
+        default=dict,
+        help_text="What the client recorded: recent errors, failed requests, steps, console. Opaque to lok.",
+    )
+    screenshot = models.BinaryField(null=True, blank=True, editable=False)
+    screenshot_content_type = models.CharField(max_length=50, null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    resolved_at = models.DateTimeField(null=True, blank=True)
+    resolved_by = models.ForeignKey(
+        get_user_model(),
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="resolved_bug_reports",
+    )
+    resolution_note = models.TextField(null=True, blank=True)
+    forwarded_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="When an admin passed this report on to the app's own issue tracker.",
+    )
+    forwarded_by = models.ForeignKey(
+        get_user_model(),
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="forwarded_bug_reports",
+    )
+    forwarded_url = models.URLField(max_length=1000, null=True, blank=True, help_text="The issue it became, when known.")
+
+    class Meta:
+        ordering = ["-created_at", "-id"]
+        indexes = [
+            models.Index(fields=["organization", "-created_at"]),
+            models.Index(fields=["client", "-created_at"]),
+            models.Index(fields=["release", "-created_at"]),
+        ]
+
+    def __str__(self):
+        return f"Bug report {self.title!r} ({self.created_at})"
+
+    @staticmethod
+    def visible_to(queryset, user):
+        """Narrow ``queryset`` to what ``user`` may read: every report of an
+        organization they own or administer, and the ones they filed themselves."""
+        from karakter import roles
+
+        return queryset.filter(roles.owner_or_admin_q(user, "organization") | Q(reporter=user)).distinct()
+
+
 class TailscaleInspector(models.Model):
     name = models.CharField(max_length=1000)
     api_key = models.CharField(max_length=1000)

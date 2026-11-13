@@ -241,3 +241,44 @@ class MandateOrdering:
     id: strawberry.auto
     created_at: strawberry.auto
     last_used_at: strawberry.auto
+
+
+@strawberry_django.order_type(fakts_models.BugReport)
+class BugReportOrdering:
+    id: strawberry.auto
+    created_at: strawberry.auto
+
+
+@strawberry_django.filter_type(fakts_models.BugReport)
+class BugReportFilter:
+    @strawberry_django.filter_field
+    def ids(self, value: list[strawberry.ID], prefix: str) -> Q:
+        return Q(**{f"{prefix}id__in": value})
+
+    @strawberry_django.filter_field
+    def search(self, value: str, prefix: str) -> Q:
+        return Q(**{f"{prefix}title__icontains": value}) | Q(**{f"{prefix}description__icontains": value})
+
+    @strawberry_django.filter_field(description="Reports filed from this client.")
+    def client(self, value: strawberry.ID, prefix: str) -> Q:
+        return Q(**{f"{prefix}client__id": value})
+
+    @strawberry_django.filter_field(description="Reports filed from any client of this release.")
+    def release(self, value: strawberry.ID, prefix: str) -> Q:
+        return Q(**{f"{prefix}release__id": value})
+
+    @strawberry_django.filter_field(description="Reports filed from any release of this app.")
+    def app(self, value: strawberry.ID, prefix: str) -> Q:
+        return Q(**{f"{prefix}release__app__id": value})
+
+    @strawberry_django.filter_field(description="Reports this user filed.")
+    def reporter(self, value: strawberry.ID, prefix: str) -> Q:
+        return Q(**{f"{prefix}reporter__id": value})
+
+    @strawberry_django.filter_field(description="True: only resolved reports. False: only the ones still open.")
+    def resolved(self, value: bool, prefix: str) -> Q:
+        return Q(**{f"{prefix}resolved_at__isnull": not value})
+
+    @strawberry_django.filter_field(description="True: only reports already passed on to an issue tracker. False: only those that were not.")
+    def forwarded(self, value: bool, prefix: str) -> Q:
+        return Q(**{f"{prefix}forwarded_at__isnull": not value})

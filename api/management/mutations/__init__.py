@@ -20,6 +20,12 @@ from .role_request import (
     decline_role_request,
     cancel_role_request,
 )
+from .bug_report import (
+    delete_bug_report,
+    forward_bug_report,
+    resolve_bug_report,
+    unresolve_bug_report,
+)
 from .report import (
     request_client_report,
     resolve_report,
