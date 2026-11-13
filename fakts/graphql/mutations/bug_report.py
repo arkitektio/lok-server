@@ -181,9 +181,10 @@ class ForwardBugReportInput:
 def forward_bug_report(info: Info, input: ForwardBugReportInput) -> types.BugReport:
     """Note that an admin passed this report on to the app's own issue tracker.
 
-    lok files nothing anywhere itself: the admin opens the issue (the client
+    For the prefilled-link path: the admin opens the issue (the client
     prefills it from the report), and this records that it happened, so the
-    next admin does not forward it again.
+    next admin does not forward it again. Where lok's GitHub App is installed,
+    the management API's `fileBugReportIssue` opens the issue itself.
     """
     report = _for_triage(info, input.id)
     url = _clip(input.url, 1000)
@@ -193,11 +194,20 @@ def forward_bug_report(info: Info, input: ForwardBugReportInput) -> types.BugRep
         report.forwarded_at = timezone.now()
         report.forwarded_by = get_user(info)
         report.forwarded_url = url
+        report.save(update_fields=["forwarded_at", "forwarded_by", "forwarded_url"])
     else:
+        # Taking the mark back also ends the screenshot's publication and the
+        # webhook's link to the issue.
         report.forwarded_at = None
         report.forwarded_by = None
         report.forwarded_url = None
-    report.save(update_fields=["forwarded_at", "forwarded_by", "forwarded_url"])
+        report.github_repo = None
+        report.github_issue_number = None
+        report.github_issue_state = None
+        report.screenshot_token = None
+        report.save(
+            update_fields=["forwarded_at", "forwarded_by", "forwarded_url", "github_repo", "github_issue_number", "github_issue_state", "screenshot_token"]
+        )
     return report
 
 

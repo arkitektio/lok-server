@@ -1440,6 +1440,18 @@ class BugReport(models.Model):
         related_name="forwarded_bug_reports",
     )
     forwarded_url = models.URLField(max_length=1000, null=True, blank=True, help_text="The issue it became, when known.")
+    # Set when lok opened the issue itself through the GitHub App, so the App's
+    # webhook can find the report again when the issue is closed or reopened.
+    github_repo = models.CharField(max_length=200, null=True, blank=True, help_text="owner/name of the repository lok opened the issue in.")
+    github_issue_number = models.PositiveIntegerField(null=True, blank=True)
+    github_issue_state = models.CharField(max_length=20, null=True, blank=True, help_text="open or closed, as GitHub last reported it.")
+    screenshot_token = models.CharField(
+        max_length=64,
+        null=True,
+        blank=True,
+        unique=True,
+        help_text="Set only when an admin chose to publish the screenshot with the issue: it is then served, unauthenticated, at /f/bugshot/<token>/.",
+    )
 
     class Meta:
         ordering = ["-created_at", "-id"]
@@ -1447,6 +1459,7 @@ class BugReport(models.Model):
             models.Index(fields=["organization", "-created_at"]),
             models.Index(fields=["client", "-created_at"]),
             models.Index(fields=["release", "-created_at"]),
+            models.Index(fields=["github_repo", "github_issue_number"]),
         ]
 
     def __str__(self):

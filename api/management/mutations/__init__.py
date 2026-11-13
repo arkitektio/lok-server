@@ -22,6 +22,7 @@ from .role_request import (
 )
 from .bug_report import (
     delete_bug_report,
+    file_bug_report_issue,
     forward_bug_report,
     resolve_bug_report,
     unresolve_bug_report,

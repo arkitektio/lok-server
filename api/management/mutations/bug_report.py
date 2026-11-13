@@ -5,7 +5,10 @@ schema, where the token says which client that is (`fakts.graphql.mutations.bug_
 The management API reads them and lets an owner or admin close, forward and delete them.
 """
 
+from urllib.parse import urljoin
+
 import strawberry
+from django.urls import reverse
 from django.utils import timezone
 from graphql import GraphQLError
 from kante.types import Info
@@ -67,8 +70,9 @@ class ForwardBugReportInput:
 def forward_bug_report(info: Info, input: ForwardBugReportInput) -> types.ManagementBugReport:
     """Note that an admin passed this report on to the app's own issue tracker.
 
-    lok files nothing anywhere itself: the admin opens the issue, and this
-    records that it happened, so the next admin does not forward it again.
+    For the prefilled-link path: the admin opens the issue, and this records
+    that it happened, so the next admin does not forward it again. Where lok's
+    GitHub App is installed, `fileBugReportIssue` opens the issue itself.
     """
     report = _for_triage(info, input.id)
     url = _clip(input.url, 1000)
@@ -78,12 +82,66 @@ def forward_bug_report(info: Info, input: ForwardBugReportInput) -> types.Manage
         report.forwarded_at = timezone.now()
         report.forwarded_by = get_user(info)
         report.forwarded_url = url
+        report.save(update_fields=["forwarded_at", "forwarded_by", "forwarded_url"])
     else:
+        # Taking the mark back also ends the screenshot's publication and the
+        # webhook's link to the issue.
         report.forwarded_at = None
         report.forwarded_by = None
         report.forwarded_url = None
-    report.save(update_fields=["forwarded_at", "forwarded_by", "forwarded_url"])
+        report.github_repo = None
+        report.github_issue_number = None
+        report.github_issue_state = None
+        report.screenshot_token = None
+        report.save(
+            update_fields=["forwarded_at", "forwarded_by", "forwarded_url", "github_repo", "github_issue_number", "github_issue_state", "screenshot_token"]
+        )
     return report
+
+
+@strawberry.input(description="Open a GitHub issue from a bug report, through lok's GitHub App. The title and body are what the admin reviewed.")
+class FileBugReportIssueInput:
+    id: strawberry.ID
+    title: str
+    body: str
+    include_screenshot: bool = strawberry.field(default=False, description="Publish the screenshot with the issue. It becomes readable without signing in, by anyone with the issue.")
+    again: bool = strawberry.field(default=False, description="Open another issue although lok already opened one for this report.")
+
+
+def _absolute(info: Info, path: str) -> str | None:
+    from authapp.views import discovery_anchor
+
+    anchor = discovery_anchor()
+    if anchor:
+        return urljoin(anchor + "/", path.lstrip("/"))
+    request = getattr(info.context, "request", None)
+    build = getattr(request, "build_absolute_uri", None)
+    return build(path) if build else None
+
+
+def file_bug_report_issue(info: Info, input: FileBugReportIssueInput) -> types.ManagementBugReport:
+    """Open the issue in the repository the report's app declared, and record it."""
+    from fakts.services import github
+
+    report = _for_triage(info, input.id)
+    if report.github_issue_number and not input.again:
+        raise GraphQLError(f"lok already opened {report.github_repo}#{report.github_issue_number} for this report.")
+    if not (input.body or "").strip():
+        raise GraphQLError("The issue needs a body.")
+
+    screenshot_url = None
+    if input.include_screenshot:
+        if not report.screenshot:
+            raise GraphQLError("This report has no screenshot.")
+        path = reverse("fakts:bugshot", kwargs={"token": github.publish_screenshot(report)})
+        screenshot_url = _absolute(info, path)
+        if screenshot_url is None:
+            raise GraphQLError("lok does not know its own address, so it cannot link the screenshot.")
+
+    try:
+        return github.file_issue(report, get_user(info), input.title, input.body, screenshot_url)
+    except github.GithubError as e:
+        raise GraphQLError(str(e))
 
 
 @strawberry.input

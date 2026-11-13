@@ -1703,6 +1703,29 @@ class ManagementBugReport:
     forwarded_at: Optional[datetime.datetime] = strawberry_django.field(description="When an admin passed it on to the app's issue tracker.")
     forwarded_by: Optional["ManagementUser"] = strawberry_django.field(description="The admin who passed it on.")
     forwarded_url: Optional[str] = strawberry_django.field(description="The issue it became, when the admin recorded it.")
+    github_repo: Optional[str] = strawberry_django.field(description="owner/name of the repository lok opened the issue in, when lok opened it.")
+    github_issue_number: Optional[int] = strawberry_django.field(description="The number of the issue lok opened.")
+    github_issue_state: Optional[str] = strawberry_django.field(description="`open` or `closed`, as GitHub last reported it.")
+
+    @strawberry_django.field(description="Is the screenshot published with the forwarded issue (readable without signing in)?", only=["screenshot_token"])
+    def screenshot_published(self, info: Info) -> bool:
+        return bool(self.screenshot_token)
+
+    @strawberry_django.field(
+        description="Whether lok can open the GitHub issue for this report itself (the app declared a repository and lok's GitHub App is installed there), and the issue it would open, for an admin to review. Ask for it on one report, not on a list: it may call GitHub.",
+        select_related=["client"],
+    )
+    def github_forwarding(self, info: Info) -> "ManagementGithubForwarding":
+        from fakts.services import github
+
+        found = github.availability(self)
+        return ManagementGithubForwarding(
+            available=found.available,
+            repo=found.repo,
+            reason=found.reason,
+            title=github.issue_title(self),
+            body=github.issue_body(self),
+        )
 
     @strawberry_django.field(description="Has an admin closed this report?", only=["resolved_at"])
     def is_resolved(self, info: Info) -> bool:
@@ -1730,6 +1753,15 @@ class ManagementBugReport:
     @classmethod
     def get_queryset(cls, queryset, info: Info):
         return fakts_models.BugReport.visible_to(queryset, info.context.request.user)
+
+
+@strawberry.type(description="Forwarding a bug report to GitHub through lok's GitHub App.")
+class ManagementGithubForwarding:
+    available: bool = strawberry.field(description="Can lok open the issue itself? When false, forward with the prefilled link.")
+    repo: Optional[str] = strawberry.field(description="owner/name of the repository the app declared.")
+    reason: Optional[str] = strawberry.field(description="Why lok cannot open the issue itself, when it cannot.")
+    title: str = strawberry.field(description="The issue title lok proposes.")
+    body: str = strawberry.field(description="The issue body lok proposes, rendered from the report. Review it: the repository is usually public.")
 
 
 @strawberry_django.type(
