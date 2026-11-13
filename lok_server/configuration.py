@@ -518,6 +518,30 @@ class SocialProviderConfig(BaseModel):
     EMAIL_AUTHENTICATION: Optional[bool] = Field(default=None, description="Match logins to existing accounts by email.")
 
 
+class GithubSettings(BaseModel):
+    """A GitHub App lok files bug reports through.
+
+    The App is installed on the repositories apps declare as their ``github``
+    public source. Where it is installed, an admin forwards a bug report with one
+    click (lok opens the issue), and the App's ``issues`` webhook closes and
+    reopens the report when the issue is closed or reopened. Where it is not,
+    forwarding falls back to a prefilled ``issues/new`` link.
+    """
+
+    app_id: int = Field(description="The GitHub App's numeric id.")
+    private_key: SecretStr = Field(description="The App's private key (PEM), or a path to a file holding it.")
+    webhook_secret: SecretStr = Field(description="The secret the App signs its webhook deliveries with (X-Hub-Signature-256).")
+    api_url: str = Field(default="https://api.github.com", description="GitHub REST API base URL (change for GitHub Enterprise).")
+    labels: List[str] = Field(default_factory=lambda: ["bug", "user-reported"], description="Labels put on issues lok opens. Labels the repository lacks are skipped.")
+
+    def private_key_pem(self) -> str:
+        value = self.private_key.get_secret_value().strip()
+        if "-----BEGIN" in value:
+            return value
+        with open(value, encoding="utf-8") as handle:
+            return handle.read()
+
+
 class Settings(ServiceSettings):
     """Top-level, validated configuration for the lok service."""
 
@@ -531,6 +555,7 @@ class Settings(ServiceSettings):
     account: AccountSettings = Field(default_factory=AccountSettings, description="django-allauth account/MFA behavior.")
     email: Optional[EmailSettings] = Field(default=None, description="Optional SMTP settings for outbound email.")
     ionscale: Optional[IonscaleSettings] = Field(default=None, description="Optional ionscale coordinator connection.")
+    github: Optional[GithubSettings] = Field(default=None, description="Optional GitHub App lok forwards bug reports through. Off when unset.")
     private_key: str = Field(description="OIDC/OAuth2 RSA private signing key (PEM). Secret — must be set.")
     oidc_issuer: str = Field(default="http://lok", description="OIDC issuer URL advertised by lok.")
     discovery_follows_request: bool = Field(

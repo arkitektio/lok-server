@@ -78,6 +78,9 @@ OIDC_ISSUER = conf.oidc_issuer
 DISCOVERY_FOLLOWS_REQUEST = conf.discovery_follows_request
 
 
+# The GitHub App bug reports are forwarded through; None turns direct filing off.
+GITHUB_APP = conf.github
+
 if conf.ionscale is not None:
     IONSCALE_SERVER_URL = conf.ionscale.server_url
     # Static `svc_` token: lok drives ionscale over connect+JSON with it.

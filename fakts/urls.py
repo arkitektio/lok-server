@@ -30,6 +30,8 @@ base_urlpatterns = [
     re_path(r"^meshstart/$", views.MeshStartChallengeView.as_view(), name="meshstart"),
     re_path(r"^meshchallenge/$", views.MeshChallengeView.as_view(), name="meshchallenge"),
     re_path(r"^claimhub/$", views.ClaimHubView.as_view(), name="hubclaim"),
+    re_path(r"^github/webhook/$", views.GithubWebhookView.as_view(), name="github-webhook"),
+    re_path(r"^bugshot/(?P<token>[A-Za-z0-9_-]{20,64})/$", views.BugReportScreenshotView.as_view(), name="bugshot"),
 ]
 
 

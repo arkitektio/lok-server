@@ -3,7 +3,7 @@ import logging
 import secrets
 
 from django.conf import settings
-from django.http import JsonResponse
+from django.http import Http404, HttpResponse, JsonResponse
 from django.urls import reverse
 from django.utils import timezone
 from django.utils.decorators import method_decorator
@@ -14,7 +14,7 @@ from authapp.bearer import InvalidBearerToken, decode_bearer_token
 from authapp.views import issuer_absolute_uri, issuer_base_url
 from authapp.throttle import AUTHORIZATION_LIMIT_PER_MINUTE, is_throttled, throttled_response
 from fakts import base_models, models
-from fakts.services import clients, device_codes, hubs, rendering
+from fakts.services import clients, device_codes, github, hubs, rendering
 
 logger = logging.getLogger(__name__)
 
@@ -579,3 +579,43 @@ class HubDeleteView(View):
                 message="Error deleting hub",
             )
         return JsonResponse({"status": "deleted", "message": "Hub deleted"})
+
+
+@method_decorator(csrf_exempt, name="dispatch")
+class GithubWebhookView(View):
+    """Deliveries of lok's GitHub App. Only ``issues`` events matter: an issue lok
+    opened from a bug report was closed or reopened, and the report follows.
+
+    Authenticated by the App's webhook secret (``X-Hub-Signature-256``)."""
+
+    def post(self, request, *args, **kwargs):
+        if not github.signature_is_valid(request.body, request.headers.get("X-Hub-Signature-256")):
+            return JsonResponse({"status": "error", "error": "invalid_signature"}, status=401)
+        event = request.headers.get("X-GitHub-Event")
+        if event == "ping":
+            return JsonResponse({"status": "pong"})
+        if event != "issues":
+            return HttpResponse(status=204)
+        try:
+            payload = json.loads(request.body)
+        except ValueError:
+            return JsonResponse({"status": "error", "error": "invalid_request"}, status=400)
+        changed = github.apply_issue_event(payload if isinstance(payload, dict) else {})
+        return JsonResponse({"status": "ok", "changed": changed})
+
+
+class BugReportScreenshotView(View):
+    """The screenshot of a bug report an admin forwarded to GitHub *with* its
+    screenshot. Served without sign-in, so the issue can show it; the token is
+    unguessable and exists only after that explicit choice. Deleting the report,
+    or taking the forward back, ends it."""
+
+    def get(self, request, token, *args, **kwargs):
+        report = models.BugReport.objects.filter(screenshot_token=token).only("screenshot", "screenshot_content_type").first()
+        if report is None or not report.screenshot or report.screenshot_content_type not in ("image/jpeg", "image/png", "image/webp"):
+            raise Http404()
+        response = HttpResponse(bytes(report.screenshot), content_type=report.screenshot_content_type)
+        response["X-Content-Type-Options"] = "nosniff"
+        response["Content-Security-Policy"] = "default-src 'none'"
+        response["Cache-Control"] = "public, max-age=3600"
+        return response

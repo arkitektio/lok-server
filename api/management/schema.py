@@ -475,6 +475,9 @@ class Mutation:
     forward_bug_report = strawberry_django.mutation(
         resolver=mutations.forward_bug_report,
     )
+    file_bug_report_issue = strawberry_django.mutation(
+        resolver=mutations.file_bug_report_issue,
+    )
     delete_bug_report = strawberry_django.mutation(
         resolver=mutations.delete_bug_report,
     )
