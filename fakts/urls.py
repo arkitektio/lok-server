@@ -19,8 +19,9 @@ def index(request):
 # is /o/app-authorization/ (see authapp/urls.py, view in fakts/views.py), and
 # the canonical fakts grant runs on the token endpoint (/o/token/) — apps poll
 # it with grant_type=urn:ietf:params:oauth:grant-type:device_code, headless
-# clients exchange redeem tokens via urn:fakts:grant-type:redeem, and both
-# receive tokens + instances in one response.
+# clients exchange a mandate key via urn:fakts:grant-type:mandate-key (see
+# fakts/services/mandates.py), and both receive tokens + instances in one
+# response.
 base_urlpatterns = [
     re_path(r"^$", index, name="index"),
     re_path(r"^report/$", views.ReportView.as_view(), name="report"),

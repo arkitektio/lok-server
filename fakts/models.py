@@ -59,7 +59,7 @@ class KommunityPartner(models.Model):
         help_text="The kind of kommunity",
     )
     auto_configure = models.BooleanField(default=False)
-    preconfigured_hub = models.JSONField(help_text="A preconfigured hub that gets created when a user redeems a token from this partner.", null=True, blank=True)
+    preconfigured_hub = models.JSONField(help_text="A preconfigured hub that gets created in an organization when this partner is applied to it.", null=True, blank=True)
     filter_config = models.JSONField(
         help_text="Filter conditions to determine which users/organizations this partner applies to. Example: {'email_domain_equals': ['example.com', 'test.org'], 'email_domain_ends_with': ['edu']}",
         null=True,
@@ -1072,7 +1072,7 @@ class Client(models.Model, ClientMixin):
             "tightening that has to be agreed with the relying party out of band — hence "
             "per-client and off by default. Only meaningful for the handful of rows "
             "provisioned as OIDC relying parties from `openid_apps`: the clients minted "
-            "dynamically by the device-code and redeem paths never run the code flow at all."
+            "dynamically by the device-code and mandate-key paths never run the code flow at all."
         ),
     )
 

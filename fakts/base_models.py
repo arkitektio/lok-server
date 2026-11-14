@@ -52,10 +52,11 @@ class WellKnownFakts(BaseModel):
     exist in advance."""
     token_endpoint: str | None = None
     """Absolute URL of the OAuth2 token endpoint. The client polls it with
-    grant_type urn:ietf:params:oauth:grant-type:device_code (or exchanges a
-    redeem token via urn:fakts:grant-type:redeem) and receives the access token,
-    refresh token and rendered instances in one response. Refreshing there
-    re-renders the instances."""
+    grant_type urn:ietf:params:oauth:grant-type:device_code (or, headless,
+    exchanges a mandate key via urn:fakts:grant-type:mandate-key) and receives
+    the access token and rendered instances in one response — plus a refresh
+    token on the device-code path; refreshing there re-renders the instances.
+    Mandate-key clients have no refresh chain and run the grant again."""
     revocation_endpoint: str | None = None
     """Absolute URL of the RFC 7009 revocation endpoint. A client that logs out
     POSTs its refresh token here (`token`, `token_type_hint=refresh_token`,
@@ -350,7 +351,8 @@ class DeviceCodeStartRequest(BaseModel):
     it, the device-code token response carries it once, as ``mesh.ionscale_auth_key``
     (+ ``mesh.ionscale_coord_url``); a client that later loses its mesh state asks
     the well-known ``mesh_key_endpoint`` for a new one. Lives on the request, not the manifest: it is a
-    property of this grant, and the manifest is hashed for redeem-change detection."""
+    property of this grant, and the whole manifest is hashed to detect a changed manifest
+    (``hash_manifest``), so a new field there would invalidate existing clients."""
 
 
 class StagingAlias(BaseModel):
