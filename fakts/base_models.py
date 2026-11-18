@@ -429,6 +429,11 @@ class MeshDeviceCodeStartRequest(BaseModel):
     """Whether the minted node should be ephemeral (auto-removed when offline)."""
     tags: List[str] = Field(default_factory=list)
     """Optional ionscale ACL tags to request for the minted key."""
+    relay: bool = False
+    """The machine asks to join as a peer relay: to forward UDP for the
+    organization's nodes that find no direct path to each other
+    (`arkitekt mesh relay`). The authorizer decides; the poll's answer says
+    whether it was let in as one."""
     expiration_time_seconds: int = 600
 
 

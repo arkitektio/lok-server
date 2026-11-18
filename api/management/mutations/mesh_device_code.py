@@ -7,7 +7,7 @@ from api.management.authz import assert_owner_or_admin, get_or_denied
 from api.management.device_code_authz import resolve_device_code_with_proof
 from fakts import logic
 import kante
-from ionscale.acl import reserved_tags
+from ionscale.acl import relay_tag, reserved_tags
 from graphql import GraphQLError
 
 
@@ -23,6 +23,12 @@ class AcceptMeshDeviceCodeInput:
     machine_name: str | None = None
     ephemeral: bool = False
     tags: list[str] | None = None
+    relay: bool = strawberry.field(
+        default=False,
+        description="Let the machine join as a peer relay of the organization: every node of its mesh may "
+        "then send traffic through it where it finds no direct path. Only what the approver says counts, "
+        "not what the machine asked for (`requestedRelay`).",
+    )
 
 
 def accept_mesh_device_code(info: Info, input: AcceptMeshDeviceCodeInput) -> types.ManagementMeshDeviceCode:
@@ -44,15 +50,22 @@ def accept_mesh_device_code(info: Info, input: AcceptMeshDeviceCodeInput) -> typ
     assert_owner_or_admin(info, organization)
     _reject_reserved_tags(input.tags)
 
+    tags = input.tags
+    if input.relay:
+        # A relay carries the relay tag and nothing that reaches into the mesh:
+        # not the member-reachable machine tag a plain machine gets by default.
+        tags = [relay_tag(organization.pk), *(input.tags or [])]
+
     key = logic.create_mesh_auth_key(
         user=user,
         organization=organization,
         ephemeral=input.ephemeral,
-        tags=input.tags,
+        tags=tags,
     )
 
     device_code.auth_key = key
     device_code.machine_name = input.machine_name or device_code.requested_machine_name
+    device_code.relay = input.relay
     device_code.save()
 
     return device_code
@@ -83,9 +96,10 @@ def decline_mesh_device_code(info: Info, input: DeclineMeshDeviceCodeInput) -> t
 
 
 def _reject_reserved_tags(tags) -> None:
-    """`tag:app-*` / `tag:hub-*` mark app and hub sidecars; only lok mints them."""
+    """`tag:app-*` / `tag:hub-*` mark app and hub sidecars, `tag:relay-*` peer relays; only lok mints them."""
     reserved = reserved_tags(tags)
     if reserved:
         raise GraphQLError(
-            f"Tags {', '.join(reserved)} are reserved for app and hub sidecars and cannot be assigned by hand."
+            f"Tags {', '.join(reserved)} are reserved for app and hub sidecars and peer relays "
+            "and cannot be assigned by hand (accept with `relay: true` for a relay)."
         )

@@ -129,6 +129,7 @@ def start_mesh_device_code(start_grant: base_models.MeshDeviceCodeStartRequest) 
         description=start_grant.description,
         staging_ephemeral=start_grant.ephemeral,
         staging_tags=start_grant.tags,
+        staging_relay=start_grant.relay,
         expires_at=_expires_at(start_grant.expiration_time_seconds),
     )
 

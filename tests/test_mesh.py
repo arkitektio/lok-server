@@ -438,6 +438,45 @@ def test_accept_mesh_device_code_mints_key_and_sets_name(ionscale_repo):
 
 
 @pytest.mark.django_db
+def test_a_machine_joins_as_a_relay_only_if_the_approver_says_so(ionscale_repo):
+    from fakts import base_models
+    from fakts.services.device_codes import start_mesh_device_code
+    from api.management.mutations.mesh_device_code import (
+        accept_mesh_device_code,
+        AcceptMeshDeviceCodeInput,
+    )
+    from graphql import GraphQLError
+
+    org = factories.make_organization()
+    ensure_org_mesh(org)
+    relay_tag = f"tag:relay-{org.pk}"
+
+    def accept(**kwargs):
+        dc = start_mesh_device_code(base_models.MeshDeviceCodeStartRequest(requested_machine_name="relay-01", relay=True))
+        assert dc.staging_relay and not dc.relay
+        accept_mesh_device_code(
+            _info_for(org.owner),
+            AcceptMeshDeviceCodeInput(device_code=str(dc.pk), code=dc.code, organization=str(org.pk), **kwargs),
+        )
+        dc.refresh_from_db()
+        return dc, ionscale_repo.created_auth_keys[-1]["tags"]
+
+    # Asked for, not granted: a plain machine, whatever it asked.
+    dc, tags = accept()
+    assert not dc.relay
+    assert tags == [f"tag:mesh-{org.pk}"]
+
+    # Granted: the relay tag, and not the member-reachable machine tag.
+    dc, tags = accept(relay=True)
+    assert dc.relay
+    assert tags == [relay_tag]
+
+    # The tag is lok's to give: not by hand.
+    with pytest.raises(GraphQLError, match="reserved"):
+        accept(tags=[relay_tag])
+
+
+@pytest.mark.django_db
 def test_accept_mesh_device_code_human_overrides_name(ionscale_repo):
     from fakts import base_models
     from fakts.services.device_codes import start_mesh_device_code

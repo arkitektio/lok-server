@@ -874,6 +874,14 @@ class MeshDeviceCode(models.Model):
     description = models.TextField(null=True, blank=True)
     staging_ephemeral = models.BooleanField(default=False)
     staging_tags = models.JSONField(default=list)
+    staging_relay = models.BooleanField(
+        default=False,
+        help_text="The machine asked to join as a peer relay (to forward UDP for the organization's nodes).",
+    )
+    relay = models.BooleanField(
+        default=False,
+        help_text="The authorizer let it join as a peer relay: its key carries the organization's relay tag.",
+    )
     expires_at = models.DateTimeField()
     denied = models.BooleanField(default=False)
 

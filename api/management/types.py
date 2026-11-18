@@ -2039,6 +2039,17 @@ class ManagementMeshDeviceCode:
     machine_name: Optional[str]
     description: Optional[str]
     denied: bool
+    relay: bool = strawberry_django.field(
+        description="Whether the machine was let in as a peer relay (set on accept)."
+    )
+
+    @strawberry_django.field(
+        description="Whether the machine asks to join as a peer relay: to forward UDP for the "
+        "organization's nodes that find no direct path to each other. It forwards what it cannot "
+        "read, but carries the traffic and sees who talks to whom; accept with `relay: true` to let it."
+    )
+    def requested_relay(self) -> bool:
+        return self.staging_relay
 
     @classmethod
     def get_queryset(cls, queryset, info: Info):

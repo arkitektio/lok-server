@@ -86,6 +86,27 @@ def test_acl_lets_an_app_sidecar_reach_only_its_hub_one_way(client, ionscale_rep
 
 
 @pytest.mark.django_db
+def test_acl_grants_every_node_the_organization_s_relays_both_ways(client, ionscale_repo, org):
+    grant_app(client, org.member, org.hub)
+    enrollment = models.AppMeshEnrollment.objects.get()
+    org_id = org.organization.pk
+
+    policy = build_acl_policy(org.organization)
+
+    users = ["autogroup:member", f"tag:mesh-{org_id}", enrollment.tag, f"tag:hub-{org.hub.pk}"]
+    relay = f"tag:relay-{org_id}"
+    # As tailscale's clients read them: who may ask the relay, and towards
+    # whom it may be used. App grants are passed on as written, so both.
+    assert policy["grants"] == [
+        {"src": users, "dst": [relay], "app": {"tailscale.com/cap/relay": []}},
+        {"src": [relay], "dst": users, "app": {"tailscale.com/cap/relay-target": []}},
+    ]
+    # A grant opens no port: nothing reaches the relay over the mesh, and it
+    # reaches nothing.
+    assert not any(relay in rule["src"] or f"{relay}:*" in rule["dst"] for rule in policy["acls"])
+
+
+@pytest.mark.django_db
 def test_acl_is_applied_on_accept_and_follows_a_new_hub(client, ionscale_repo, org, django_capture_on_commit_callbacks):
     other_hub = factories.make_hub(organization=org.organization)
     with django_capture_on_commit_callbacks(execute=True):

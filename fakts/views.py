@@ -346,6 +346,9 @@ class MeshChallengeView(View):
                     "ionscale_auth_key": auth_key.key,
                     "ionscale_coord_url": settings.IONSCALE_COORD_URL,
                     "machine_name": device_code.machine_name,
+                    # Whether it was let in as a peer relay (it may have asked
+                    # and been let in as a plain machine).
+                    "relay": device_code.relay,
                 }
             )
             # Single-use: burn the code once it has yielded its key (mirrors the

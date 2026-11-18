@@ -16,7 +16,16 @@ each other when some entry links them, so the policy is an allow-list:
   (``karakter.collaboration_grants.mesh_hub_ids``). A guest whose grants lapse
   or are taken back keeps their node but no rule: the next rewrite (a grant
   change, ``reconcile_meshes --sidecars``) cuts it off;
-- nothing else reaches a sidecar.
+- nothing else reaches a sidecar;
+- a peer relay of the organization (``tag:relay-<org>``, a machine an owner or
+  admin let join as one) may be asked by every node above to forward UDP for it
+  and a peer it finds no direct path to. The two capability grants say so in
+  both directions, as tailscale's clients read them: who may ask the relay
+  (``tailscale.com/cap/relay``), and whom the relay may be used towards
+  (``tailscale.com/cap/relay-target``). They open no port: a relay is reached
+  on its own UDP port from the internet, forwards what it cannot read
+  (WireGuard stays end to end), and reaches nothing on the mesh itself. A
+  grant is also what lets the nodes see the relay at all.
 
 Every write replaces the whole policy (ionscale skips it when unchanged), so any
 hand-edited ACL is overwritten.
@@ -30,13 +39,23 @@ logger = logging.getLogger(__name__)
 
 APP_TAG_PREFIX = "tag:app-"
 HUB_TAG_PREFIX = "tag:hub-"
-RESERVED_TAG_PREFIXES = (APP_TAG_PREFIX, HUB_TAG_PREFIX)
+RELAY_TAG_PREFIX = "tag:relay-"
+RESERVED_TAG_PREFIXES = (APP_TAG_PREFIX, HUB_TAG_PREFIX, RELAY_TAG_PREFIX)
 """Only lok mints these (``fakts.services.hubs``): a hand-minted key carrying one
-would join the mesh as that app's or hub's sidecar."""
+would join the mesh as that app's or hub's sidecar, or as a relay every node
+of the organization sends its traffic through."""
+
+CAP_RELAY = "tailscale.com/cap/relay"
+CAP_RELAY_TARGET = "tailscale.com/cap/relay-target"
 
 
 def mesh_tag(organization_id) -> str:
     return f"tag:mesh-{organization_id}"
+
+
+def relay_tag(organization_id) -> str:
+    """The tag of the organization's peer relays (see the module docs)."""
+    return f"{RELAY_TAG_PREFIX}{organization_id}"
 
 
 def build_acl_policy(organization) -> dict:
@@ -77,8 +96,18 @@ def build_acl_policy(organization) -> dict:
     for hub_id in sorted(reach):
         acls.append({"action": "accept", "src": sorted(reach[hub_id]), "dst": [f"{HUB_TAG_PREFIX}{hub_id}:*"]})
 
+    # Everyone the rules above put on the mesh may use the organization's relays.
+    sidecars = {tag for tags in reach.values() for tag in tags} | {f"{HUB_TAG_PREFIX}{hub_id}" for hub_id in reach}
+    users = peers + sorted(sidecars)
+    relay = relay_tag(org_id)
+    grants = [
+        {"src": users, "dst": [relay], "app": {CAP_RELAY: []}},
+        {"src": [relay], "dst": users, "app": {CAP_RELAY_TARGET: []}},
+    ]
+
     return {
         "acls": acls,
+        "grants": grants,
         # ionscale's default SSH rule: members may SSH into their own devices.
         "ssh": [
             {
