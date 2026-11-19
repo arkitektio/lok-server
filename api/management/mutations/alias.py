@@ -40,6 +40,15 @@ class CreateAliasInput:
     host: str | None = None
     path: str | None = None
     public: bool = False
+    priority: int | None = None
+    """Where clients get it, lower first. Unset: its reach's default."""
+    enabled: bool = True
+
+
+def _priority(priority: int | None) -> int | None:
+    if priority is not None and not 0 <= priority <= 32767:
+        raise GraphQLError("An alias's priority is between 0 and 32767.")
+    return priority
 
 
 def create_alias(info: Info, input: CreateAliasInput) -> types.ManagementInstanceAlias:
@@ -58,6 +67,8 @@ def create_alias(info: Info, input: CreateAliasInput) -> types.ManagementInstanc
         kind=input.kind,
         path=input.path,
         public=_public_for(input.kind, input.public),
+        priority=_priority(input.priority),
+        enabled=input.enabled,
     )
 
     return alias
@@ -73,6 +84,9 @@ class UpdateAliasInput:
     host: str | None = None
     path: str | None = None
     public: bool | None = None
+    priority: int | None = strawberry.UNSET
+    """Where clients get it, lower first. Null: back to its reach's default. Left out: unchanged."""
+    enabled: bool | None = None
 
 
 def update_alias(info: Info, input: UpdateAliasInput) -> types.ManagementInstanceAlias:
@@ -89,6 +103,10 @@ def update_alias(info: Info, input: UpdateAliasInput) -> types.ManagementInstanc
     if input.public is not None:
         alias.public = input.public
     alias.public = _public_for(input.kind, alias.public, alias.ssl)
+    if input.priority is not strawberry.UNSET:
+        alias.priority = _priority(input.priority)
+    if input.enabled is not None:
+        alias.enabled = input.enabled
     alias.save()
 
     return alias
@@ -109,4 +127,71 @@ def delete_alias(info: Info, input: DeleteAliasInput) -> strawberry.ID:
 
     alias.delete()
 
+    return input.id
+
+
+@kante.input
+class CreateAliasRuleInput:
+    """Disable or re-rank an alias for some clients. Name exactly one of app, client, user, role."""
+
+    alias: strawberry.ID
+    effect: str
+    """'disable' or 'priority'."""
+    priority: int | None = None
+    """The alias's priority for these clients (effect 'priority' only)."""
+    app: strawberry.ID | None = None
+    client: strawberry.ID | None = None
+    user: strawberry.ID | None = None
+    role: strawberry.ID | None = None
+
+
+def create_alias_rule(info: Info, input: CreateAliasRuleInput) -> types.ManagementAliasRule:
+    """Disable or re-rank an alias for one client, an app's clients, a user's, or a role's holders'."""
+    from karakter import models as karakter_models
+
+    alias = get_or_denied(fakts_models.InstanceAlias.objects, id=input.alias)
+    organization = alias.instance.organization
+    assert_owner_or_admin(info, organization)
+
+    if input.effect not in fakts_enums.AliasRuleEffectChoices.values:
+        raise GraphQLError(f"Unknown effect '{input.effect}' (one of: {', '.join(fakts_enums.AliasRuleEffectChoices.values)}).")
+    ranking = input.effect == fakts_enums.AliasRuleEffectChoices.PRIORITY.value
+    if ranking != (input.priority is not None):
+        raise GraphQLError("A 'priority' rule needs a priority; a 'disable' rule takes none.")
+
+    named = [name for name in ("app", "client", "user", "role") if getattr(input, name) is not None]
+    if len(named) != 1:
+        raise GraphQLError("A rule names exactly one of app, client, user or role.")
+
+    subject: dict[str, object] = {}
+    if input.app is not None:
+        subject["app"] = get_or_denied(fakts_models.App.objects, id=input.app)
+    elif input.client is not None:
+        # Only a client of this organization: a rule cannot reach into another's.
+        subject["client"] = get_or_denied(fakts_models.Client.objects, id=input.client, membership__organization=organization)
+    elif input.user is not None:
+        subject["user"] = get_or_denied(karakter_models.User.objects, id=input.user, memberships__organization=organization)
+    else:
+        subject["role"] = get_or_denied(karakter_models.Role.objects, id=input.role, organization=organization)
+
+    return fakts_models.AliasRule.objects.create(
+        alias=alias,
+        effect=input.effect,
+        priority=_priority(input.priority),
+        **subject,
+    )
+
+
+@kante.input
+class DeleteAliasRuleInput:
+    """Input for deleting an alias rule."""
+
+    id: strawberry.ID
+
+
+def delete_alias_rule(info: Info, input: DeleteAliasRuleInput) -> strawberry.ID:
+    """Delete an alias rule, returning its id."""
+    rule = get_or_denied(fakts_models.AliasRule.objects, id=input.id)
+    assert_owner_or_admin(info, rule.alias.instance.organization)
+    rule.delete()
     return input.id

@@ -318,6 +318,7 @@ class ManagementBugReportFilter:
 class ManagementInstanceAliasOrdering:
     id: strawberry.auto
     name: strawberry.auto
+    priority: strawberry.auto
 
 
 @strawberry_django.filter_type(fakts_models.InstanceAlias)

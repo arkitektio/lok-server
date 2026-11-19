@@ -20,6 +20,13 @@ class AliasKindChoices(TextChoices):
     DOCKER = "docker", "DOCKER (only reachable from inside the hub's own docker environment)"
 
 
+class AliasRuleEffectChoices(TextChoices):
+    """What an alias rule does to its alias for the clients it names."""
+
+    DISABLE = "disable", "Disable the alias for these clients"
+    PRIORITY = "priority", "Rank the alias differently for these clients"
+
+
 class AliasProbeStatusChoices(TextChoices):
     """The outcome of lok probing a ``public`` alias's signed challenge (``fakts.services.alias_probe``).
 

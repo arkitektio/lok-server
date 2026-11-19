@@ -64,3 +64,22 @@ def legacy_of(reach: Reach, host: str | None) -> tuple[str, str]:
     if reach == "internal":
         return ("docker", "local")
     return ("absolute", {"loopback": "local", "lan": "network", "public": "public"}[reach])
+
+
+#: Where an alias of each reach is ranked when its hub's owner set no priority, lower first,
+#: as ``(plain, https)``. Closer first; plain before https where plain never leaves this machine
+#: or the deployment's network (clients there need no certificate), https first everywhere else.
+#: A client tries them in this order and its challenge decides what it can reach.
+DEFAULT_PRIORITY: dict[Reach, tuple[int, int]] = {
+    "internal": (10, 11),
+    "loopback": (20, 21),
+    "lan": (31, 30),
+    "mesh": (40, 41),
+    "public": (51, 50),
+}
+
+
+def default_priority(reach: Reach, ssl: bool) -> int:
+    """The priority of an alias of ``reach`` whose owner set none (:data:`DEFAULT_PRIORITY`)."""
+    plain, https = DEFAULT_PRIORITY[reach]
+    return https if ssl else plain

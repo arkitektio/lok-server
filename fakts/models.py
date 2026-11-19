@@ -287,17 +287,24 @@ class ServiceInstance(models.Model):
             ),
         ]
 
-    def render(self, context: base_models.LinkingContext) -> base_models.InstanceClaim:
-        """Render all aliases of the instance into a list of URLs."""
-        urls = []
+    def render(self, context: base_models.LinkingContext, rules: "dict[int, list[AliasRule]] | None" = None) -> base_models.InstanceClaim:
+        """Render the aliases the client is handed, in the hub owner's order
+        (``fakts.services.alias_priority``): ``rules`` are those that name the client, by alias id."""
+        from fakts.services.alias_priority import effective_priority
+
+        ranked: list[tuple[int, int, base_models.Alias]] = []
         for alias in self.aliases.all():
+            priority = effective_priority(alias, (rules or {}).get(alias.id, ()))
+            if priority is None:
+                continue
             try:
                 url = alias.to_url(context)
                 # An unresolvable mesh alias (hub node not on the mesh) is left out.
                 if url is not None:
-                    urls.append(url)
+                    ranked.append((priority, alias.id, url.model_copy(update={"priority": priority})))
             except AssertionError as e:
                 raise errors.InstanceAliasNotFound(f"Error rendering alias {alias}: {str(e)}")
+        urls = [url for _, _, url in sorted(ranked, key=lambda entry: entry[:2])]
 
         challenge_key = {"kind": "ed25519", "key": self.public_key} if self.public_key else None
         certificate = self.hub.tls_certificate if self.hub_id else None
@@ -359,6 +366,12 @@ class InstanceAlias(models.Model):
     )
     path = models.CharField(max_length=1000, null=True, blank=True, help_text="The path of the alias,")
     scope = models.CharField(max_length=20, default="local", help_text="The scope of the alias. 'local' means that the alias is only available within the local network. 'network' means that the alias is available within the organization's network.")
+    priority = models.PositiveSmallIntegerField(
+        null=True,
+        blank=True,
+        help_text="Where the hub's owner ranks this alias, lower first. Unset: its reach's default (internal 10, loopback 20, lan 30, mesh 40, public 50; one more for the other of plain and https).",
+    )
+    enabled = models.BooleanField(default=True, help_text="Whether clients are handed this alias at all.")
     probe_status = TextChoicesField(
         choices_enum=enums.AliasProbeStatusChoices,
         null=True,
@@ -1565,3 +1578,42 @@ class LinkInspector(models.Model):
 
     def __str__(self):
         return f"{self.name} ({self.organization})"
+
+
+class AliasRule(models.Model):
+    """Disables or re-ranks one alias for some clients: one client, every client of an app, of a
+    user, or of a member holding a role (``fakts.services.alias_priority``)."""
+
+    alias = models.ForeignKey(InstanceAlias, on_delete=models.CASCADE, related_name="rules")
+    effect = models.CharField(
+        max_length=10,
+        choices=enums.AliasRuleEffectChoices.choices,
+        help_text="What the rule does to the alias for the clients it names.",
+    )
+    priority = models.PositiveSmallIntegerField(
+        null=True,
+        blank=True,
+        help_text="The alias's priority for these clients (effect 'priority' only), lower first.",
+    )
+    app = models.ForeignKey(App, on_delete=models.CASCADE, related_name="alias_rules", null=True, blank=True, help_text="Every client of this app.")
+    client = models.ForeignKey(Client, on_delete=models.CASCADE, related_name="alias_rules", null=True, blank=True, help_text="This one client.")
+    user = models.ForeignKey(get_user_model(), on_delete=models.CASCADE, related_name="alias_rules", null=True, blank=True, help_text="Every client of this user.")
+    role = models.ForeignKey("karakter.Role", on_delete=models.CASCADE, related_name="alias_rules", null=True, blank=True, help_text="Every client of a member holding this role.")
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints = [
+            models.CheckConstraint(
+                condition=(
+                    models.Q(app__isnull=False, client__isnull=True, user__isnull=True, role__isnull=True)
+                    | models.Q(app__isnull=True, client__isnull=False, user__isnull=True, role__isnull=True)
+                    | models.Q(app__isnull=True, client__isnull=True, user__isnull=False, role__isnull=True)
+                    | models.Q(app__isnull=True, client__isnull=True, user__isnull=True, role__isnull=False)
+                ),
+                name="alias_rule_names_one_subject",
+            ),
+            models.CheckConstraint(
+                condition=models.Q(effect="priority", priority__isnull=False) | models.Q(effect="disable", priority__isnull=True),
+                name="alias_rule_priority_iff_ranking",
+            ),
+        ]

@@ -535,6 +535,12 @@ class Mutation:
     update_alias = strawberry_django.mutation(
         resolver=mutations.update_alias,
     )
+    create_alias_rule = strawberry_django.mutation(
+        resolver=mutations.create_alias_rule,
+    )
+    delete_alias_rule = strawberry_django.mutation(
+        resolver=mutations.delete_alias_rule,
+    )
 
     update_profile = strawberry_django.mutation(
         resolver=mutations.update_profile,

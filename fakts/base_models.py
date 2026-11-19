@@ -595,6 +595,10 @@ class Alias(BaseModel):
     ``internal`` only inside the deployment's own network, ``lan`` the local network, ``mesh``
     the organization's mesh, ``public`` the internet. What ``kind`` says, and more; ``kind``
     stays for the clients that predate it."""
+    priority: Optional[int] = None
+    """Where the hub's owner ranks the alias for the client it is rendered for, lower first
+    (``fakts.services.alias_priority``). An instance's aliases are sent in this order; clients
+    that do not know the field follow the order."""
 
 
 class TlsClaim(BaseModel):

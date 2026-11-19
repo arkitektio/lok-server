@@ -23,6 +23,7 @@ from fakts.base_models import (
     InstanceClaim,
     SelfClaim,
 )
+from fakts.services import alias_priority
 from fakts.services.tokens import hash_requirements
 
 
@@ -95,11 +96,14 @@ def render_envelope_from_context(client: models.Client, context: base_models.Lin
     )
 
     instances_map: Dict[str, InstanceClaim] = {}
+    # The hub owner's rules for this client (its own, its app's, its user's, its roles'),
+    # loaded once for every instance it is handed.
+    rules = alias_priority.rules_for(client)
 
     for mapping in client.mappings.all():
         instance: models.ServiceInstance = mapping.instance
 
-        value = instance.render(context)
+        value = instance.render(context, rules=rules)
         instances_map[mapping.key] = value
 
     envelope = FaktsEnvelope(

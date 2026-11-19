@@ -44,6 +44,8 @@ from .alias import (
     create_alias,
     update_alias,
     delete_alias,
+    create_alias_rule,
+    delete_alias_rule,
 )
 from .device_group import (
     create_device_group,

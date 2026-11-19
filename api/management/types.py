@@ -1157,6 +1157,9 @@ class ManagementInstanceAlias:
     scope: str = strawberry.field(description="Deprecated: see `reach`. The scope of the alias. E.g 'local' means that the alias can only be used within the local network.")
     reach: str = strawberry.field(description="Where the address works: 'loopback' (this machine), 'internal' (only inside the deployment's own network), 'lan' (the local network), 'mesh' (the organization's mesh) or 'public' (the internet).")
     public: bool = strawberry.field(description="Is this alias publicly reachable? If true, the coordination server can also check the alias's health directly, enabling health checks from the kontrol interface.")
+    priority: Optional[int] = strawberry.field(description="Where the hub's owner ranks this alias, lower first. Null: its reach's default (see effectivePriority).")
+    enabled: bool = strawberry.field(description="Whether clients are handed this alias at all.")
+    rules: list["ManagementAliasRule"] = strawberry_django.field(description="Rules that disable or re-rank this alias for some clients.")
     probe_status: Optional[str] = strawberry.field(
         description="The outcome of lok's last probe of this alias's signed challenge: 'verified' (up, and proven to be the instance), "
         "'no_key', 'unsigned', 'bad_signature', 'unhealthy', 'invalid_response', 'unreachable', 'tls_failed', 'timeout', "
@@ -1179,9 +1182,35 @@ class ManagementInstanceAlias:
 
         return resolve_hub_mesh_host(self.instance.hub)
 
+    @strawberry_django.field(description="Where clients without a rule for this alias get it, lower first: priority, or its reach's default (internal 10, loopback 20, lan 30, mesh 40, public 50; one more for the other of plain and https).")
+    def effective_priority(self) -> int:
+        from fakts.services.alias_priority import own_priority
+
+        return own_priority(self)
+
     @classmethod
     def get_queryset(cls, queryset, info: Info):
         return _membership_scoped(queryset, info, "instance__organization")
+
+
+@strawberry_django.type(
+    fakts_models.AliasRule,
+    description="Disables or re-ranks one alias for some clients: one client, every client of an app, of a user, or of a member holding a role. The most specific rule wins (client, app, user, role).",
+)
+class ManagementAliasRule:
+    id: strawberry.ID
+    alias: ManagementInstanceAlias = strawberry_django.field(description="The alias the rule is about.")
+    effect: str = strawberry.field(description="'disable' (these clients are not handed the alias) or 'priority' (they get it ranked at `priority`).")
+    priority: Optional[int] = strawberry.field(description="The alias's priority for these clients (effect 'priority' only), lower first.")
+    app: Optional["ManagementApp"] = strawberry_django.field(description="Every client of this app.")
+    client: Optional["ManagementClient"] = strawberry_django.field(description="This one client.")
+    user: Optional["ManagementUser"] = strawberry_django.field(description="Every client of this user.")
+    role: Optional["ManagementRole"] = strawberry_django.field(description="Every client of a member holding this role.")
+    created_at: datetime.datetime = strawberry.field(description="When the rule was made.")
+
+    @classmethod
+    def get_queryset(cls, queryset, info: Info):
+        return _membership_scoped(queryset, info, "alias__instance__organization")
 
 
 @strawberry_django.type(
