@@ -1,0 +1,81 @@
+{% extends "cvd/base.html" %}
+{% block title %}Report a vulnerability{% endblock %}
+{% block nav_report %}aria-current="page"{% endblock %}
+{% block content %}
+<h1>Report a security vulnerability</h1>
+<p class="lead">Found a vulnerability in a {{ sec.vendor }} product or in a service we operate? Thank you. Please tell us
+  before telling anyone else, so we can fix it and disclose it together with you.</p>
+
+<p>How we handle reports, what we promise in return, and when a report counts as resolved is in our
+  <a href="{{ base }}/policy">coordinated vulnerability disclosure (CVD) policy</a>. We accept reports in: {{ languages }}.</p>
+
+<h2>Contact us</h2>
+<p>You can reach us in three ways: email (preferably encrypted), or the web form below, which you can also use anonymously.</p>
+{% include "cvd/_contacts.html" %}
+
+<h2 id="form">Web form</h2>
+<p>All fields except the contact details are needed for us to understand the issue. You can submit
+  <strong>anonymously</strong>: leave the contact field empty. Then we cannot ask you questions or tell you about
+  progress, so an anonymous report may be processed only in part or not at all.</p>
+
+{% if throttled %}<p class="notice" role="alert">Too many reports from your network in the last minute. Please wait a minute and submit again.</p>{% endif %}
+{% if form.errors %}<p class="notice" role="alert">Please check the highlighted fields.</p>{% endif %}
+
+<form method="post" action="{{ base }}">
+  <fieldset>
+    <legend>1. What is affected</legend>
+    <label for="id_kind">Kind of issue
+      <span class="hint">Software we ship goes to our PSIRT; a service we run goes to our CSIRT.</span></label>
+    <select name="kind" id="id_kind">
+      {% for value, label in form.fields.kind.choices %}
+      <option value="{{ value }}" {% if form.kind.value == value %}selected{% endif %}>{{ label }}</option>
+      {% endfor %}
+    </select>
+    <label for="id_affected">Affected product, version, URL or component
+      <span class="hint">e.g. "lok 2026.11, the /o/token/ endpoint" or "https://go.arkitekt.live/…"</span></label>
+    <input type="text" name="affected" id="id_affected" maxlength="500" required value="{{ form.affected.value|default_if_none:'' }}">
+    {{ form.affected.errors }}
+  </fieldset>
+
+  <fieldset>
+    <legend>2. The vulnerability</legend>
+    <label for="id_title">Short summary</label>
+    <input type="text" name="title" id="id_title" maxlength="200" required value="{{ form.title.value|default_if_none:'' }}">
+    {{ form.title.errors }}
+    <label for="id_description">Description and impact
+      <span class="hint">What can an attacker do, and under which conditions? Reports that only paste the output of an automated scanner, without explaining the issue, are hard for us to act on.</span></label>
+    <textarea name="description" id="id_description" maxlength="20000" required>{{ form.description.value|default_if_none:'' }}</textarea>
+    {{ form.description.errors }}
+    <label for="id_reproduction">Steps to reproduce or proof of concept
+      <span class="hint">Optional, but it speeds up our analysis a lot. Please do not include other people's data.</span></label>
+    <textarea name="reproduction" id="id_reproduction" maxlength="20000">{{ form.reproduction.value|default_if_none:'' }}</textarea>
+    <label for="id_language">Language of this report</label>
+    <select name="language" id="id_language">
+      {% for value, label in form.fields.language.choices %}
+      <option value="{{ value }}" {% if form.language.value == value %}selected{% endif %}>{{ label }}</option>
+      {% endfor %}
+    </select>
+  </fieldset>
+
+  <fieldset>
+    <legend>3. How we can reach you (optional)</legend>
+    <label for="id_contact">Email address, phone number or other contact
+      <span class="hint">Leave empty to report anonymously. We only use it for this report and never pass it to third
+        parties without your explicit consent.{% if sec.privacy_policy_url %} See our <a href="{{ sec.privacy_policy_url }}">privacy policy</a>.{% endif %}</span></label>
+    <input type="text" name="contact" id="id_contact" maxlength="300" autocomplete="email" value="{{ form.contact.value|default_if_none:'' }}">
+    <label class="check"><input type="checkbox" name="wants_credit" {% if form.wants_credit.value %}checked{% endif %}>
+      <span>Thank me on the <a href="{{ base }}/acknowledgements">acknowledgements page</a> once the issue is resolved</span></label>
+    <label for="id_credit_name">Name or alias to list</label>
+    <input type="text" name="credit_name" id="id_credit_name" maxlength="120" value="{{ form.credit_name.value|default_if_none:'' }}">
+    <label for="id_credit_reference">Link to show with it (optional)</label>
+    <input type="text" name="credit_reference" id="id_credit_reference" maxlength="300" value="{{ form.credit_reference.value|default_if_none:'' }}">
+  </fieldset>
+
+  <div class="hp" aria-hidden="true">
+    <label for="id_website">Leave this field empty</label>
+    <input type="text" name="website" id="id_website" tabindex="-1" autocomplete="off">
+  </div>
+
+  <button type="submit">Submit report</button>
+</form>
+{% endblock %}

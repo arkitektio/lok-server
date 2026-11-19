@@ -70,6 +70,9 @@ urlpatterns = [
     dynamicpath("managementschema/", csrf_exempt(login_required(management_schema)), name="management_schema"),
     dynamicpath("admin/", admin.site.urls),
     dynamicpath("f/", include("fakts.urls", namespace="fakts")),
+    # The public, script-free vulnerability disclosure pages. The gateway publishes them
+    # at /security (BSI TR-03183-3 4.5); without a `security:` config they answer 404.
+    dynamicpath("security/", include("cvd.urls", namespace="cvd")),
     dynamicpath("o/", include("authapp.urls")),  # /auth/login/, /auth/logout/
     dynamicpath("ht", csrf_exempt(HealthCheckView.as_view(checks=["health_check.checks.Database"])), name="health_check"),
     dynamicpath("accounts/", include("allauth.urls")),

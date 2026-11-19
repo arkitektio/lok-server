@@ -1,0 +1,101 @@
+{% extends "cvd/base.html" %}
+{% block title %}Coordinated vulnerability disclosure policy{% endblock %}
+{% block nav_policy %}aria-current="page"{% endblock %}
+{% block content %}
+<h1>Coordinated vulnerability disclosure policy</h1>
+<p class="lead">The CVD policy of {{ sec.vendor }}.</p>
+<p class="meta">Last modified: <time datetime="{{ sec.policy_updated|date:'Y-m-d' }}">{{ sec.policy_updated|date:"j F Y" }}</time>.
+  We review this policy at least once a year.</p>
+
+<h2>1. Scope</h2>
+<p>This policy covers vulnerabilities in:</p>
+<ul>
+  <li><strong>products</strong>: software that {{ sec.vendor }} develops and distributes, and</li>
+  <li><strong>infrastructure</strong>: services and systems that {{ sec.vendor }} operates, such as the hosts that publish this page.</li>
+</ul>
+<p>We consider a report a valid vulnerability if it</p>
+<ul>
+  <li>affects one of our products or our infrastructure, and</li>
+  <li>preferably concerns information that is not yet public.</li>
+</ul>
+<p>Output of automated tools or scanners without supporting explanation may not be treated as a valid report. We
+  still read reports about issues that are already fixed, even when they don't start a new CVD process.</p>
+
+<h2>2. How to report</h2>
+<p>Use one of these contact options. Email addresses and telephone numbers are both accepted as ways for us to
+  reach you; leave one with your report.</p>
+{% include "cvd/_contacts.html" %}
+<p>You can also use the <a href="{{ base }}#form">web form</a>, with or without contact details. For confidential
+  information we recommend encrypted and digitally signed email (OpenPGP).</p>
+<p>A good report names the affected product or service and its version, describes the vulnerability and its
+  impact, and includes steps to reproduce it. Complex issues may need further explanation or documentation from you.
+  Good communication matters: if you don't answer technical or content questions, we may only be able to process
+  your report in part, or not at all. Questions from you about the status of your report are always welcome.</p>
+<p>We accept reports in: {{ languages }}.</p>
+
+<h3>Anonymous reports</h3>
+<p>You can report without giving any contact details through the <a href="{{ base }}#form">web form</a>. The form stores
+  only what you type in, not your IP address. Because we can't ask you anything, <strong>an anonymous report can only be
+  processed to a limited extent, or possibly not at all.</strong></p>
+
+<h2>3. What we promise you</h2>
+<ul>
+  <li><strong>Confidentiality.</strong> We treat every report confidentially, as far as the law permits. Only the
+    information needed for the public disclosure of a vulnerability is excluded.</li>
+  <li><strong>Your personal data</strong> is not passed to third parties without your explicit consent.</li>
+  <li><strong>No legal action.</strong> If you act in accordance with this policy, we will not seek criminal
+    prosecution against you. This does not apply if criminal intent was or is recognisably pursued.</li>
+  <li><strong>No NDA.</strong> We never ask you to sign a non-disclosure agreement.</li>
+  <li><strong>A trusted contact.</strong> We stay available to you throughout the whole process.</li>
+  <li><strong>Credit.</strong> If you ask, we name you (or your alias) and a link of your choice on our
+    <a href="{{ base }}/acknowledgements">acknowledgements page</a> once the process is complete. We don't run a bug
+    bounty programme at this time.</li>
+</ul>
+
+<h2>4. Response times</h2>
+<p>Unless a report was submitted anonymously:</p>
+<ul>
+  <li>a person (not an automated system) answers a report, or an update to one, within <strong>five working days</strong>;</li>
+  <li>detailed feedback after analysis follows within <strong>ten working days</strong>. It either confirms or rejects
+    the vulnerability, asks the questions we need answered to understand it, or explains why the analysis takes
+    longer, with a commitment to another update within ten working days.</li>
+</ul>
+<p>No report is closed by a single analyst: closing or rejecting a report always needs a second person to agree.</p>
+
+<h2>5. Disclosure</h2>
+<p>Validated and verified vulnerabilities are publicly disclosed within <strong>90 days</strong>. If there is a valid
+  reason for delaying a fix, this period can be extended once by another 90 days, in close consultation with the
+  national CSIRT. Only the national CSIRT can grant further extensions. Disclosure takes place at least in the
+  <a href="https://euvd.enisa.europa.eu/">European Vulnerability Database (EUVD)</a> maintained by ENISA, and we agree
+  the timing and content with you.</p>
+<p>We notify our national CSIRT, <a href="{{ sec.national_csirt_url }}">{{ sec.national_csirt }}</a>, without undue
+  delay about actively exploited vulnerabilities in our products or infrastructure. We keep it informed of new
+  information, mitigations and their schedules, and coordinate with it.</p>
+{% if sec.csaf %}<p>Our security advisories are published as CSAF documents: <a href="{{ sec.csaf }}">{{ sec.csaf }}</a>.</p>{% endif %}
+
+<h2>6. When the process ends</h2>
+<p>We consider the CVD process for a report complete when:</p>
+<ul>
+  <li>the report turns out to be unfounded;</li>
+  <li>a vulnerability in a service we operate is fixed and has been publicly disclosed;</li>
+  <li>a vulnerability in a product is mitigated or fixed by a suitable patch and has been publicly disclosed;</li>
+  <li>you have not answered our technical or content questions for at least 30 days, so the report can only be
+    processed in part or not at all; or</li>
+  <li>the vulnerability has been publicly disclosed and, in consultation with the national CSIRT, a mitigation or fix
+    can no longer be expected.</li>
+</ul>
+<p>Unless you reported anonymously, we tell you without undue delay when the process for your report has ended.</p>
+
+<h2>7. Code of conduct</h2>
+<p>We ask you:</p>
+<ul>
+  <li>not to exploit a vulnerability beyond what is needed to demonstrate it, and to cause no damage;</li>
+  <li>not to attack our systems, for example through social engineering, spam, denial of service or brute force;</li>
+  <li>not to access, manipulate or modify the data or systems of third parties (for example other users' accounts);</li>
+  <li>not to offer exploits or tools for the vulnerability to others, whether for a fee or free of charge;</li>
+  <li>to treat everyone involved with respect. There is no room for discrimination, sexism or insults, including in the
+    name or link you ask us to publish.</li>
+</ul>
+<p>If these rules are not followed, we will not list you on the acknowledgements page. We will still handle your
+  report as well as we can.</p>
+{% endblock %}

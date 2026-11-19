@@ -1,0 +1,24 @@
+{% extends "cvd/base.html" %}
+{% block title %}Acknowledgements{% endblock %}
+{% block nav_ack %}aria-current="page"{% endblock %}
+{% block content %}
+<h1>Security acknowledgements</h1>
+<p class="lead">We thank everyone who reported a vulnerability to {{ sec.vendor }} responsibly. People are listed
+  here with their consent, under the name they chose, once the CVD process for their report is complete.</p>
+{% if entries %}
+<table>
+  <thead><tr><th>Date</th><th>Reporter</th><th>Issue</th></tr></thead>
+  <tbody>
+  {% for e in entries %}
+    <tr>
+      <td><time datetime="{{ e.date|date:'Y-m-d' }}">{{ e.date|date:"j M Y" }}</time></td>
+      <td>{% if e.reference %}<a href="{{ e.reference }}" rel="nofollow noopener">{{ e.name }}</a>{% else %}{{ e.name }}{% endif %}</td>
+      <td>{{ e.summary|default:"" }}</td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<div class="card"><p>No one is listed yet. <a href="{{ base }}">Your report</a> could be the first.</p></div>
+{% endif %}
+{% endblock %}

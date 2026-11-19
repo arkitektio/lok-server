@@ -542,6 +542,76 @@ class GithubSettings(BaseModel):
             return handle.read()
 
 
+class SecurityKeySettings(BaseModel):
+    """An OpenPGP public key, published as a direct ``.asc`` download (BSI TR-03183-3 4.3.2)."""
+
+    url: str = Field(description="Absolute URL of the ASCII-armored public key (.asc), served directly, no redirect.")
+    fingerprint: str = Field(description="The key's full fingerprint (spaces are ignored).")
+
+    @field_validator("fingerprint")
+    @classmethod
+    def _normalize_fingerprint(cls, value: str) -> str:
+        value = "".join(value.split()).upper()
+        if not value or any(c not in "0123456789ABCDEF" for c in value):
+            raise ValueError("an OpenPGP fingerprint is hexadecimal")
+        return value
+
+
+class SecurityContactSettings(BaseModel):
+    """One role-oriented functional mailbox (PSIRT or CSIRT) and its OpenPGP key."""
+
+    email: str = Field(description="The functional mailbox, e.g. psirt@example.com.")
+    key: SecurityKeySettings = Field(description="The mailbox's OpenPGP public key.")
+
+
+class SecurityAcknowledgement(BaseModel):
+    """An entry on the acknowledgements page (hall of fame), published only with the reporter's consent."""
+
+    name: str = Field(description="The name or alias the reporter asked to be listed under.")
+    reference: Optional[str] = Field(default=None, description="An optional URL the reporter asked to be linked.")
+    date: datetime.date = Field(description="When the CVD process for the report was completed.")
+    summary: Optional[str] = Field(default=None, description="A short, public description of what was reported.")
+
+
+class SecuritySettings(BaseModel):
+    """Coordinated vulnerability disclosure (RFC 9116, BSI TR-03183-3).
+
+    lok renders the public, script-free pages for it (``/security``: the report page with
+    its anonymous web form, ``/security/policy``, ``/security/acknowledgements``) and
+    prints the unsigned body of ``/.well-known/security.txt`` (``manage.py security_txt``)
+    for the operator to sign offline. Off when unset: the pages answer 404.
+    """
+
+    vendor: str = Field(description="The manufacturer the policy belongs to, e.g. 'Arkitekt'.")
+    page_url: str = Field(description="Absolute URL the report page is published at, e.g. https://example.com/security. The policy and acknowledgement pages live below it.")
+    psirt: SecurityContactSettings = Field(description="First contact: the PSIRT mailbox (product vulnerabilities).")
+    csirt: SecurityContactSettings = Field(description="Second contact: the CSIRT mailbox (infrastructure vulnerabilities).")
+    signing_key: SecurityKeySettings = Field(description="The dedicated key security.txt is clearsigned with.")
+    canonical: List[str] = Field(description="Every URL security.txt is served at (its Canonical fields).")
+    expires: datetime.date = Field(description="When the published contact options and security.txt expire. At most a year ahead; review at least quarterly.")
+    policy_updated: datetime.date = Field(description="Last modification of the CVD policy, shown on the policy page. Review at least yearly.")
+    preferred_languages: List[str] = Field(default_factory=lambda: ["en", "de"], description="Languages reports are accepted in. Must include 'en'.")
+    csaf: Optional[str] = Field(default=None, description="URL of a CSAF provider-metadata.json, if the vendor publishes advisories as CSAF.")
+    privacy_policy_url: Optional[str] = Field(default=None, description="Privacy policy pointed to next to the report form's contact field.")
+    national_csirt: str = Field(default="CERT-Bund at the BSI", description="The national CSIRT the vendor coordinates actively exploited vulnerabilities with.")
+    national_csirt_url: str = Field(default="https://www.bsi.bund.de/", description="Link for the national CSIRT.")
+    acknowledgements: List[SecurityAcknowledgement] = Field(default_factory=list, description="The hall of fame, newest first.")
+
+    @field_validator("preferred_languages")
+    @classmethod
+    def _english_is_offered(cls, value: List[str]) -> List[str]:
+        if "en" not in value:
+            raise ValueError("BSI TR-03183-3 4.2.6 requires 'en' among the preferred languages")
+        return value
+
+    @property
+    def base_path(self) -> str:
+        """The public path prefix of the pages (``/security``), for links between them."""
+        from urllib.parse import urlparse
+
+        return urlparse(self.page_url).path.rstrip("/") or "/security"
+
+
 class Settings(ServiceSettings):
     """Top-level, validated configuration for the lok service."""
 
@@ -556,6 +626,7 @@ class Settings(ServiceSettings):
     email: Optional[EmailSettings] = Field(default=None, description="Optional SMTP settings for outbound email.")
     ionscale: Optional[IonscaleSettings] = Field(default=None, description="Optional ionscale coordinator connection.")
     github: Optional[GithubSettings] = Field(default=None, description="Optional GitHub App lok forwards bug reports through. Off when unset.")
+    security: Optional[SecuritySettings] = Field(default=None, description="Coordinated vulnerability disclosure: the /security pages, their anonymous report form and the security.txt body. Off when unset.")
     private_key: str = Field(description="OIDC/OAuth2 RSA private signing key (PEM). Secret — must be set.")
     oidc_issuer: str = Field(default="http://lok", description="OIDC issuer URL advertised by lok.")
     discovery_follows_request: bool = Field(

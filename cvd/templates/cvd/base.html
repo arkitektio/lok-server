@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}Security{% endblock %} · {{ sec.vendor }}</title>
+  <meta name="description" content="How to report a security vulnerability to {{ sec.vendor }}.">
+  <style>
+    :root {
+      --bg: #ffffff; --fg: #1a1a1f; --muted: #5d5d6b; --line: #e3e3ea;
+      --card: #f7f7fa; --accent: #3646d6; --accent-fg: #ffffff; --warn: #8a5a00; --warn-bg: #fff6e0;
+      color-scheme: light dark;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #111116; --fg: #ececf1; --muted: #a2a2b2; --line: #2b2b35;
+        --card: #1a1a22; --accent: #8f9bff; --accent-fg: #0b0b10; --warn: #ffd27a; --warn-bg: #2a2210;
+      }
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: var(--bg); color: var(--fg);
+      font: 16px/1.6 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+    header, main, footer { max-width: 46rem; margin: 0 auto; padding: 0 1rem; }
+    header { display: flex; flex-wrap: wrap; gap: .25rem 1.25rem; align-items: baseline; padding-top: 1.5rem; padding-bottom: 1rem; border-bottom: 1px solid var(--line); }
+    header .brand { font-weight: 700; color: var(--fg); text-decoration: none; margin-right: auto; }
+    header nav a { color: var(--muted); text-decoration: none; margin-left: 1rem; }
+    header nav a[aria-current="page"] { color: var(--fg); font-weight: 600; }
+    h1 { font-size: 1.9rem; line-height: 1.2; margin: 2rem 0 .5rem; }
+    h2 { font-size: 1.25rem; margin: 2.25rem 0 .5rem; }
+    h3 { font-size: 1.05rem; margin: 1.5rem 0 .25rem; }
+    a { color: var(--accent); }
+    .lead { color: var(--muted); font-size: 1.08rem; margin-top: 0; }
+    .card { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 1rem 1.15rem; margin: 1rem 0; }
+    .contacts { display: grid; gap: .75rem; }
+    .contact h3 { margin-top: 0; }
+    code, .fpr { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: .9em; overflow-wrap: anywhere; }
+    .meta { color: var(--muted); font-size: .92rem; }
+    .notice { background: var(--warn-bg); color: var(--warn); border-radius: 8px; padding: .75rem 1rem; }
+    label { display: block; font-weight: 600; margin-top: 1rem; }
+    .hint { display: block; font-weight: 400; color: var(--muted); font-size: .9rem; }
+    input[type=text], textarea, select { width: 100%; font: inherit; color: var(--fg); background: var(--bg);
+      border: 1px solid var(--line); border-radius: 8px; padding: .55rem .7rem; margin-top: .3rem; }
+    textarea { min-height: 9rem; resize: vertical; }
+    input:focus, textarea:focus, select:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+    .check { display: flex; gap: .5rem; align-items: flex-start; font-weight: 400; }
+    .check input { margin-top: .35rem; }
+    fieldset { border: 1px solid var(--line); border-radius: 10px; margin: 1.5rem 0 0; padding: .25rem 1rem 1rem; }
+    legend { font-weight: 700; padding: 0 .35rem; }
+    .errorlist { color: #c62828; margin: .25rem 0 0; padding-left: 1.1rem; }
+    button { margin-top: 1.5rem; font: inherit; font-weight: 600; background: var(--accent); color: var(--accent-fg);
+      border: 0; border-radius: 8px; padding: .7rem 1.4rem; cursor: pointer; }
+    .hp { position: absolute; left: -10000px; width: 1px; height: 1px; overflow: hidden; }
+    ol li, ul li { margin: .3rem 0; }
+    footer { margin-top: 3rem; padding-top: 1rem; padding-bottom: 2rem; border-top: 1px solid var(--line); color: var(--muted); font-size: .9rem; }
+    table { border-collapse: collapse; width: 100%; }
+    td, th { text-align: left; padding: .5rem .4rem; border-bottom: 1px solid var(--line); vertical-align: top; }
+  </style>
+</head>
+<body>
+  <header>
+    <a class="brand" href="/">{{ sec.vendor }}</a>
+    <nav aria-label="Security">
+      <a href="{{ base }}" {% block nav_report %}{% endblock %}>Report a vulnerability</a>
+      <a href="{{ base }}/policy" {% block nav_policy %}{% endblock %}>CVD policy</a>
+      <a href="{{ base }}/acknowledgements" {% block nav_ack %}{% endblock %}>Acknowledgements</a>
+    </nav>
+  </header>
+  <main>
+    {% block content %}{% endblock %}
+  </main>
+  <footer>
+    {{ sec.vendor }} · <a href="/.well-known/security.txt">security.txt</a>
+    · Contact options valid until {{ sec.expires|date:"j F Y" }}
+    {% if sec.privacy_policy_url %} · <a href="{{ sec.privacy_policy_url }}">Privacy policy</a>{% endif %}
+  </footer>
+</body>
+</html>

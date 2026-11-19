@@ -81,6 +81,10 @@ DISCOVERY_FOLLOWS_REQUEST = conf.discovery_follows_request
 # The GitHub App bug reports are forwarded through; None turns direct filing off.
 GITHUB_APP = conf.github
 
+# Coordinated vulnerability disclosure (cvd app): the /security pages and security.txt
+# body. None turns the pages off (they answer 404).
+SECURITY_DISCLOSURE = conf.security
+
 if conf.ionscale is not None:
     IONSCALE_SERVER_URL = conf.ionscale.server_url
     # Static `svc_` token: lok drives ionscale over connect+JSON with it.
@@ -135,6 +139,7 @@ INSTALLED_APPS = [
     "fakts",
     "karakter",
     "ionscale",
+    "cvd",
     "health_check",
     # What every service is as a Django server: `ensureadmin`, `validate_settings`, and the
     # check that warns about config keys this release does not read. Last, so that a command

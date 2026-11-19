@@ -435,6 +435,36 @@ and removes orphaned sidecar nodes.
 > the bundled binary. On the legacy path a missing binary raises
 > `FileNotFoundError` on first mesh operation (or at boot with `eager_init`).
 
+### `security` — coordinated vulnerability disclosure (optional)
+
+Turns on the public, script-free vulnerability disclosure pages (RFC 9116,
+BSI TR-03183-3): `/lok/security/` (the report page with an anonymous web form),
+`…/policy` (the CVD policy) and `…/acknowledgements`. A gateway publishes them at
+`/security` (rewrite `/security*` → `/lok/security*`). Without the block they
+answer 404. Reports land in the admin (`cvd › Vulnerability reports`), with no IP
+address stored. Closing or rejecting one needs two different staff users. If
+`email` is configured, the PSIRT mailbox gets a notification that carries only the
+reference and the admin link.
+
+`manage.py security_txt` (also the `security_txt` job) prints the **unsigned**
+`/.well-known/security.txt` body. Clearsign it offline with OpenPGP (TR 4.2.10)
+and serve the signed bytes statically. lok never holds the signing key.
+
+| Key | Type | Default | Description |
+|---|---|---|---|
+| `vendor` | str | — | Manufacturer name the policy belongs to. |
+| `page_url` | str | — | Absolute URL of the report page, e.g. `https://example.com/security`. It is the third `Contact:`, and the other pages sit below it. |
+| `psirt` / `csirt` | `{email, key: {url, fingerprint}}` | — | The two functional mailboxes, PSIRT first, with their `.asc` key URL and fingerprint. |
+| `signing_key` | `{url, fingerprint}` | — | The dedicated key security.txt is signed with. |
+| `canonical` | list[str] | — | Every URL security.txt is served at. |
+| `expires` | date | — | Expiry of the contact options and of security.txt (max. 1 year ahead; review quarterly). |
+| `policy_updated` | date | — | Last change of the CVD policy, shown on its page (review yearly). |
+| `preferred_languages` | list[str] | `[en, de]` | Must include `en`. |
+| `csaf` | str | `null` | URL of a CSAF `provider-metadata.json`, if advisories are published as CSAF. |
+| `privacy_policy_url` | str | `null` | Linked next to the form's contact field. |
+| `national_csirt` / `national_csirt_url` | str | CERT-Bund at the BSI | Named in the policy for actively exploited vulnerabilities. |
+| `acknowledgements` | list[`{name, reference?, date, summary?}`] | `[]` | The hall of fame, listed only with the reporter's consent. |
+
 ### Top-level OIDC / provisioning fields
 
 These live at the **root** of the config (not inside a block), so their environment

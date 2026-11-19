@@ -1,0 +1,20 @@
+<div class="contacts">
+  <div class="card contact">
+    <h3>Product security (PSIRT)</h3>
+    <p>For vulnerabilities in software {{ sec.vendor }} ships.</p>
+    <p>Email: <a href="mailto:{{ sec.psirt.email }}">{{ sec.psirt.email }}</a><br>
+      OpenPGP key: <a href="{{ sec.psirt.key.url }}">{{ sec.psirt.key.url }}</a><br>
+      Fingerprint: <span class="fpr">{{ psirt_fpr }}</span></p>
+  </div>
+  <div class="card contact">
+    <h3>Infrastructure security (CSIRT)</h3>
+    <p>For vulnerabilities in services and systems {{ sec.vendor }} operates.</p>
+    <p>Email: <a href="mailto:{{ sec.csirt.email }}">{{ sec.csirt.email }}</a><br>
+      OpenPGP key: <a href="{{ sec.csirt.key.url }}">{{ sec.csirt.key.url }}</a><br>
+      Fingerprint: <span class="fpr">{{ csirt_fpr }}</span></p>
+  </div>
+</div>
+<p class="meta">Please encrypt and sign email to these addresses with OpenPGP. These contact options are valid until
+  <time datetime="{{ expires_rfc3339 }}">{{ sec.expires|date:"j F Y" }}</time> and are reviewed at least quarterly.
+  Our <a href="/.well-known/security.txt">security.txt</a> is clearsigned with the key
+  <a href="{{ sec.signing_key.url }}">{{ sec.signing_key.url }}</a>, fingerprint <span class="fpr">{{ signing_fpr }}</span>.</p>

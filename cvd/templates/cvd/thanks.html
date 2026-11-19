@@ -1,0 +1,14 @@
+{% extends "cvd/base.html" %}
+{% block title %}Report received{% endblock %}
+{% block content %}
+<h1>Thank you, your report was received</h1>
+{% if reference %}
+<div class="card"><p>Your reference: <strong><code>{{ reference }}</code></strong></p>
+  <p class="meta">Please quote it when you write to <a href="mailto:{{ sec.psirt.email }}">{{ sec.psirt.email }}</a>
+    about this report. Questions about its status are welcome.</p></div>
+{% endif %}
+<p>If you left contact details, a person from our team (not an automated system) answers within five working days,
+  and sends detailed feedback after analysis within ten working days, as our <a href="{{ base }}/policy">CVD policy</a> promises.</p>
+<p>If you reported anonymously, we cannot reach you. You are welcome to send more information later, quoting the reference above.</p>
+<p><a href="{{ base }}">Back to the security page</a></p>
+{% endblock %}
