@@ -22,6 +22,7 @@ from strawberry.schema.config import StrawberryConfig
 from fakts.scalars import scalar_map as fakts_scalar_map
 from karakter.scalars import scalar_map as karakter_scalar_map
 import kante
+from arkitekt_service.graphql import TelemetryExtension
 from authentikate.catch_alls import declare_catch_alls
 from authentikate.strawberry import AuthExtension, AuthSubscribeExtension
 from karakter.scopes import ALL, MANDATES, MESSAGES, ORGANIZATIONS, PROFILE, READ, SERVICES
@@ -252,7 +253,7 @@ schema = Schema(
     query=Query,
     subscription=Subscription,
     mutation=Mutation,
-    extensions=[DjangoOptimizerExtension, AuthAppExtension, DatalayerExtension],
+    extensions=[TelemetryExtension, DjangoOptimizerExtension, AuthAppExtension, DatalayerExtension],
     config=StrawberryConfig(scalar_map={**fakts_scalar_map, **karakter_scalar_map}),
 )
 
