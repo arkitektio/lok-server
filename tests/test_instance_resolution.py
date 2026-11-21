@@ -13,7 +13,7 @@ import pytest
 from django.contrib.auth.models import Group
 
 from fakts import base_models
-from fakts.services import rendering
+from fakts.services import hubs, rendering, versions
 from tests import factories
 
 
@@ -115,6 +115,24 @@ def test_granted_requirement_is_mapped_and_recorded():
     assert client.statuses == {"db": "granted"}
     assert list(client.mappings.values_list("key", "instance_id")) == [("db", instance.id)]
     assert client.requirements_hash
+
+
+@pytest.mark.django_db
+def test_a_version_outside_the_requirement_is_said_and_still_handed_out():
+    hub, client = _client_in_hub()
+    instance = _instance(hub)
+    wanted = base_models.Requirement(key="db", service="com.example.db", version=">=12.1")
+    rendering.auto_compose(client, _manifest(wanted), client.user, client.organization)
+    mapping = client.mappings.get()
+    assert versions.satisfies(instance.reported_version, mapping.wants_version) is None
+
+    report = base_models.HubHealthReport(healthy=True, instances={instance.instance_id: {"healthy": True, "version": "11.4.0"}})
+    hubs.report_hub_health(hub, report)
+
+    instance.refresh_from_db()
+    assert instance.reported_version == "11.4.0"
+    assert versions.satisfies(instance.reported_version, mapping.wants_version) is False
+    assert client.statuses == {"db": "granted"}
 
 
 @pytest.mark.django_db

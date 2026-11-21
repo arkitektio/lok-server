@@ -21,6 +21,7 @@ from django.urls import include
 from fakts.views import WellKnownFakts
 from django.shortcuts import render
 from kante.path import dynamicpath
+from arkitekt_service.service.views import answers_challenge
 from health_check.views import HealthCheckView
 from django.views.decorators.csrf import csrf_exempt
 from django.http import HttpResponse
@@ -74,7 +75,7 @@ urlpatterns = [
     # at /security (BSI TR-03183-3 4.5); without a `security:` config they answer 404.
     dynamicpath("security/", include("cvd.urls", namespace="cvd")),
     dynamicpath("o/", include("authapp.urls")),  # /auth/login/, /auth/logout/
-    dynamicpath("ht", csrf_exempt(HealthCheckView.as_view(checks=["health_check.checks.Database"])), name="health_check"),
+    dynamicpath("ht", answers_challenge(csrf_exempt(HealthCheckView.as_view(checks=["health_check.checks.Database"]))), name="health_check"),
     dynamicpath("accounts/", include("allauth.urls")),
     dynamicpath("accounts/", include("karakter.urls")),
     # Override allauth's headless /config with a privacy-aware one that also reports

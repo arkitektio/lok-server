@@ -117,6 +117,9 @@ class Requirement(BaseModel):
     """ The optional flag indicates if the requirement is optional or not. Users should be able to use the client even if the requirement is not met. """
     description: Optional[str] = None
     """ The description is a human readable description of the requirement. Will be show to the user when asking for the requirement."""
+    version: Optional[str] = None
+    """The versions of the service the client was written for, as a specifier (``>=12.1,<14``).
+    Advisory: an instance outside it is still handed out, and its claim says so (``satisfies``)."""
 
 
 class PublicSource(BaseModel):
@@ -627,6 +630,11 @@ class InstanceClaim(BaseModel):
     """The certificate(s) the instance's TLS aliases present, when its hub registered one. An app
     that knows the field verifies those aliases by them alone and refuses its plain-HTTP aliases
     that are not on the mesh. Absent for a plain-HTTP hub; apps that do not know it ignore it."""
+    version: Optional[str] = None
+    """The version the instance runs, as its hub last reported it. Absent when unknown."""
+    satisfies: Optional[bool] = None
+    """Whether ``version`` is within the requirement's ``version`` specifier. Absent when the
+    requirement names none or the version is unknown. Advisory: the instance is usable either way."""
 
 
 class SelfClaim(BaseModel):
@@ -727,6 +735,8 @@ class HubClaimAnswer(BaseModel):
 class InstanceHealth(BaseModel):
     healthy: bool
     reason: Optional[str] = None
+    version: Optional[str] = None
+    """The version the service says it runs. Absent when it does not say."""
 
 
 class MeshHealth(BaseModel):
@@ -743,5 +753,5 @@ class HubHealthReport(BaseModel):
     healthy: bool
     version: Optional[str] = None
     instances: Dict[str, InstanceHealth] = Field(default_factory=dict)
-    """Keyed by instance identifier (the keys of the hub envelope's `instances`)."""
+    """Keyed by the instance's name in the hub (the keys of the hub envelope's `instances`)."""
     mesh: Optional[MeshHealth] = None

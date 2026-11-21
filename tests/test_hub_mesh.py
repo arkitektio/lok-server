@@ -291,7 +291,7 @@ def test_health_callback_records_liveness_and_trims_history(client, ionscale_rep
     assert hub.online and hub.last_healthy and hub.version == "0.9"
     snapshots = list(hub.health_snapshots.all())
     assert len(snapshots) == 2
-    assert snapshots[0].payload["instances"] == {instance_key: {"healthy": False, "reason": "db"}}
+    assert snapshots[0].payload["instances"] == {instance_key: {"healthy": False, "reason": "db", "version": None}}
 
     hub.last_seen_at = timezone.now() - timedelta(seconds=3 * settings.HUB_HEALTH_INTERVAL + 1)
     assert not hub.online

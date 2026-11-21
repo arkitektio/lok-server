@@ -170,3 +170,4 @@ jobs:
           build-args: |
             ARKITEKT_SOURCE_REPOSITORY=${{ github.server_url }}/${{ github.repository }}
             ARKITEKT_SOURCE_REVISION=${{ github.sha }}
+            ARKITEKT_SERVICE_VERSION=${{ needs.release.outputs.version }}

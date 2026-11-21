@@ -605,14 +605,20 @@ def report_hub_health(hub: models.Hub, report: base_models.HubHealthReport) -> m
     plus a snapshot (only the latest ``settings.HUB_HEALTH_RETENTION`` are kept).
 
     Instances the hub reports that are not its own are dropped from the snapshot.
+    A version reported under an instance's name is kept on the instance.
     The reported mesh hostname is what ``kind: mesh`` aliases resolve to while
     the hub keeps calling in (see ``fakts.services.mesh``).
     """
-    own = {str(pk) for pk in hub.instances.values_list("id", flat=True)} | set(
-        hub.instances.values_list("token", flat=True)
-    )
+    instances = list(hub.instances.all())
+    own = {str(i.pk) for i in instances} | {i.token for i in instances} | {i.instance_id for i in instances}
     payload = report.model_dump()
     payload["instances"] = {key: value for key, value in payload["instances"].items() if key in own}
+
+    for instance in instances:
+        said = report.instances.get(instance.instance_id)
+        if said is not None and said.version and said.version != instance.reported_version:
+            instance.reported_version = said.version
+            instance.save(update_fields=["reported_version"])
 
     hub.last_seen_at = timezone.now()
     hub.last_healthy = report.healthy

@@ -105,11 +105,12 @@ class HubHealthReport:
     @strawberry_django.field(description="The per-instance health in this report. Only instances of the hub are listed.")
     def instances(self) -> list[InstanceHealth]:
         reported = (self.payload or {}).get("instances") or {}
-        by_token = {i.token: i for i in self.hub.instances.filter(token__in=list(reported))}
+        # A hub names an instance by its name there; older ones by its token.
+        known = {key: i for i in self.hub.instances.all() for key in (i.token, i.instance_id)}
         return [
-            InstanceHealth(instance=by_token[key], healthy=bool(value.get("healthy")), reason=value.get("reason"))
+            InstanceHealth(instance=known[key], healthy=bool(value.get("healthy")), reason=value.get("reason"))
             for key, value in reported.items()
-            if key in by_token
+            if key in known
         ]
 
 

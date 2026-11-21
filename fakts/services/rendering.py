@@ -23,7 +23,7 @@ from fakts.base_models import (
     InstanceClaim,
     SelfClaim,
 )
-from fakts.services import alias_priority
+from fakts.services import alias_priority, versions
 from fakts.services.tokens import hash_requirements
 
 
@@ -104,6 +104,8 @@ def render_envelope_from_context(client: models.Client, context: base_models.Lin
         instance: models.ServiceInstance = mapping.instance
 
         value = instance.render(context, rules=rules)
+        value.version = instance.reported_version or None
+        value.satisfies = versions.satisfies(instance.reported_version, mapping.wants_version)
         instances_map[mapping.key] = value
 
     envelope = FaktsEnvelope(
@@ -175,10 +177,11 @@ def auto_compose(client: models.Client, manifest: base_models.Manifest, user: mo
             if instance is None:
                 raise errors.InstanceNotFound(f"No instance for {req.service} in this hub.")
 
-            models.ServiceInstanceMapping.objects.get_or_create(
+            models.ServiceInstanceMapping.objects.update_or_create(
                 client=client,
                 instance=instance,
                 key=req.key,
+                defaults={"wants_version": req.version},
             )
             statuses[req.key] = "granted"
 

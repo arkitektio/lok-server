@@ -38,9 +38,12 @@ class DeviceAuthRequired(Exception):
 
 def hash_manifest(manifest: Manifest) -> str:
     """Return a stable SHA-256 hash of a manifest for change detection."""
-    return hashlib.sha256(
-        json.dumps(manifest.model_dump(mode="json"), sort_keys=True).encode()
-    ).hexdigest()
+    dumped = manifest.model_dump(mode="json")
+    # A requirement without a version hashes as it did before the field existed.
+    for requirement in dumped.get("requirements") or []:
+        if requirement.get("version") is None:
+            requirement.pop("version", None)
+    return hashlib.sha256(json.dumps(dumped, sort_keys=True).encode()).hexdigest()
 
 
 def create_public_client(

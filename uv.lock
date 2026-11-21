@@ -161,7 +161,7 @@ wheels = [
 
 [[package]]
 name = "arkitekt-service"
-version = "9.5.0"
+version = "9.6.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "django" },
@@ -172,9 +172,9 @@ dependencies = [
     { name = "pydantic-settings" },
     { name = "pyyaml" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/c0/4f/efcc2487a285d6cad41d6f21419f9fd47109dbaeade5c73e2090c73d85bd/arkitekt_service-9.5.0.tar.gz", hash = "sha256:c537249107d488a25d39259f87c7141ccc7e63c100c5211119822804b53c3323", size = 94946, upload-time = "2026-11-20T09:47:19.717Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/83/6e/babd2610bd2ffc018309bcd73ccc00c6ae3c6c16c6c03192d95da0512f6f/arkitekt_service-9.6.0.tar.gz", hash = "sha256:67bdef6520d98be95923f4292cb32e9312da811fa841ffb3da91d9835c9e8e6f", size = 95237, upload-time = "2026-11-21T12:24:53.061Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/9d/9c/daa86db720c9da907ff5be159133a861db6a8bdb46a3bcc5d99218dfe9e4/arkitekt_service-9.5.0-py3-none-any.whl", hash = "sha256:43ff41081283d204152f0b7bc1c5a8235795e0cbbe1686010dd1e9423fc9266b", size = 120638, upload-time = "2026-11-20T09:47:18.446Z" },
+    { url = "https://files.pythonhosted.org/packages/6a/f1/ca4276114366504b67618b6c94392630232be562ef43232ce80053c06e70/arkitekt_service-9.6.0-py3-none-any.whl", hash = "sha256:1da0e039ca6dccc012de7f5dcce1bcb601988cf399e391f6a99c6ad85d0f559b", size = 121044, upload-time = "2026-11-21T12:24:51.938Z" },
 ]
 
 [package.optional-dependencies]
@@ -1318,6 +1318,7 @@ dependencies = [
     { name = "jsonpatch" },
     { name = "kante" },
     { name = "koherent" },
+    { name = "packaging" },
     { name = "psycopg", extra = ["binary"] },
     { name = "pydantic-settings", extra = ["yaml"] },
     { name = "pyjwt" },
@@ -1345,7 +1346,7 @@ dev = [
 requires-dist = [
     { name = "aiohttp", specifier = ">=3.11.18" },
     { name = "aioredis", specifier = ">=2.0.1,<3" },
-    { name = "arkitekt-service", extras = ["telemetry"], specifier = ">=9.5.0" },
+    { name = "arkitekt-service", extras = ["telemetry"], specifier = ">=9.6.0" },
     { name = "authentikate", specifier = ">=6.1" },
     { name = "authlib", specifier = ">=1.6.6" },
     { name = "boto3", specifier = ">=1.38.9" },
@@ -1364,6 +1365,7 @@ requires-dist = [
     { name = "jsonpatch", specifier = "~=1.33" },
     { name = "kante", specifier = ">=0.16.1" },
     { name = "koherent", specifier = ">=0.2.0" },
+    { name = "packaging", specifier = ">=24" },
     { name = "psycopg", extras = ["binary"], specifier = ">=3" },
     { name = "pydantic-settings", extras = ["yaml"], specifier = ">=2.2" },
     { name = "pyjwt", specifier = ">=2.10.1" },

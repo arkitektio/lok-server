@@ -264,6 +264,9 @@ class ServiceInstance(models.Model):
     allowed_organizations = models.ManyToManyField(Organization, related_name="allowed_instances")
     public_key = models.TextField(null=True, blank=True, help_text="The public key of the instance, if applicable.")
     token = models.CharField(max_length=1000, help_text="The token of the instance, used for authentication.")
+    reported_version = models.CharField(
+        max_length=1000, null=True, blank=True, help_text="The version the service runs, as its hub last reported it (/f/hubhealth/). Null until it says."
+    )
 
     def __str__(self):
         return f"{self.release}:{self.instance_id}"
@@ -1320,6 +1323,7 @@ class ServiceInstanceMapping(models.Model):
     key = models.CharField(max_length=1000)
     description = models.TextField(max_length=1000, null=True, blank=True)
     optional = models.BooleanField(default=False)
+    wants_version = models.CharField(max_length=1000, null=True, blank=True, help_text="The requirement's version specifier (`>=12.1,<14`), if it named one.")
 
     class Meta:
         constraints = [
