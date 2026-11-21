@@ -832,6 +832,7 @@ class ManagementStagingRequirement:
     key: str
     description: str | None = None
     optional: bool = False
+    version: str | None = strawberry.field(default=None, description="The versions of the service the app was written for, as a specifier (`>=12.1,<14`). Null: any.")
 
 
 @pydantic.type(base_models.PublicSource)
@@ -988,6 +989,8 @@ class PotentialMapping:
     service_instance: Optional["ManagementServiceInstance"]
     key: str
     reason: str | None
+    wants_version: str | None = strawberry.field(default=None, description="The requirement's version specifier (`>=12.1,<14`), if it named one.")
+    satisfied: bool | None = strawberry.field(default=None, description="Whether the instance's version is within `wantsVersion`. Null when either is unknown. Advisory: the instance is mapped either way.")
 
 
 @strawberry.type

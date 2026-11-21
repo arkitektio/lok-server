@@ -12,6 +12,7 @@ from karakter import models as karakter_models
 from karakter.hashers import hash_device_id
 from karakter import link_previews
 from fakts import models as fakts_models
+from fakts.services import versions
 from .datalayer import DatalayerExtension
 from .extensions import RequireAuthenticationExtension
 from .authz import DENIED, assert_member, assert_member_or_guest, get_or_denied, get_scoped_lookup, is_owner_or_admin
@@ -171,6 +172,8 @@ class Query:
                             service_instance=instance,
                             key=req.key,
                             reason=None,
+                            wants_version=req.version,
+                            satisfied=versions.satisfies(instance.release.version, req.version),
                         )
                     )
                 else:
