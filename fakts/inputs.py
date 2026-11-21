@@ -12,6 +12,7 @@ class RequirementModel(BaseModel):
     optional: bool = False
     description: Optional[str] = None
     key: str
+    version: Optional[str] = None
 
 
 @pydantic.input(RequirementModel)
@@ -20,6 +21,9 @@ class RequirementInput:
     optional: bool = False
     description: Optional[str] = None
     key: str
+    version: Optional[str] = strawberry.field(
+        default=None, description="The service versions the client was written for, as a specifier (advisory)."
+    )
 
 
 @strawberry.enum
