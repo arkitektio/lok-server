@@ -104,8 +104,8 @@ def render_envelope_from_context(client: models.Client, context: base_models.Lin
         instance: models.ServiceInstance = mapping.instance
 
         value = instance.render(context, rules=rules)
-        value.version = instance.reported_version or None
-        value.satisfies = versions.satisfies(instance.reported_version, mapping.wants_version)
+        value.version = versions.known(instance.release.version)
+        value.satisfies = versions.satisfies(instance.release.version, mapping.wants_version)
         instances_map[mapping.key] = value
 
     envelope = FaktsEnvelope(

@@ -15,7 +15,7 @@ from django.utils import timezone
 
 from fakts import base_models, enums, models
 from fakts.base_models import HubManifest
-from fakts.services import aliases
+from fakts.services import aliases, versions
 from fakts.services.permissions import register_permissions
 from fakts.services.instance_keys import validate_challenge_key
 from fakts.services.hub_tls import validate_tls_certificate
@@ -220,7 +220,7 @@ def create_hub_from_manifest(
 
         service, _ = models.Service.objects.get_or_create(identifier=service_manifest.identifier, organization=organization, defaults={"name": service_manifest.identifier})
 
-        release, _ = models.ServiceRelease.objects.get_or_create(service=service, version=service_manifest.version)
+        release = versions.release_for(service, service_manifest.version, models.ServiceInstance.objects.filter(hub=hub, instance_id=instance_request.name).first())
 
         # One service of a name per hub: configured again with another release, it is the same
         # instance.
@@ -605,20 +605,21 @@ def report_hub_health(hub: models.Hub, report: base_models.HubHealthReport) -> m
     plus a snapshot (only the latest ``settings.HUB_HEALTH_RETENTION`` are kept).
 
     Instances the hub reports that are not its own are dropped from the snapshot.
-    A version reported under an instance's name is kept on the instance.
+    A version reported under an instance's name is the instance's release from then on.
     The reported mesh hostname is what ``kind: mesh`` aliases resolve to while
     the hub keeps calling in (see ``fakts.services.mesh``).
     """
-    instances = list(hub.instances.all())
+    instances = list(hub.instances.select_related("release", "service"))
     own = {str(i.pk) for i in instances} | {i.token for i in instances} | {i.instance_id for i in instances}
     payload = report.model_dump()
     payload["instances"] = {key: value for key, value in payload["instances"].items() if key in own}
 
+    # What a service says it runs is its release: the instance moves to it.
     for instance in instances:
         said = report.instances.get(instance.instance_id)
-        if said is not None and said.version and said.version != instance.reported_version:
-            instance.reported_version = said.version
-            instance.save(update_fields=["reported_version"])
+        if said is not None and said.version and said.version != instance.release.version:
+            instance.release, _ = models.ServiceRelease.objects.get_or_create(service=instance.service, version=said.version)
+            instance.save(update_fields=["release"])
 
     hub.last_seen_at = timezone.now()
     hub.last_healthy = report.healthy

@@ -120,18 +120,22 @@ def test_granted_requirement_is_mapped_and_recorded():
 @pytest.mark.django_db
 def test_a_version_outside_the_requirement_is_said_and_still_handed_out():
     hub, client = _client_in_hub()
-    instance = _instance(hub)
+    service = factories.make_service(identifier="com.example.db")
+    local = factories.make_service_release(service=service, version=versions.LOCAL)
+    instance = factories.make_service_instance(hub=hub, release=local)
     wanted = base_models.Requirement(key="db", service="com.example.db", version=">=12.1")
     rendering.auto_compose(client, _manifest(wanted), client.user, client.organization)
     mapping = client.mappings.get()
-    assert versions.satisfies(instance.reported_version, mapping.wants_version) is None
+    assert versions.satisfies(instance.release.version, mapping.wants_version) is None
 
     report = base_models.HubHealthReport(healthy=True, instances={instance.instance_id: {"healthy": True, "version": "11.4.0"}})
     hubs.report_hub_health(hub, report)
 
+    # What the service says it runs is its release, and a manifest that cannot tell keeps it.
     instance.refresh_from_db()
-    assert instance.reported_version == "11.4.0"
-    assert versions.satisfies(instance.reported_version, mapping.wants_version) is False
+    assert instance.release.version == "11.4.0"
+    assert versions.release_for(service, "1.0.0", instance) == instance.release
+    assert versions.satisfies(instance.release.version, mapping.wants_version) is False
     assert client.statuses == {"db": "granted"}
 
 

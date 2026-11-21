@@ -1036,7 +1036,6 @@ class ManagementServiceInstance:
     release: ManagementServiceRelease = strawberry_django.field(description="The service that this instance belongs to.")
     organization: "ManagementOrganization" = strawberry_django.field(description="The organization that owns this instance.")
     device: Optional["ManagementDevice"] = strawberry.field(description="The device that this instance is associated with, if any.")
-    reported_version: str | None = strawberry.field(description="The version the service runs, as its hub last reported it. Null until it says.")
     instance_id: str = strawberry.field(description="The identifier of the instance. This is a unique string that identifies the instance. It is used to identify the instance in the code and in the database.")
     allowed_users: list[ManagementUser] = strawberry_django.field(description="The users that are allowed to use this instance.")
     denied_users: list[ManagementUser] = strawberry_django.field(description="The users that are denied to use this instance.")
@@ -1232,7 +1231,7 @@ class ManagementServiceInstanceMapping:
 
     @strawberry_django.field(description="Whether the instance's reported version is within `wantsVersion`. Null when either is unknown.")
     def satisfied(self) -> bool | None:
-        return versions.satisfies(self.instance.reported_version, self.wants_version)
+        return versions.satisfies(self.instance.release.version, self.wants_version)
 
     @classmethod
     def get_queryset(cls, queryset, info: Info):

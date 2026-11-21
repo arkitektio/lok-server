@@ -14,6 +14,7 @@ from fakts.services.mandates import MandateError
 from fakts import logic, base_models
 from fakts.services import aliases as alias_services
 from fakts.services import hubs as hub_services
+from fakts.services import versions
 from fakts.services.instance_keys import validate_challenge_key
 from fakts.services.permissions import register_permissions
 from fakts.services.hub_tls import validate_tls_certificate
@@ -108,13 +109,10 @@ def _provision_hub(info: Info, input: AcceptHubDeviceCodeInput, device_code, org
         else:
             device = None
         service, _ = fakts_models.Service.objects.get_or_create(identifier=service_manifest.identifier, organization=organization, defaults={"description": service_manifest.description or ""})
-        release, _ = fakts_models.ServiceRelease.objects.get_or_create(
-            service=service,
-            version=service_manifest.version,
-        )
         # One service of a name per hub: authorized again (by another admin, with another
         # release, from another device), it is the same instance, named as the hub names it.
         instance = fakts_models.ServiceInstance.objects.filter(hub=hub, instance_id=servicer.name).first()
+        release = versions.release_for(service, service_manifest.version, instance)
         if instance is None:
             instance = fakts_models.ServiceInstance.objects.create(
                 release=release,
