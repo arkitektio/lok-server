@@ -108,7 +108,7 @@ def _provision_hub(info: Info, input: AcceptHubDeviceCodeInput, device_code, org
             device, _ = fakts_models.Device.objects.get_or_create(organization=organization, node_id=hash_device_id(device_id, organization))
         else:
             device = None
-        service, _ = fakts_models.Service.objects.get_or_create(identifier=service_manifest.identifier, organization=organization, defaults={"description": service_manifest.description or ""})
+        service, _ = fakts_models.Service.objects.get_or_create(identifier=service_manifest.identifier, organization=organization, defaults={"name": service_manifest.identifier, "description": service_manifest.description or ""})
         # One service of a name per hub: authorized again (by another admin, with another
         # release, from another device), it is the same instance, named as the hub names it.
         instance = fakts_models.ServiceInstance.objects.filter(hub=hub, instance_id=servicer.name).first()

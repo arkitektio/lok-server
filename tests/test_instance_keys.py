@@ -113,3 +113,11 @@ def test_two_organizations_may_each_hold_the_same_hub(client, admin):
     second, _ = _enroll(client, other_admin, [_instance("mikro", None)], uid=uid)
     assert first.pk != second.pk and first.uid == second.uid
     assert first.instances.get().instance_id == second.instances.get().instance_id == "mikro"
+
+
+@pytest.mark.django_db
+def test_a_hubs_new_service_is_named(client, admin):
+    """A service is shown by its name (kontrol groups an app's scopes under it): a hub made by
+    device code names it by its identifier, as hubs.py does, rather than leaving it blank."""
+    hub, _ = _enroll(client, admin, [_instance("mikro", None)])
+    assert hub.instances.get().release.service.name == "live.arkitekt.mikro"
