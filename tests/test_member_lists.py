@@ -160,6 +160,38 @@ async def test_a_new_membership_has_its_creation_time_and_sorts_by_it():
     assert datetime.datetime.fromisoformat(row["createdAt"]) >= before
 
 
+BY_USERNAME = """
+query ($filters: MembershipFilter) { mycontext { organization { memberships(filters: $filters, ordering: [{ username: ASC }]) { user { username } } } } }
+"""
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_memberships_sort_by_username_and_filter_by_creation_time():
+    def setup():
+        team = _team()
+        organization = team["organization"]
+        for name in ["zoe", "anna", "mike"]:
+            factories.make_membership(user=factories.make_user(username=name), organization=organization)
+        old = factories.make_membership(user=factories.make_user(username="olde"), organization=organization)
+        models.Membership.objects.filter(pk=old.pk).update(created_at=timezone.now() - datetime.timedelta(days=60))
+        unknown = factories.make_membership(user=factories.make_user(username="unknowne"), organization=organization)
+        models.Membership.objects.filter(pk=unknown.pk).update(created_at=None)
+        return _context(team["owner"])
+
+    context = await sync_to_async(setup)()
+    names = [m["user"]["username"] for m in (await _run(context, BY_USERNAME))["mycontext"]["organization"]["memberships"]]
+    assert names == sorted(names)
+    assert {"anna", "mike", "zoe"} <= set(names)
+
+    month_ago = (timezone.now() - datetime.timedelta(days=30)).isoformat()
+    recent = [m["user"]["username"] for m in (await _run(context, BY_USERNAME, filters={"createdAfter": month_ago}))["mycontext"]["organization"]["memberships"]]
+    assert {"anna", "mike", "zoe"} <= set(recent)
+    assert "olde" not in recent and "unknowne" not in recent, "an old membership, or one of unknown age, is not new"
+    older = [m["user"]["username"] for m in (await _run(context, BY_USERNAME, filters={"createdBefore": month_ago}))["mycontext"]["organization"]["memberships"]]
+    assert older == ["olde"]
+
+
 @pytest.mark.django_db
 def test_the_backfill_takes_the_time_an_invite_or_request_was_answered():
     migration = importlib.import_module("karakter.migrations.0004_membership_created_at")

@@ -1,4 +1,9 @@
+import datetime
+
 import strawberry
+from django.db.models import QuerySet
+from django.db.models.expressions import OrderBy
+from strawberry import Info
 from karakter import models
 from typing import Optional
 from strawberry_django.filters import FilterLookup
@@ -108,6 +113,14 @@ class MembershipFilter:
     @strawberry_django.filter_field(description="Only the organization's admins (true) or only the others (false).")
     def is_admin(self, value: bool, prefix: str) -> Q:
         return Q(**{f"{prefix}is_admin": value})
+
+    @strawberry_django.filter_field(description="Only the memberships made at or after this time. A membership whose creation time is unknown (older than the record) never matches.")
+    def created_after(self, value: datetime.datetime, prefix: str) -> Q:
+        return Q(**{f"{prefix}created_at__gte": value})
+
+    @strawberry_django.filter_field(description="Only the memberships made before this time. A membership whose creation time is unknown never matches.")
+    def created_before(self, value: datetime.datetime, prefix: str) -> Q:
+        return Q(**{f"{prefix}created_at__lt": value})
 
 
 @strawberry_django.filter_type(models.MembershipRequest, description="__doc__")
@@ -247,6 +260,10 @@ class ComChannelOrdering:
 class MembershipOrdering:
     id: strawberry.auto
     created_at: strawberry.auto
+
+    @strawberry_django.order_field(description="By the member's username.")
+    def username(self, queryset: QuerySet, info: Info, value: strawberry_django.Ordering, prefix: str) -> tuple[QuerySet, list[OrderBy]]:
+        return queryset, [value.resolve(f"{prefix}user__username")]
 
 
 @strawberry_django.order_type(models.MembershipRequest)

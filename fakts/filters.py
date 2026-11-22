@@ -22,7 +22,7 @@ class UserFilter:
 
     @strawberry_django.filter_field
     def search(self, value: str, prefix: str) -> Q:
-        return Q(**{f"{prefix}username__contains": value})
+        return Q(**{f"{prefix}username__icontains": value})
 
 
 @strawberry_django.filter_type(models.Group, description="Filter for Group model.")
@@ -35,7 +35,7 @@ class GroupFilter:
 
     @strawberry_django.filter_field
     def search(self, value: str, prefix: str) -> Q:
-        return Q(**{f"{prefix}name__contains": value})
+        return Q(**{f"{prefix}name__icontains": value})
 
 
 @strawberry_django.filter_type(fakts_models.Client)
@@ -46,7 +46,7 @@ class ClientFilter:
 
     @strawberry_django.filter_field
     def search(self, value: str, prefix: str) -> Q:
-        return Q(**{f"{prefix}name__contains": value})
+        return Q(**{f"{prefix}name__icontains": value})
 
     @strawberry_django.filter_field
     def role(self, value: fakts_enums.ClientRole, prefix: str) -> Q:
@@ -66,7 +66,7 @@ class AppFilter:
 
     @strawberry_django.filter_field
     def search(self, value: str, prefix: str) -> Q:
-        return Q(**{f"{prefix}name__contains": value})
+        return Q(**{f"{prefix}name__icontains": value}) | Q(**{f"{prefix}identifier__icontains": value})
 
     @strawberry_django.filter_field(description="Only the apps with one of these identifiers (exact match).")
     def identifiers(self, value: list[AppIdentifier], prefix: str) -> Q:
@@ -101,7 +101,7 @@ class ServiceFilter:
 
     @strawberry_django.filter_field
     def search(self, value: str, prefix: str) -> Q:
-        return Q(**{f"{prefix}name__contains": value})
+        return Q(**{f"{prefix}name__icontains": value})
 
 
 @strawberry_django.filter_type(fakts_models.Device)
@@ -112,7 +112,7 @@ class DeviceFilter:
 
     @strawberry_django.filter_field
     def search(self, value: str, prefix: str) -> Q:
-        return Q(**{f"{prefix}name__contains": value})
+        return Q(**{f"{prefix}name__icontains": value})
 
     @strawberry_django.filter_field(description="Only the devices with one of these device ids: the ids the other services know a device by (`Device.deviceId`, a token's `client_device` claim), used as they are, never hashed again.")
     def device_ids(self, value: list[strawberry.ID], prefix: str) -> Q:
@@ -131,7 +131,7 @@ class DeviceGroupFilter:
 
     @strawberry_django.filter_field
     def search(self, value: str, prefix: str) -> Q:
-        return Q(**{f"{prefix}name__contains": value})
+        return Q(**{f"{prefix}name__icontains": value})
 
 
 @strawberry_django.filter_type(fakts_models.Layer)
@@ -142,7 +142,7 @@ class LayerFilter:
 
     @strawberry_django.filter_field
     def search(self, value: str, prefix: str) -> Q:
-        return Q(**{f"{prefix}name__contains": value})
+        return Q(**{f"{prefix}name__icontains": value})
 
 
 @strawberry_django.filter_type(fakts_models.ServiceInstance)

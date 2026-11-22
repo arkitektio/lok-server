@@ -115,6 +115,22 @@ async def test_apps_filter_by_exact_identifiers():
     assert sorted(a["identifier"] for a in data["apps"]) == ["com.example.fiji", "com.example.napari"]
 
 
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_app_and_device_search_ignores_case_and_matches_identifiers():
+    def setup():
+        membership, context = _member()
+        factories.make_app(organization=membership.organization, name="Napari Viewer", identifier="org.napari.viewer")
+        factories.make_app(organization=membership.organization, name="Fiji", identifier="sc.fiji")
+        fakts_models.Device.objects.create(organization=membership.organization, node_id="n1", name="Lab Laptop")
+        return context
+
+    context = await sync_to_async(setup)()
+    assert [a["identifier"] for a in (await _data(context, APPS, filters={"search": "napari viewer"}))["apps"]] == ["org.napari.viewer"]
+    assert [a["identifier"] for a in (await _data(context, APPS, filters={"search": "SC.FIJI"}))["apps"]] == ["sc.fiji"]
+    assert len((await _data(context, DEVICES, filters={"search": "lab laptop"}))["devices"]) == 1
+
+
 INVITES = "query ($filters: InviteFilter) { invites(filters: $filters) { id } }"
 
 

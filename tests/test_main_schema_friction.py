@@ -181,6 +181,7 @@ def _sample(gql_type):
             "Int": 1,
             "Float": 1.0,
             "Boolean": True,
+            "DateTime": "2026-01-01T00:00:00+00:00",
         }.get(gql_type.name, "x")
     if isinstance(gql_type, GraphQLInputObjectType):
         fields = gql_type.fields
