@@ -7,6 +7,12 @@ Three steps, so existing rows never get the migration's own time:
    invite or request was answered; the others stay null (nothing says when);
 3. only then does the column get its database default, which stamps the rows
    inserted from now on, including by a build older than this field.
+
+Not atomic: on PostgreSQL the backfill's UPDATE queues the table's deferred
+foreign-key checks, and step 3's ALTER TABLE refuses to run while they are
+pending ("cannot ALTER TABLE ... because it has pending trigger events"). So each
+step commits on its own, the backfill in its own transaction. An empty table (the
+test database) has nothing pending, which is why only a real deployment failed.
 """
 
 import django.db.models.functions.datetime
@@ -32,6 +38,8 @@ def backfill(apps, schema_editor):
 
 
 class Migration(migrations.Migration):
+    atomic = False
+
     dependencies = [
         ("karakter", "0003_lok_scopes"),
     ]
@@ -42,7 +50,7 @@ class Migration(migrations.Migration):
             name="created_at",
             field=models.DateTimeField(blank=True, null=True),
         ),
-        migrations.RunPython(backfill, migrations.RunPython.noop),
+        migrations.RunPython(backfill, migrations.RunPython.noop, atomic=True),
         migrations.AlterField(
             model_name="membership",
             name="created_at",
