@@ -14,6 +14,7 @@ from authlib.integrations.django_oauth2 import (
     BearerTokenValidator,
     ResourceProtector,
 )
+from authlib.oauth2.rfc6749 import grants
 from authlib.oauth2.rfc6749.errors import InvalidRequestError
 from authlib.oauth2.rfc7636 import CodeChallenge
 from authlib.oauth2.rfc9068 import JWTBearerTokenValidator
@@ -22,6 +23,7 @@ from authlib.oidc.core.userinfo import UserInfoEndpoint
 from django.conf import settings
 
 from fakts.models import Client
+from karakter.models import Membership
 
 from .fakts_grants import FaktsDeviceCodeGrant, FaktsMandateKeyGrant
 from .grants import AuthorizationCodeGrant, OpenIDCode, RefreshTokenGrant
@@ -52,7 +54,9 @@ class RequiredCodeChallenge(CodeChallenge):
     DEFAULT_CODE_CHALLENGE_METHOD = "S256"
     SUPPORTED_CODE_CHALLENGE_METHOD = ["S256"]
 
-    def validate_code_challenge(self, grant, redirect_uri):
+    def validate_code_challenge(
+        self, grant: grants.AuthorizationCodeGrant, redirect_uri: str
+    ) -> None:
         challenge = grant.request.payload.data.get("code_challenge")
         if not challenge:
             raise InvalidRequestError(
@@ -92,7 +96,7 @@ TOKEN_ENDPOINT_AUTH_METHODS_SUPPORTED = [
 # The AuthorizationServer is backed by the unified fakts Client (which
 # implements authlib's ClientMixin directly) and OAuth2Token.
 class LokAuthorizationServer(AuthorizationServer):
-    def query_client(self, client_id):
+    def query_client(self, client_id: str) -> Client | None:
         """A device whose approval kept an earlier client still polls as the client_id it
         registered with: resolve that to the kept client while its code lives
         (``fakts.DeviceCode.polling_client_id``)."""
@@ -152,21 +156,21 @@ server.register_endpoint(MyRevocationEndpoint)
 
 
 class MyUserInfoEndpoint(UserInfoEndpoint):
-    def get_issuer(self):
+    def get_issuer(self) -> str:
         return settings.OIDC_ISSUER
 
-    def generate_user_info(self, user, scope):
+    def generate_user_info(self, user: Membership, scope: str) -> UserInfo:
         return UserInfo(
             sub=user.id,
             name=user.name,
         )
 
-    def resolve_private_key(self):
+    def resolve_private_key(self) -> dict:
         return jwk_dict
 
 
 class MyBearerTokenValidator(JWTBearerTokenValidator):
-    def authenticate_token(self, token_string):
+    def authenticate_token(self, token_string: str) -> OAuth2Token:
         return OAuth2Token.objects.get(access_token=token_string)
 
     def get_jwks(self) -> dict:
@@ -180,7 +184,9 @@ class Oauth2TokenValidator(BearerTokenValidator):
 
 
 class RefreshTokenGenerator:
-    def __call__(self, client, grant_type, user, scope):
+    def __call__(
+        self, client: Client, grant_type: str, user: Membership | None, scope: str
+    ) -> str:
         import secrets
 
         return secrets.token_urlsafe(48)
@@ -221,7 +227,7 @@ MIN_ACCESS_TOKEN_EXPIRES_IN = 300
 MAX_ACCESS_TOKEN_EXPIRES_IN = 86400
 
 
-def access_token_expires_in(client, grant_type) -> int:
+def access_token_expires_in(client: Client, grant_type: str) -> int:
     """The access-token lifetime for this client, in seconds.
 
     The server default (one hour) unless the client's organization has set its
@@ -260,7 +266,7 @@ def access_token_expires_in(client, grant_type) -> int:
 SCOPED_ACCESS_TOKEN_EXPIRES_IN = 900
 
 
-def _is_scoped_client(client) -> bool:
+def _is_scoped_client(client: Client) -> bool:
     membership_id = getattr(client, "membership_id", None)
     if not membership_id:
         return False

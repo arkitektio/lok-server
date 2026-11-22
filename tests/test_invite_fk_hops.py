@@ -4,8 +4,11 @@ list: its organization's owner and admins, and whoever created it. A collaborati
 invite's token stays redeemable until `max_uses`, so every member reading it off a
 membership could hand the link to an outsider."""
 
+from typing import Any
+
 import pytest
 from asgiref.sync import sync_to_async
+from kante.context import HttpContext
 
 from api.management.schema import schema as management_schema
 from karakter import models
@@ -22,7 +25,7 @@ query {
 """
 
 
-def _setup(caller_is_owner: bool):
+def _setup(caller_is_owner: bool) -> tuple[HttpContext, str]:
     organization = factories.make_organization()
     factories.make_membership(user=organization.owner, organization=organization)
     instance = factories.make_service_instance(
@@ -55,8 +58,9 @@ def _setup(caller_is_owner: bool):
     return context, str(invite.token)
 
 
-def _tokens(data):
-    found = set()
+def _tokens(data: dict[str, Any] | None) -> set[str]:
+    assert data is not None
+    found: set[str] = set()
     for membership in data["memberships"]:
         if membership["createdThrough"]:
             found.add(membership["createdThrough"]["token"])
@@ -68,7 +72,7 @@ def _tokens(data):
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_a_plain_member_reads_no_invite_token_through_a_membership():
+async def test_a_plain_member_reads_no_invite_token_through_a_membership() -> None:
     context, token = await sync_to_async(_setup)(caller_is_owner=False)
 
     result = await management_schema.execute(HOPS, context_value=context)
@@ -79,7 +83,7 @@ async def test_a_plain_member_reads_no_invite_token_through_a_membership():
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_the_owner_still_sees_which_invite_created_a_membership():
+async def test_the_owner_still_sees_which_invite_created_a_membership() -> None:
     context, token = await sync_to_async(_setup)(caller_is_owner=True)
 
     result = await management_schema.execute(HOPS, context_value=context)

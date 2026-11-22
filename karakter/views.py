@@ -2,11 +2,11 @@ from urllib.parse import urlparse
 
 from django.conf import settings
 from django.contrib.auth.decorators import login_required
-from django.http import JsonResponse
+from django.http import HttpRequest, HttpResponse, JsonResponse
 from django.shortcuts import redirect
 
 
-def get_frontend_url():
+def get_frontend_url() -> str:
     """Get the frontend URL from settings or default."""
     return getattr(settings, "KONTROL_FRONTEND_URL", "/")
 
@@ -44,14 +44,14 @@ def safe_redirect_target(candidate: str | None) -> str:
 
 
 @login_required
-def organization_detail(request, slug):
+def organization_detail(request: HttpRequest, slug: str) -> HttpResponse:
     """Redirect to frontend organization page."""
     frontend_url = get_frontend_url()
     return redirect(f"{frontend_url}/organizations/{slug}")
 
 
 @login_required
-def change_org(request):
+def change_org(request: HttpRequest) -> HttpResponse:
     """API endpoint to change the active organization."""
     from karakter.models import Organization
 
@@ -80,7 +80,7 @@ def change_org(request):
 
 
 @login_required
-def accept_invite(request, token):
+def accept_invite(request: HttpRequest, token: str) -> HttpResponse:
     """View for accepting an organization invite - redirects to frontend with token."""
     from karakter.models import Invite
 
@@ -130,7 +130,7 @@ def accept_invite(request, token):
 
 
 @login_required
-def leave_org(request, slug):
+def leave_org(request: HttpRequest, slug: str) -> HttpResponse:
     """API endpoint to leave an organization."""
     from karakter.models import Membership, Organization
 

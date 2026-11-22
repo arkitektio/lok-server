@@ -1,7 +1,11 @@
 import secrets
+from typing import TYPE_CHECKING
 
 from django.conf import settings
 from django.db import models
+
+if TYPE_CHECKING:
+    from karakter.models import User
 
 
 def _reference() -> str:
@@ -93,7 +97,7 @@ class VulnerabilityReport(models.Model):
 
     CLOSING = (Status.REJECTED, Status.CLOSED)
 
-    def request_status(self, status: str, user) -> str:
+    def request_status(self, status: str, user: "User") -> str:
         """Move to ``status`` on behalf of ``user``. Returns what happened, for the admin message.
 
         Non-closing statuses apply directly. A closing status from one analyst is only a

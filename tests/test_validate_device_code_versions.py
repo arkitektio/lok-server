@@ -5,8 +5,10 @@ Advisory, like the claim's ``satisfies``: an instance outside the range is still
 
 import pytest
 from asgiref.sync import sync_to_async
+from kante.context import HttpContext
 
 from api.management.schema import schema as management_schema
+from fakts.models import DeviceCode, Hub
 from tests import factories
 from tests.conftest import build_auth_context
 
@@ -26,7 +28,7 @@ DEVICE_CODE = """
 """
 
 
-def _setup():
+def _setup() -> tuple[HttpContext, Hub, DeviceCode]:
     membership = factories.make_membership()
     organization = membership.organization
     context = build_auth_context(
@@ -71,7 +73,7 @@ def _setup():
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_validate_device_code_judges_versions():
+async def test_validate_device_code_judges_versions() -> None:
     context, hub, device_code = await sync_to_async(_setup)()
 
     result = await management_schema.execute(

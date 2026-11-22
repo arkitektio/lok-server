@@ -14,15 +14,27 @@ all, letting any principal mutate any tenant's objects. These helpers exist so a
 guard is one line, matching the ergonomics of the management side.
 """
 
+from collections.abc import Callable
+from typing import TYPE_CHECKING, TypeVar, cast
+
 from django.core.exceptions import ObjectDoesNotExist, ValidationError
+from django.db.models import Model, Q, QuerySet
+from django.db.models.manager import BaseManager
 from graphql import GraphQLError
+from kante.types import Info
+
+if TYPE_CHECKING:
+    from karakter.models import MediaStore, Membership, Organization, User
+
+#: The row a lookup or a scoped list is about.
+_M = TypeVar("_M", bound=Model)
 
 # Deliberately identical to `api.management.authz.DENIED` so a denial cannot be
 # distinguished from a genuine not-found and used as an existence oracle.
 DENIED = "Not found, or you are not authorized to access it."
 
 
-def get_user(info):
+def get_user(info: Info) -> "User":
     """Return the authenticated caller, or fail closed.
 
     kante's `UniversalRequest.user` *raises* when no principal was set rather
@@ -30,14 +42,15 @@ def get_user(info):
     """
     try:
         user = info.context.request.user
-    except Exception:
-        raise GraphQLError(DENIED)
+    except Exception as exc:
+        raise GraphQLError(DENIED) from exc
     if user is None or not getattr(user, "is_authenticated", False):
         raise GraphQLError(DENIED)
-    return user
+    # AUTH_USER_MODEL: the principal kante hands back is a karakter User.
+    return cast("User", user)
 
 
-def get_organization(info):
+def get_organization(info: Info) -> "Organization":
     """Return the caller's active organization, or fail closed.
 
     Resolved from the token's `org` claim (the organization pk), and already
@@ -45,11 +58,12 @@ def get_organization(info):
     """
     try:
         organization = info.context.request.organization
-    except Exception:
-        raise GraphQLError(DENIED)
+    except Exception as exc:
+        raise GraphQLError(DENIED) from exc
     if organization is None:
         raise GraphQLError(DENIED)
-    return organization
+    # AuthAppExtension resolves the token's `org` onto a karakter Organization.
+    return cast("Organization", organization)
 
 
 # Everything a caller-supplied lookup can blow up with *before* the row is even
@@ -60,7 +74,9 @@ def get_organization(info):
 _LOOKUP_ERRORS = (ObjectDoesNotExist, ValueError, ValidationError)
 
 
-def get_or_denied(manager, *args, **lookup):
+def get_or_denied(
+    manager: "BaseManager[_M] | QuerySet[_M]", *args: Q, **lookup: object
+) -> _M:
     """Fetch a single object by an arbitrary lookup, or fail closed.
 
     `manager` may be a manager or a queryset (so callers can pre-apply
@@ -72,11 +88,17 @@ def get_or_denied(manager, *args, **lookup):
     """
     try:
         return manager.get(*args, **lookup)
-    except _LOOKUP_ERRORS:
-        raise GraphQLError(DENIED)
+    except _LOOKUP_ERRORS as exc:
+        raise GraphQLError(DENIED) from exc
 
 
-def get_scoped_or_denied(manager, info, *args, field="organization", **lookup):
+def get_scoped_or_denied(
+    manager: "BaseManager[_M] | QuerySet[_M]",
+    info: Info,
+    *args: Q,
+    field: str = "organization",
+    **lookup: object,
+) -> _M:
     """Fetch a single object, narrowed to the caller's organization.
 
     Returns the object, or raises the uniform `DENIED` error if it does not
@@ -87,7 +109,7 @@ def get_scoped_or_denied(manager, info, *args, field="organization", **lookup):
     return get_or_denied(manager, *args, **{field: organization}, **lookup)
 
 
-def caller_is_guest(info) -> bool:
+def caller_is_guest(info: Info) -> bool:
     """Whether the caller is only a guest of some collaborations in their active organization.
 
     The token's membership is the one `AuthAppExtension` resolved for `org`; a
@@ -101,7 +123,12 @@ def caller_is_guest(info) -> bool:
     return membership is None or membership.is_scoped
 
 
-def build_prescoped_queryset(info, queryset, field="organization", guest=None):
+def build_prescoped_queryset(
+    info: Info,
+    queryset: QuerySet[_M],
+    field: str = "organization",
+    guest: "Callable[[QuerySet[_M], User, Membership], QuerySet[_M]] | None" = None,
+) -> QuerySet[_M]:
     """Narrow a list queryset to the caller's active organization.
 
     Used by the `get_queryset` classmethods of the main schema's tenant-owned
@@ -136,7 +163,9 @@ def build_prescoped_queryset(info, queryset, field="organization", guest=None):
     raise GraphQLError("Custom scopes are not implemented yet")
 
 
-def build_user_scoped_queryset(info, queryset, field="user"):
+def build_user_scoped_queryset(
+    info: Info, queryset: QuerySet[_M], field: str = "user"
+) -> QuerySet[_M]:
     """Narrow a list queryset to rows owned by the calling user.
 
     The per-user counterpart of `build_prescoped_queryset`, for objects that
@@ -145,21 +174,23 @@ def build_user_scoped_queryset(info, queryset, field="user"):
     return queryset.filter(**{field: get_user(info)})
 
 
-def assert_owns_object(info, obj, field="organization"):
+def assert_owns_object(info: Info, obj: Model, field: str = "organization") -> None:
     """Require that ``obj`` belongs to the caller's active organization."""
     organization = get_organization(info)
     if getattr(obj, f"{field}_id", None) != organization.id:
         raise GraphQLError(DENIED)
 
 
-def assert_is_self(info, user_id):
+def assert_is_self(info: Info, user_id: object) -> None:
     """Require that ``user_id`` is the calling user (for per-user objects)."""
     user = get_user(info)
     if str(user_id) != str(user.id):
         raise GraphQLError(DENIED)
 
 
-def resolve_own_media_store(info, media_store_id, model):
+def resolve_own_media_store(
+    info: Info, media_store_id: object, model: "type[MediaStore]"
+) -> "MediaStore":
     """Resolve a `MediaStore` the caller is entitled to attach.
 
     Uploads are namespaced under `users/{user.id}/` by `request_media_upload`, so
@@ -176,8 +207,8 @@ def resolve_own_media_store(info, media_store_id, model):
     user = get_user(info)
     try:
         store = model.objects.get(pk=media_store_id)
-    except model.DoesNotExist:
-        raise GraphQLError(DENIED)
+    except model.DoesNotExist as exc:
+        raise GraphQLError(DENIED) from exc
 
     key = store.key or ""
     if key.startswith("users/") and not key.startswith(f"users/{user.id}/"):

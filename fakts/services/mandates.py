@@ -26,6 +26,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 
 from django.db import transaction
+from django.db.models import QuerySet
 from django.utils import timezone
 
 from fakts import enums, models
@@ -543,7 +544,7 @@ def revoke_mandate(
 
 
 def revoke_issued_by(
-    clients,
+    clients: QuerySet[models.Client],
     reason: enums.MandateRevocationChoices = enums.MandateRevocationChoices.ISSUER_REVOKED,
 ) -> int:
     """Revoke every live mandate the given clients issued (the issuer was rejected or revoked)."""

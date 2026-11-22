@@ -1,3 +1,5 @@
+from typing import Any
+
 """Keep the mandate keys the config names (``mandate_keys``) in place.
 
 Running it again changes nothing: an entry whose key is unchanged is updated in
@@ -26,7 +28,7 @@ def _same_pin(current: MandatePin, wanted: MandatePin) -> bool:
 class Command(BaseCommand):
     help = "Keep the mandate keys of settings.MANDATE_KEYS in place, and revoke the ones the config dropped."
 
-    def handle(self, *args, **kwargs):
+    def handle(self, *args: Any, **kwargs: Any) -> None:
         specs: list[MandateKeySettings] = settings.MANDATE_KEYS
 
         for spec in specs:

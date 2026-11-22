@@ -2,10 +2,13 @@
 ids, app identifiers, and the collaboration an invite grants."""
 
 import datetime
+from typing import Any
 
 import pytest
 from asgiref.sync import sync_to_async
 from django.utils import timezone
+from kante.context import HttpContext
+from strawberry.types import ExecutionResult
 
 from fakts import models as fakts_models
 from karakter import models
@@ -15,20 +18,25 @@ from tests import factories
 from tests.conftest import build_auth_context
 
 
-async def _run(context, query, **variables):
+async def _run(
+    context: HttpContext, query: str, **variables: object
+) -> ExecutionResult:
     result = await schema.execute(
         query, context_value=context, variable_values=variables
     )
     return result
 
 
-async def _data(context, query, **variables):
+async def _data(
+    context: HttpContext, query: str, **variables: object
+) -> dict[str, Any]:
     result = await _run(context, query, **variables)
     assert not result.errors, result.errors
+    assert result.data is not None
     return result.data
 
 
-def _member():
+def _member() -> tuple[models.Membership, HttpContext]:
     membership = factories.make_membership()
     return membership, build_auth_context(
         membership.user,
@@ -43,8 +51,8 @@ DEVICES = "query ($filters: DeviceFilter) { devices(filters: $filters) { id } }"
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_a_device_is_found_by_the_id_other_services_know_it_by():
-    def setup():
+async def test_a_device_is_found_by_the_id_other_services_know_it_by() -> None:
+    def setup() -> tuple[HttpContext, fakts_models.Device, str]:
         membership, context = _member()
         stored = hash_device_id("raw-laptop", membership.organization)
         device = fakts_models.Device.objects.create(
@@ -66,8 +74,10 @@ async def test_a_device_is_found_by_the_id_other_services_know_it_by():
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_devices_filter_by_device_ids_and_by_group():
-    def setup():
+async def test_devices_filter_by_device_ids_and_by_group() -> None:
+    def setup() -> tuple[
+        HttpContext, list[fakts_models.Device], fakts_models.DeviceGroup
+    ]:
         membership, context = _member()
         organization = membership.organization
         devices = [
@@ -108,8 +118,14 @@ CLIENTS = "query ($ids: [ID!]!) { clientsByClientId(clientIds: $ids) { requested
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_clients_are_looked_up_in_one_query_by_any_id_they_had():
-    def setup():
+async def test_clients_are_looked_up_in_one_query_by_any_id_they_had() -> None:
+    def setup() -> tuple[
+        HttpContext,
+        fakts_models.Client,
+        fakts_models.Client,
+        fakts_models.ClientIdentity,
+        fakts_models.Client,
+    ]:
         membership, context = _member()
         mine = factories.make_client(membership=membership)
         moved = factories.make_client(membership=membership)
@@ -148,8 +164,8 @@ APPS = "query ($filters: AppFilter) { apps(filters: $filters) { identifier } }"
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_apps_filter_by_exact_identifiers():
-    def setup():
+async def test_apps_filter_by_exact_identifiers() -> None:
+    def setup() -> HttpContext:
         membership, context = _member()
         for identifier in [
             "com.example.napari",
@@ -175,8 +191,8 @@ async def test_apps_filter_by_exact_identifiers():
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_app_and_device_search_ignores_case_and_matches_identifiers():
-    def setup():
+async def test_app_and_device_search_ignores_case_and_matches_identifiers() -> None:
+    def setup() -> HttpContext:
         membership, context = _member()
         factories.make_app(
             organization=membership.organization,
@@ -215,8 +231,16 @@ INVITES = "query ($filters: InviteFilter) { invites(filters: $filters) { id } }"
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_invites_filter_by_granted_collaboration_and_validity():
-    def setup():
+async def test_invites_filter_by_granted_collaboration_and_validity() -> None:
+    def setup() -> tuple[
+        HttpContext,
+        models.Invite,
+        models.Invite,
+        models.Invite,
+        models.Invite,
+        models.Invite,
+        models.Invite,
+    ]:
         owner = factories.make_user()
         organization = factories.make_organization(owner=owner)
         membership = factories.make_membership(user=owner, organization=organization)
@@ -224,7 +248,9 @@ async def test_invites_filter_by_granted_collaboration_and_validity():
             owner, organization, factories.make_client(membership=membership)
         )
 
-        def invite(collaborations, **kw):
+        def invite(
+            collaborations: list[dict[str, object]] | None, **kw: Any
+        ) -> models.Invite:
             return models.Invite.objects.create(
                 created_by=owner,
                 created_for=organization,

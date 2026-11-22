@@ -1,11 +1,12 @@
 import datetime
-from typing import Annotated, Optional, cast
+from collections.abc import Callable
+from typing import TYPE_CHECKING, Annotated, Any, Optional, cast
 
 import kante
 import strawberry
 import strawberry_django
 from allauth.socialaccount import models as smodels
-from django.db.models import Q
+from django.db.models import Q, QuerySet
 from kante.types import Info
 
 from karakter import filters, models, scalars
@@ -20,9 +21,14 @@ from karakter.roles import owner_or_admin_q
 
 from .type_gen import create_stats_type
 
+if TYPE_CHECKING:
+    from fakts.types import Hub
 
-def build_prescoper(field="organization"):
-    def prescoper(queryset, info):
+
+def build_prescoper(
+    field: str = "organization",
+) -> Callable[[QuerySet, Info], QuerySet]:
+    def prescoper(queryset: QuerySet, info: Info) -> QuerySet:
         return build_prescoped_queryset(info, queryset, field=field)
 
     return prescoper
@@ -48,7 +54,9 @@ class Group:
         return models.User.objects.filter(groups=self)
 
     @classmethod
-    def get_queryset(cls, queryset, info: Info, **kwargs):
+    def get_queryset(
+        cls, queryset: QuerySet[models.Group], info: Info, **kwargs: Any
+    ) -> QuerySet[models.Group]:
         """Restrict groups to the ones the caller belongs to.
 
         `Group` is Django's auth group and carries no organization relation, so
@@ -120,7 +128,9 @@ class User:
     )
 
     @classmethod
-    def get_queryset(cls, queryset, info: Info):
+    def get_queryset(
+        cls, queryset: QuerySet[models.User], info: Info
+    ) -> QuerySet[models.User]:
         # A guest sees themselves, not the organization's member directory.
         return build_prescoped_queryset(
             info,
@@ -301,7 +311,7 @@ class OrcidAccount(SocialAccount):
         return OrcidPerson(researcher_urls=researcher_urls, addresses=addresses)
 
     @staticmethod
-    def is_type_of(ob, info):
+    def is_type_of(ob: object, info: Info) -> bool:
         return ob.provider == "orcid"
 
 
@@ -324,7 +334,7 @@ class GithubAccount(SocialAccount):
         return str(login) if login else None
 
     @staticmethod
-    def is_type_of(ob, info):
+    def is_type_of(ob: object, info: Info) -> bool:
         return ob.provider == "github"
 
 
@@ -342,7 +352,7 @@ class GenericAccount(SocialAccount):
     extra_data: scalars.ExtraData
 
     @staticmethod
-    def is_type_of(ob, info):
+    def is_type_of(ob: object, info: Info) -> bool:
         return ob.provider != "orcid"
 
 
@@ -417,7 +427,9 @@ class Role:
         return self.description or self.identifier
 
     @classmethod
-    def get_queryset(cls, queryset, info: Info):
+    def get_queryset(
+        cls, queryset: QuerySet[models.Role], info: Info
+    ) -> QuerySet[models.Role]:
         return build_prescoped_queryset(info, queryset, field="organization")
 
 
@@ -452,7 +464,9 @@ class Membership:
     )
 
     @classmethod
-    def get_queryset(cls, queryset, info: Info):
+    def get_queryset(
+        cls, queryset: QuerySet[models.Membership], info: Info
+    ) -> QuerySet[models.Membership]:
         # A guest sees their own membership, not who else is in the organization.
         return build_prescoped_queryset(
             info,
@@ -537,7 +551,9 @@ class Organization:
         return self.name or self.slug or f"organization-{self.id}"
 
     @classmethod
-    def get_queryset(cls, queryset, info: Info, **kwargs):
+    def get_queryset(
+        cls, queryset: QuerySet[models.Organization], info: Info, **kwargs: Any
+    ) -> QuerySet[models.Organization]:
         """Only the caller's active organization is visible on this schema."""
         return queryset.filter(id=get_organization(info).id)
 
@@ -631,7 +647,9 @@ class Invite:
         return f"{settings.KONTROL_FRONTEND_URL}/invite/{self.token}"
 
     @classmethod
-    def get_queryset(cls, queryset, info: Info, **kwargs):
+    def get_queryset(
+        cls, queryset: QuerySet[models.Invite], info: Info, **kwargs: Any
+    ) -> QuerySet[models.Invite]:
         """Restrict invites to ones the caller owns or administers.
 
         This type exposes `token` — and `invite_url`, which embeds it — and an
@@ -691,7 +709,9 @@ class MembershipRequest:
         return models.User.objects.get(pk=self.user_id)
 
     @classmethod
-    def get_queryset(cls, queryset, info: Info, **kwargs):
+    def get_queryset(
+        cls, queryset: QuerySet[models.MembershipRequest], info: Info, **kwargs: Any
+    ) -> QuerySet[models.MembershipRequest]:
         """Restrict requests to the active organization, and to its owner and admins.
 
         Who asked to join is nobody else's business, and only they can answer.

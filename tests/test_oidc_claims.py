@@ -7,6 +7,8 @@ for the same client (OIDC Core §5.3.2).
 """
 
 import pytest
+from django.test import Client
+from pytest_django.fixtures import SettingsWrapper
 
 from authapp import oidc_claims
 from authapp.grants import OpenIDCode
@@ -15,7 +17,7 @@ from tests import factories
 # --- pure helpers ---------------------------------------------------------
 
 
-def test_validate_email_template_accepts_known_variables():
+def test_validate_email_template_accepts_known_variables() -> None:
     oidc_claims.validate_email_template("{username}+{org_slug}@corp.example")
 
 
@@ -28,13 +30,13 @@ def test_validate_email_template_accepts_known_variables():
         "{username",  # malformed braces
     ],
 )
-def test_validate_email_template_rejects_bad_templates(template):
+def test_validate_email_template_rejects_bad_templates(template: str) -> None:
     with pytest.raises(ValueError):
         oidc_claims.validate_email_template(template)
 
 
 @pytest.mark.django_db
-def test_resolve_sub_is_always_the_user_id():
+def test_resolve_sub_is_always_the_user_id() -> None:
     """One human is one subject, in every organization they belong to.
 
     Relying parties tell a person's organizations apart on (sub, org), not by
@@ -51,7 +53,7 @@ def test_resolve_sub_is_always_the_user_id():
 
 
 @pytest.mark.django_db
-def test_resolve_email_template_and_default():
+def test_resolve_email_template_and_default() -> None:
     membership = factories.make_membership()
     membership.user.email = "real@example.com"
     membership.user.save()
@@ -65,7 +67,7 @@ def test_resolve_email_template_and_default():
 
 
 @pytest.mark.django_db
-def test_resolve_email_coerces_none_and_falls_back():
+def test_resolve_email_coerces_none_and_falls_back() -> None:
     membership = factories.make_membership()
     membership.user.email = None
     membership.user.save()
@@ -81,7 +83,7 @@ def test_resolve_email_coerces_none_and_falls_back():
 # --- config validation ----------------------------------------------------
 
 
-def test_config_rejects_invalid_email_template():
+def test_config_rejects_invalid_email_template() -> None:
     from lok_server.configuration import OpenIDAppSettings
 
     with pytest.raises(ValueError):
@@ -97,7 +99,7 @@ def test_config_rejects_invalid_email_template():
 
 
 @pytest.mark.django_db
-def test_ensureopenid_provisions_new_fields(settings):
+def test_ensureopenid_provisions_new_fields(settings: SettingsWrapper) -> None:
     from django.core.management import call_command
 
     from fakts.models import Client as OAuth2Client
@@ -120,7 +122,7 @@ def test_ensureopenid_provisions_new_fields(settings):
 
 
 @pytest.mark.django_db
-def test_id_token_and_userinfo_sub_agree():
+def test_id_token_and_userinfo_sub_agree() -> None:
     """The `sub` computed for the id_token must equal the one the userinfo
     endpoint computes for the same client (OIDC Core §5.3.2)."""
     membership = factories.make_membership()
@@ -146,7 +148,9 @@ def test_id_token_and_userinfo_sub_agree():
 
 
 @pytest.mark.django_db(transaction=True)
-def test_token_endpoint_id_token_carries_configured_sub_and_email(client):
+def test_token_endpoint_id_token_carries_configured_sub_and_email(
+    client: Client,
+) -> None:
     """End-to-end: exchange an auth code at the token endpoint and decode the
     real id_token, asserting the per-client `sub`/`email` policy took effect."""
     import base64

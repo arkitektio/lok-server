@@ -71,7 +71,7 @@ def create_invite(info: Info, input: CreateInviteInput) -> types.Invite:
                 collaboration_entries(input.collaborations, info), organization
             )
         except ValidationError as e:
-            raise GraphQLError(" ".join(e.messages))
+            raise GraphQLError(" ".join(e.messages)) from e
         if input.roles:
             raise GraphQLError(
                 "An invite that grants collaborations grants no roles in the organization."
@@ -142,7 +142,7 @@ def accept_invite(info: Info, input: AcceptInviteInput) -> types.Membership:
     try:
         return redeem_invite(invite, get_user(info))
     except InviteError as e:
-        raise GraphQLError(str(e))
+        raise GraphQLError(str(e)) from e
 
 
 @kante.input

@@ -22,7 +22,7 @@ from fakts.services.permissions import register_permissions
 from fakts.services.tokens import create_api_token  # noqa: F401  (kept for shim parity)
 from ionscale.acl import schedule_acl_apply
 from ionscale.manager import get_org_mesh
-from ionscale.repo import get_ionscale_repo
+from ionscale.repo import IonscaleRepo, get_ionscale_repo
 from karakter import models as karakter_models
 
 logger = logging.getLogger(__name__)
@@ -610,7 +610,7 @@ def write_hub_mesh_keys(
     return done
 
 
-def _prune_stale_machines(repo, tailnet: str, tag: str) -> None:
+def _prune_stale_machines(repo: IonscaleRepo, tailnet: str, tag: str) -> None:
     """Delete the nodes carrying ``tag`` that are offline and not the newest."""
     tagged = [m for m in repo.list_machines(tailnet) if tag in m.tags]
     if len(tagged) < 2:

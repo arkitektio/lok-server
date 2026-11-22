@@ -23,9 +23,10 @@ from fakts.base_models import (
 )
 from fakts.services import alias_priority, versions
 from fakts.services.tokens import hash_requirements
+from karakter.models import Membership
 
 
-def _identity(membership, hub: models.Hub | None) -> dict:
+def _identity(membership: Membership, hub: models.Hub | None) -> dict:
     """``self``'s identity fields: the same values as the access token's
     ``sub`` / ``org`` claims, plus the (stable) hub pk."""
     return {
@@ -311,7 +312,7 @@ def create_serverlinking_context(
 
 
 def create_fake_linking_context(
-    client: models.Client, host, port, secure=False
+    client: models.Client, host: str, port: str | None, secure: bool = False
 ) -> base_models.LinkingContext:
     return base_models.LinkingContext(
         request=base_models.LinkingRequest(

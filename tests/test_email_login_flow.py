@@ -8,15 +8,20 @@ mail is really sent.
 """
 
 import json
+from typing import TYPE_CHECKING
 
 import pytest
 from django.core import mail
-from django.test import override_settings
+from django.test import Client, override_settings
+from pytest_django.fixtures import SettingsWrapper
+
+if TYPE_CHECKING:
+    from django.test.client import _MonkeyPatchedWSGIResponse as TestResponse
 
 BROWSER = "/lok/_allauth/browser/v1"
 
 
-def _post(client, path, payload):
+def _post(client: Client, path: str, payload: dict[str, object]) -> "TestResponse":
     return client.post(
         f"{BROWSER}{path}", data=json.dumps(payload), content_type="application/json"
     )
@@ -32,7 +37,7 @@ EMAIL_LOGIN = override_settings(
 
 @pytest.mark.django_db
 @EMAIL_LOGIN
-def test_config_advertises_email_login(client):
+def test_config_advertises_email_login(client: Client) -> None:
     """The headless capability config the SPA reads reflects email login."""
     resp = client.get(f"{BROWSER}/config")
     account = resp.json()["data"]["account"]
@@ -42,7 +47,7 @@ def test_config_advertises_email_login(client):
 
 @pytest.mark.django_db
 @EMAIL_LOGIN
-def test_email_signup_sends_verification_and_gates_login(client):
+def test_email_signup_sends_verification_and_gates_login(client: Client) -> None:
     """Signing up with an email sends a verification mail and blocks login
     until the address is confirmed."""
     from allauth.account.models import EmailAddress
@@ -72,7 +77,7 @@ def test_email_signup_sends_verification_and_gates_login(client):
 
 @pytest.mark.django_db
 @EMAIL_LOGIN
-def test_verify_then_login_succeeds(client):
+def test_verify_then_login_succeeds(client: Client) -> None:
     """After verifying the email, logging in with email + password succeeds."""
     from allauth.account.models import EmailAddress
     from django.contrib.auth import get_user_model
@@ -103,7 +108,9 @@ def test_verify_then_login_succeeds(client):
 
 @pytest.mark.django_db
 @EMAIL_LOGIN
-def test_seeded_user_logs_in_by_email_under_mandatory_verification(client, settings):
+def test_seeded_user_logs_in_by_email_under_mandatory_verification(
+    client: Client, settings: SettingsWrapper
+) -> None:
     """A user provisioned from config (`ensureusers`) can log in by email even
     under mandatory verification — `ensureusers` registers a verified, primary
     EmailAddress, so no manual confirmation is needed."""

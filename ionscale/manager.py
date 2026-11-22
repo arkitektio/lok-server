@@ -3,13 +3,13 @@ import logging
 from django.conf import settings
 
 from fakts.models import IonscaleLayer
-from karakter.models import Membership
+from karakter.models import Membership, Organization
 
 from . import base_models
 from .repo import get_ionscale_repo
 
 
-def desired_tailnet_name(organization) -> str:
+def desired_tailnet_name(organization: Organization) -> str:
     """The tailnet is named after the organization: its id, which a rename never changes (see ``ensure_org_mesh``)."""
     return str(organization.pk)
 
@@ -48,13 +48,13 @@ def magic_dns_name(
     return ".".join([name, tailnet, suffix] if tailnet else [name, suffix])
 
 
-def get_org_mesh(organization) -> IonscaleLayer | None:
+def get_org_mesh(organization: Organization | int) -> IonscaleLayer | None:
     """Return the organization's existing ionscale mesh, or None. Read-only — does
     not provision (that only happens via explicit opt-in, `ensure_org_mesh`)."""
     return IonscaleLayer.objects.filter(organization=organization).first()
 
 
-def ensure_org_mesh(organization) -> IonscaleLayer | None:
+def ensure_org_mesh(organization: Organization) -> IonscaleLayer | None:
     """Return the organization's single ionscale mesh, provisioning it on first
     opt-in.
 
@@ -276,7 +276,7 @@ def teardown_tailnet(tailnet_name: str) -> None:
     _teardown(tailnet_name)
 
 
-def sync_organization_layers(organization) -> None:
+def sync_organization_layers(organization: Organization | int) -> None:
     """Synchronously push the member list to every mesh of the organization,
     swallowing failures. Signal handlers use the on-commit variant in
     :mod:`ionscale.sync` instead."""

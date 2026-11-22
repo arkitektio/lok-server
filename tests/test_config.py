@@ -3,26 +3,28 @@
 Standalone — needs no database; run with ``uv run pytest tests/test_config.py``.
 """
 
+from typing import Any, TypedDict
+
 import pytest
 from pydantic import ValidationError
 
-from lok_server.configuration import AccountSettings, Settings
+from lok_server.configuration import AccountSettings, IonscaleSettings, Settings
 
 
-def test_config_yaml_validates():
+def test_config_yaml_validates() -> None:
     """The service's own config.yaml parses into the typed schema."""
     s = Settings()
     assert s.postgres.db_name
     assert s.redis.host
 
 
-def test_env_override(monkeypatch):
+def test_env_override(monkeypatch: pytest.MonkeyPatch) -> None:
     """Env vars override the YAML file (nested via ``__``)."""
     monkeypatch.setenv("POSTGRES__PASSWORD", "from-env-test")
     assert Settings().postgres.password == "from-env-test"
 
 
-def test_signup_fields_derived_from_login_methods():
+def test_signup_fields_derived_from_login_methods() -> None:
     """When signup_fields is omitted it is derived from login_methods."""
     assert AccountSettings().signup_fields == ["username*", "password1*", "password2*"]
     assert AccountSettings(login_methods=["email"]).signup_fields == [
@@ -32,7 +34,7 @@ def test_signup_fields_derived_from_login_methods():
     ]
 
 
-def test_email_login_requires_email_signup_field():
+def test_email_login_requires_email_signup_field() -> None:
     """Email login paired with a signup form that never collects an email fails."""
     with pytest.raises(ValidationError, match="email"):
         AccountSettings(
@@ -41,13 +43,13 @@ def test_email_login_requires_email_signup_field():
         )
 
 
-def test_mandatory_verification_requires_smtp_block():
+def test_mandatory_verification_requires_smtp_block() -> None:
     """Mandatory email verification without an `email:` SMTP block fails fast."""
     with pytest.raises(ValidationError, match="mandatory"):
         Settings(account={"email_verification": "mandatory"})
 
 
-def test_social_provider_config_dumps_to_allauth_shape():
+def test_social_provider_config_dumps_to_allauth_shape() -> None:
     """A typed provider entry round-trips to exactly the dict allauth expects,
     preserving provider-specific extras and dropping unset optionals."""
     s = Settings(
@@ -71,19 +73,34 @@ def test_social_provider_config_dumps_to_allauth_shape():
     }
 
 
-def test_social_provider_rejects_bad_app_credentials():
+def test_social_provider_rejects_bad_app_credentials() -> None:
     """A missing/mistyped APP credential key is caught at load time."""
     with pytest.raises(ValidationError):
         Settings(socialaccount_providers={"google": {"APP": {"clientid": "typo"}}})
 
 
-def _saml_app(client_id="acme-university", trusted=True):
+class SamlAppSettings(TypedDict, total=False):
+    attribute_mapping: dict[str, list[str]]
+    idp: dict[str, str]
+    verified_email: list[str] | bool
+
+
+class SamlApp(TypedDict):
+    """A SAML APPS entry as written in config.yaml."""
+
+    client_id: str
+    provider_id: str
+    name: str
+    settings: SamlAppSettings
+
+
+def _saml_app(client_id: str = "acme-university", trusted: bool = True) -> SamlApp:
     """A SAML APPS entry of the shape allauth's `list_apps` reads.
 
     `client_id` is an identity-provider name and the URL segment — it carries no
     organization meaning.
     """
-    settings = {
+    settings: SamlAppSettings = {
         "attribute_mapping": {"uid": ["urn:oasis:names:tc:SAML:attribute:subject-id"]},
         "idp": {
             "entity_id": f"https://idp.{client_id}.edu/idp",
@@ -100,7 +117,7 @@ def _saml_app(client_id="acme-university", trusted=True):
     }
 
 
-def test_saml_app_validates_without_oauth_credentials():
+def test_saml_app_validates_without_oauth_credentials() -> None:
     """A SAML app carries no OAuth secret/key, and the `extra="forbid"` app model
     accepts it unchanged — this is why SAML needs no config-schema change."""
     s = Settings(socialaccount_providers={"saml": {"APPS": [_saml_app()]}})
@@ -113,7 +130,7 @@ def test_saml_app_validates_without_oauth_credentials():
     assert app.settings["verified_email"] == ["acme-university.edu"]
 
 
-def test_saml_provider_dumps_to_allauth_shape():
+def test_saml_provider_dumps_to_allauth_shape() -> None:
     """The typed SAML entry round-trips to the dict allauth expects."""
     s = Settings(socialaccount_providers={"saml": {"APPS": [_saml_app()]}})
     dumped = {
@@ -131,7 +148,7 @@ def test_saml_provider_dumps_to_allauth_shape():
     ]
 
 
-def test_saml_app_rejects_unknown_top_level_key():
+def test_saml_app_rejects_unknown_top_level_key() -> None:
     """Misplacing a SAML setting at app level (instead of under `settings`) is caught."""
     with pytest.raises(ValidationError):
         Settings(
@@ -141,14 +158,14 @@ def test_saml_app_rejects_unknown_top_level_key():
         )
 
 
-def _relaxed(**providers):
+def _relaxed(**providers: object) -> dict[str, object]:
     return dict(
         account={"email_verification": "none", "social_email_verification": "none"},
         socialaccount_providers=providers,
     )
 
 
-def test_per_app_domain_list_satisfies_trust_requirement():
+def test_per_app_domain_list_satisfies_trust_requirement() -> None:
     """Domain-scoped per-app trust is the accepted form for a multi-app provider."""
     s = Settings(**_relaxed(saml={"APPS": [_saml_app("acme"), _saml_app("beta")]}))
     assert s.socialaccount_providers["saml"].APPS[0].settings["verified_email"] == [
@@ -156,7 +173,7 @@ def test_per_app_domain_list_satisfies_trust_requirement():
     ]
 
 
-def test_untrusted_saml_app_is_rejected_when_verification_relaxed():
+def test_untrusted_saml_app_is_rejected_when_verification_relaxed() -> None:
     """One untrusted app among several is caught, not silently exempted."""
     with pytest.raises(ValidationError, match="not marked trusted"):
         Settings(
@@ -171,7 +188,7 @@ def test_untrusted_saml_app_is_rejected_when_verification_relaxed():
         )
 
 
-def test_multi_app_provider_cannot_declare_trust_with_one_flat_flag():
+def test_multi_app_provider_cannot_declare_trust_with_one_flat_flag() -> None:
     """A provider-wide VERIFIED_EMAIL cannot express per-IdP trust."""
     with pytest.raises(ValidationError, match="list of domains"):
         Settings(
@@ -187,7 +204,7 @@ def test_multi_app_provider_cannot_declare_trust_with_one_flat_flag():
         )
 
 
-def test_multi_app_provider_cannot_declare_trust_with_bare_true():
+def test_multi_app_provider_cannot_declare_trust_with_bare_true() -> None:
     """The hole this rule closes: `verified_email: true` is truthy, so it used to pass
     the per-app check while trusting the IdP about *any* address — including domains it
     does not own. With EMAIL_AUTHENTICATION that was an account-takeover vector."""
@@ -198,7 +215,7 @@ def test_multi_app_provider_cannot_declare_trust_with_bare_true():
         Settings(**_relaxed(saml={"APPS": [app, _saml_app("beta")]}))
 
 
-def test_multi_app_provider_rejects_an_empty_domain_list():
+def test_multi_app_provider_rejects_an_empty_domain_list() -> None:
     """An empty list trusts nothing and is far more likely a mistake than intent."""
     app = _saml_app("acme", trusted=False)
     app["settings"]["verified_email"] = []
@@ -207,7 +224,7 @@ def test_multi_app_provider_rejects_an_empty_domain_list():
         Settings(**_relaxed(saml={"APPS": [app, _saml_app("beta")]}))
 
 
-def test_single_app_saml_provider_also_needs_a_domain_list():
+def test_single_app_saml_provider_also_needs_a_domain_list() -> None:
     """SAML needs domain scoping at *any* app count, not just when several are
     configured. An institution's IdP has no business asserting addresses outside its
     own domains, and that is true whether or not a second IdP exists."""
@@ -218,7 +235,7 @@ def test_single_app_saml_provider_also_needs_a_domain_list():
         Settings(**_relaxed(saml={"APPS": [app]}))
 
 
-def test_single_app_oauth_provider_may_still_use_a_bare_flag():
+def test_single_app_oauth_provider_may_still_use_a_bare_flag() -> None:
     """The stricter rule must not disturb google/orcid/cilogon, which are single
     well-known providers declaring trust with one provider-wide VERIFIED_EMAIL."""
     Settings(
@@ -235,7 +252,7 @@ def test_single_app_oauth_provider_may_still_use_a_bare_flag():
     )
 
 
-def test_single_app_provider_may_still_use_flat_verified_email():
+def test_single_app_provider_may_still_use_flat_verified_email() -> None:
     """Regression guard for the deployed google/orcid/cilogon shape, which declares
     trust with one top-level VERIFIED_EMAIL per single-app provider."""
     s = Settings(
@@ -254,35 +271,35 @@ def test_single_app_provider_may_still_use_flat_verified_email():
     assert s.account.social_email_verification == "none"
 
 
-def test_privacy_guards_defaults_to_opt_in():
+def test_privacy_guards_defaults_to_opt_in() -> None:
     """Integrated-widget policy defaults to the current consent-prompt behavior."""
     assert Settings().privacy_guards == "opt-in"
 
 
-def test_privacy_guards_accepts_known_policies():
+def test_privacy_guards_accepts_known_policies() -> None:
     """The three supported policies validate."""
     for policy in ("strict", "opt-in", "disabled"):
         assert Settings(privacy_guards=policy).privacy_guards == policy
 
 
-def test_privacy_guards_rejects_unknown_policy():
+def test_privacy_guards_rejects_unknown_policy() -> None:
     """An unrecognized policy value is caught at load time (typed Literal)."""
     with pytest.raises(ValidationError):
         Settings(privacy_guards="loose")
 
 
-def test_allow_insecure_transport_defaults_false():
+def test_allow_insecure_transport_defaults_false() -> None:
     """OAuth endpoints demand https unless a deployment opts out explicitly."""
     assert Settings().django.allow_insecure_transport is False
 
 
-def test_allow_insecure_transport_env_override(monkeypatch):
+def test_allow_insecure_transport_env_override(monkeypatch: pytest.MonkeyPatch) -> None:
     """The opt-out is a typed config key, overridable via DJANGO__ALLOW_INSECURE_TRANSPORT."""
     monkeypatch.setenv("DJANGO__ALLOW_INSECURE_TRANSPORT", "true")
     assert Settings().django.allow_insecure_transport is True
 
 
-def _ionscale(**kw):
+def _ionscale(**kw: Any) -> IonscaleSettings:
     from lok_server.configuration import IonscaleSettings
 
     return IonscaleSettings(
@@ -292,22 +309,22 @@ def _ionscale(**kw):
     )
 
 
-def test_ionscale_service_token_is_enough():
+def test_ionscale_service_token_is_enough() -> None:
     s = _ionscale(service_token="svc_" + "x" * 40)
     assert s.admin_key is None
     assert s.verify_tls is True and s.timeout == 10.0
 
 
-def test_ionscale_legacy_admin_key_still_accepted():
+def test_ionscale_legacy_admin_key_still_accepted() -> None:
     assert _ionscale(admin_key="legacy").admin_key == "legacy"
 
 
-def test_ionscale_requires_a_credential():
+def test_ionscale_requires_a_credential() -> None:
     with pytest.raises(ValidationError, match="service_token"):
         _ionscale()
 
 
-def test_ionscale_repository_hook_needs_no_credential():
+def test_ionscale_repository_hook_needs_no_credential() -> None:
     """Test/fake repositories are wired by dotted path and carry no secret."""
     assert (
         _ionscale(repository="ionscale.testing.FakeIonscaleRepository").service_token

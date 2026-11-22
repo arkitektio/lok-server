@@ -1,5 +1,7 @@
+from typing import Any
+
 from django.conf import settings
-from django.core.management.base import BaseCommand, CommandError
+from django.core.management.base import BaseCommand, CommandError, CommandParser
 
 from fakts.models import IonscaleLayer
 from ionscale.manager import ensure_org_mesh, ionscale_configured
@@ -15,7 +17,7 @@ class Command(BaseCommand):
         "ionscale users that are no longer members."
     )
 
-    def add_arguments(self, parser):
+    def add_arguments(self, parser: CommandParser) -> None:
         parser.add_argument(
             "--dry-run",
             action="store_true",
@@ -45,7 +47,7 @@ class Command(BaseCommand):
             help="With the sidecar pass: delete sidecar nodes still tagged tag:mesh-<org> (one-off migration).",
         )
 
-    def handle(self, *args, **options):
+    def handle(self, *args: Any, **options: Any) -> None:
         if not ionscale_configured():
             raise CommandError("ionscale is not configured on this deployment")
 

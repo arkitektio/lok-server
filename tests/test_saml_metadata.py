@@ -9,9 +9,10 @@ onboarding.
 """
 
 import xml.etree.ElementTree as ET
+from collections.abc import Iterator
 
 import pytest
-from django.test import override_settings
+from django.test import Client, override_settings
 from django.urls import reverse
 
 SAML_APP = {
@@ -36,12 +37,12 @@ NS = {"md": "urn:oasis:names:tc:SAML:2.0:metadata"}
 
 
 @pytest.fixture
-def saml_settings():
+def saml_settings() -> Iterator[None]:
     with override_settings(SOCIALACCOUNT_PROVIDERS={"saml": {"APPS": [SAML_APP]}}):
         yield
 
 
-def test_saml_urls_carry_the_script_name_prefix_exactly_once():
+def test_saml_urls_carry_the_script_name_prefix_exactly_once() -> None:
     """lok sets `force_script_name: lok`, but bakes it into the URLconf rather than
     Django's FORCE_SCRIPT_NAME. Guards against a doubled `/lok/lok/...`."""
     assert (
@@ -63,7 +64,9 @@ def test_saml_urls_carry_the_script_name_prefix_exactly_once():
 
 
 @pytest.mark.django_db
-def test_metadata_advertises_the_right_acs_url(client, saml_settings):
+def test_metadata_advertises_the_right_acs_url(
+    client: Client, saml_settings: None
+) -> None:
     """The ACS URL handed to the IdP must be the absolute, prefixed one."""
     url = reverse("saml_metadata", kwargs={"organization_slug": "acme-university"})
     response = client.get(url, HTTP_HOST="go.arkitekt.live")
@@ -88,7 +91,7 @@ def test_metadata_advertises_the_right_acs_url(client, saml_settings):
 
 
 @pytest.mark.django_db
-def test_metadata_honours_forwarded_https(client, saml_settings):
+def test_metadata_honours_forwarded_https(client: Client, saml_settings: None) -> None:
     """Behind Caddy the request reaches lok over http; the metadata must still
     advertise https, or python3-saml's Destination check fails under `strict`."""
     url = reverse("saml_metadata", kwargs={"organization_slug": "acme-university"})
@@ -105,7 +108,9 @@ def test_metadata_honours_forwarded_https(client, saml_settings):
 
 
 @pytest.mark.django_db
-def test_metadata_404s_for_an_unconfigured_organization(client, saml_settings):
+def test_metadata_404s_for_an_unconfigured_organization(
+    client: Client, saml_settings: None
+) -> None:
     """A slug with no SAML app is a 404, not a 500."""
     url = reverse("saml_metadata", kwargs={"organization_slug": "nosuchorg"})
     assert client.get(url, HTTP_HOST="go.arkitekt.live").status_code == 404

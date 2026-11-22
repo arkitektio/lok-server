@@ -28,7 +28,7 @@ from contextlib import contextmanager
 from typing import Any
 
 from django.db import transaction
-from django.db.models import Q
+from django.db.models import Model, Q
 from django.db.models.signals import m2m_changed, post_save
 from django.dispatch import receiver
 
@@ -131,7 +131,7 @@ def _given_by_an_admin(membership_ids: Iterable[int], role_ids: set[int]) -> Non
 
 @receiver(m2m_changed, sender=models.Membership.roles.through)
 def _roles_changed(
-    sender: Any,
+    sender: type[Model],
     instance: models.Membership | models.Role,
     action: str,
     reverse: bool,
@@ -166,7 +166,10 @@ def _roles_changed(
 
 @receiver(post_save, sender=models.Membership)
 def _membership_made(
-    sender: Any, instance: models.Membership, created: bool, **kwargs: Any
+    sender: type[models.Membership],
+    instance: models.Membership,
+    created: bool,
+    **kwargs: Any,
 ) -> None:
     if created:
         pk = instance.pk

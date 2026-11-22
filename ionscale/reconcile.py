@@ -6,6 +6,7 @@ Run through ``manage.py reconcile_meshes``.
 """
 
 import logging
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 from typing import TextIO
 
@@ -151,7 +152,7 @@ def reconcile_layer(
     return report
 
 
-def orphaned_tailnets(layers) -> list[base_models.Tailnet]:
+def orphaned_tailnets(layers: Iterable[IonscaleLayer]) -> list[base_models.Tailnet]:
     """Tailnets bound to an organization that has no mesh layer (or no longer
     exists). Reported only; deleting them is a manual decision."""
     known = {str(layer.organization_id) for layer in layers}

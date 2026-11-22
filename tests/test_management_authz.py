@@ -15,16 +15,23 @@ one wrong locks every logged-in console user out of the API.
 """
 
 import json
+from collections.abc import Awaitable
+from typing import TYPE_CHECKING, Any
 
 import pytest
 from django.test import AsyncClient
 
 from karakter.models import User
 
+if TYPE_CHECKING:
+    from django.test.client import _MonkeyPatchedASGIResponse as ASGITestResponse
+
 MANAGEMENT_URL = "/lok/managementgraphql/"
 
 
-def _post(client, query, variables=None):
+def _post(
+    client: AsyncClient, query: str, variables: dict[str, object] | None = None
+) -> Awaitable["ASGITestResponse"]:
     return client.post(
         MANAGEMENT_URL,
         data=json.dumps({"query": query, "variables": variables or {}}),
@@ -32,12 +39,12 @@ def _post(client, query, variables=None):
     )
 
 
-async def _json(response):
+async def _json(response: "ASGITestResponse") -> dict[str, Any]:
     return json.loads(response.content.decode())
 
 
 @pytest.fixture
-def console_user(db):
+def console_user(db: None) -> User:
     """A user with a password, so the test client can log in over a session."""
     # Creating the user fires the signal that builds their personal organization,
     # so no explicit Organization is needed (and creating one would collide).
@@ -46,7 +53,9 @@ def console_user(db):
 
 @pytest.mark.asyncio
 @pytest.mark.django_db(transaction=True)
-async def test_authenticated_session_can_query_management_api(console_user):
+async def test_authenticated_session_can_query_management_api(
+    console_user: User,
+) -> None:
     """A logged-in console user must reach resolvers.
 
     This is the regression test for the auth gate reading ``request.user`` on the
@@ -66,7 +75,7 @@ async def test_authenticated_session_can_query_management_api(console_user):
 
 @pytest.mark.asyncio
 @pytest.mark.django_db(transaction=True)
-async def test_anonymous_post_is_rejected(db):
+async def test_anonymous_post_is_rejected(db: None) -> None:
     """Anonymous callers must not reach any non-public root field."""
     client = AsyncClient()
 
@@ -80,7 +89,7 @@ async def test_anonymous_post_is_rejected(db):
 
 @pytest.mark.asyncio
 @pytest.mark.django_db(transaction=True)
-async def test_anonymous_cannot_read_single_objects(db):
+async def test_anonymous_cannot_read_single_objects(db: None) -> None:
     """The IDOR surface (single-object lookups by id) must deny anonymous reads."""
     client = AsyncClient()
 
@@ -97,7 +106,7 @@ async def test_anonymous_cannot_read_single_objects(db):
 
 @pytest.mark.asyncio
 @pytest.mark.django_db(transaction=True)
-async def test_get_queries_are_disabled(db):
+async def test_get_queries_are_disabled(db: None) -> None:
     """GET is CSRF-exempt, so queries over GET must not be served at all."""
     client = AsyncClient()
     response = await client.get(MANAGEMENT_URL, {"query": "{ __typename }"})
@@ -106,7 +115,7 @@ async def test_get_queries_are_disabled(db):
 
 @pytest.mark.asyncio
 @pytest.mark.django_db(transaction=True)
-async def test_anonymous_can_still_preview_a_public_invite(db):
+async def test_anonymous_can_still_preview_a_public_invite(db: None) -> None:
     """`inviteByCode` is the pre-login preview the SPA hits from an invite link.
 
     `ManagementInvite` is now scoped by `get_queryset` to an organization's owner
@@ -119,7 +128,7 @@ async def test_anonymous_can_still_preview_a_public_invite(db):
 
     from karakter.models import Invite, Organization
 
-    def _setup():
+    def _setup() -> Invite:
         owner = User.objects.create_user(
             username="inviteowner", password="hunter2hunter2"
         )

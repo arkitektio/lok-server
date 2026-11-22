@@ -5,29 +5,38 @@ The mesh is a per-organization singleton, provisioned only on explicit opt-in
 an actionable message when there is none, instead of a bare failure.
 """
 
+from pathlib import Path
 from types import SimpleNamespace
+from typing import Any, Never
 
 import pytest
 from django.contrib.auth import get_user_model
 from django.test import override_settings
 from graphql import GraphQLError
+from kante.context import HttpContext
+from pytest_django.fixtures import SettingsWrapper
 
 from fakts import enums as fakts_enums
 from fakts import models as fakts_models
 from fakts.services.hubs import enroll_hub_on_mesh
 from ionscale.manager import ensure_org_mesh, get_org_mesh
+from ionscale.testing import FakeIonscaleRepository
+from karakter.models import Membership
 from tests import factories
+from tests.conftest import CommitCallbacks
 
 User = get_user_model()
 
 
-def _linking(host="go.example", port=443, is_secure=True):
+def _linking(
+    host: str = "go.example", port: int = 443, is_secure: bool = True
+) -> SimpleNamespace:
     return SimpleNamespace(
         request=SimpleNamespace(host=host, port=port, is_secure=is_secure)
     )
 
 
-def test_alias_render_is_layer_independent():
+def test_alias_render_is_layer_independent() -> None:
     """A rendered client alias is self-contained — `to_url` never reads the layer,
     so the client contract does not depend on the (deprecated) layer concept."""
     # ABSOLUTE alias with no layer → uses its own host/port/ssl.
@@ -46,7 +55,9 @@ def test_alias_render_is_layer_independent():
 
 
 @pytest.mark.django_db
-def test_ensure_org_mesh_is_idempotent_singleton(ionscale_repo):
+def test_ensure_org_mesh_is_idempotent_singleton(
+    ionscale_repo: FakeIonscaleRepository,
+) -> None:
     org = factories.make_organization()
 
     mesh1 = ensure_org_mesh(org)
@@ -63,7 +74,7 @@ def test_ensure_org_mesh_is_idempotent_singleton(ionscale_repo):
 
 @pytest.mark.django_db
 @override_settings(IONSCALE_REPOSITORY=None, IONSCALE_SERVER_URL=None)
-def test_ensure_org_mesh_is_noop_when_ionscale_unconfigured():
+def test_ensure_org_mesh_is_noop_when_ionscale_unconfigured() -> None:
     org = factories.make_organization()
     # Degrades gracefully — no mesh, no exception into the org flow.
     assert ensure_org_mesh(org) is None
@@ -72,7 +83,9 @@ def test_ensure_org_mesh_is_noop_when_ionscale_unconfigured():
 
 
 @pytest.mark.django_db
-def test_create_organization_enables_mesh_by_default(ionscale_repo):
+def test_create_organization_enables_mesh_by_default(
+    ionscale_repo: FakeIonscaleRepository,
+) -> None:
     """Creating an organization auto-provisions its mesh (enabled by default)."""
     from types import SimpleNamespace
 
@@ -92,7 +105,9 @@ def test_create_organization_enables_mesh_by_default(ionscale_repo):
 
 
 @pytest.mark.django_db
-def test_ensure_org_mesh_pushes_default_dns_config(ionscale_repo):
+def test_ensure_org_mesh_pushes_default_dns_config(
+    ionscale_repo: FakeIonscaleRepository,
+) -> None:
     """Provisioning a mesh pushes the default DNS state (MagicDNS + HTTPS both on)."""
     org = factories.make_organization()
 
@@ -107,12 +122,14 @@ def test_ensure_org_mesh_pushes_default_dns_config(ionscale_repo):
     assert config.https_certs is True
 
 
-def _info_for(user):
+def _info_for(user: object) -> SimpleNamespace:
     return SimpleNamespace(context=SimpleNamespace(request=SimpleNamespace(user=user)))
 
 
 @pytest.mark.django_db
-def test_update_mesh_toggles_dns_and_pushes_full_state(ionscale_repo):
+def test_update_mesh_toggles_dns_and_pushes_full_state(
+    ionscale_repo: FakeIonscaleRepository,
+) -> None:
     """Toggling HTTPS off re-pushes the full desired DNS state to ionscale."""
     from api.management.mutations.ionscale import (
         UpdateIonscaleLayerInput,
@@ -141,7 +158,9 @@ def test_update_mesh_toggles_dns_and_pushes_full_state(ionscale_repo):
 
 
 @pytest.mark.django_db
-def test_update_mesh_https_requires_magic_dns(ionscale_repo):
+def test_update_mesh_https_requires_magic_dns(
+    ionscale_repo: FakeIonscaleRepository,
+) -> None:
     """HTTPS certs cannot be enabled without MagicDNS — rejected, no push."""
     from api.management.mutations.ionscale import (
         UpdateIonscaleLayerInput,
@@ -173,7 +192,9 @@ def test_update_mesh_https_requires_magic_dns(ionscale_repo):
 
 
 @pytest.mark.django_db
-def test_update_mesh_dns_failure_propagates_and_rolls_back(ionscale_repo):
+def test_update_mesh_dns_failure_propagates_and_rolls_back(
+    ionscale_repo: FakeIonscaleRepository,
+) -> None:
     """An ionscale push failure on an explicit toggle propagates (so the UI can
     report it) and rolls back the model — desired state never drifts ahead."""
     from api.management.mutations.ionscale import (
@@ -185,7 +206,7 @@ def test_update_mesh_dns_failure_propagates_and_rolls_back(ionscale_repo):
     member = org.owner  # mesh settings are owner/admin-only
     mesh = ensure_org_mesh(org)
 
-    def boom(tailnet, config):
+    def boom(tailnet: object, config: object) -> Never:
         raise RuntimeError("ionscale unreachable")
 
     ionscale_repo.set_dns_config = boom
@@ -204,7 +225,7 @@ def test_update_mesh_dns_failure_propagates_and_rolls_back(ionscale_repo):
 
 
 @pytest.mark.django_db
-def test_update_mesh_rejects_non_member(ionscale_repo):
+def test_update_mesh_rejects_non_member(ionscale_repo: FakeIonscaleRepository) -> None:
     """A user who is not a member of the owning org cannot flip mesh settings."""
     from api.management.mutations.ionscale import (
         UpdateIonscaleLayerInput,
@@ -228,7 +249,9 @@ def test_update_mesh_rejects_non_member(ionscale_repo):
 
 
 @pytest.mark.django_db
-def test_delete_mesh_tears_down_tailnet_after_commit(ionscale_repo, commit_callbacks):
+def test_delete_mesh_tears_down_tailnet_after_commit(
+    ionscale_repo: FakeIonscaleRepository, commit_callbacks: CommitCallbacks
+) -> None:
     """Disabling the mesh deletes the tailnet (forced: machines go with it), but
     only once the layer's deletion has committed."""
     from api.management.mutations.ionscale import (
@@ -255,7 +278,9 @@ def test_delete_mesh_tears_down_tailnet_after_commit(ionscale_repo, commit_callb
 
 
 @pytest.mark.django_db
-def test_delete_mesh_tolerates_missing_tailnet(ionscale_repo, commit_callbacks):
+def test_delete_mesh_tolerates_missing_tailnet(
+    ionscale_repo: FakeIonscaleRepository, commit_callbacks: CommitCallbacks
+) -> None:
     """A tailnet already gone on ionscale is not an error: the layer is still removed."""
     from api.management.mutations.ionscale import (
         DeleteIonscaleLayerInput,
@@ -278,7 +303,9 @@ def test_delete_mesh_tolerates_missing_tailnet(ionscale_repo, commit_callbacks):
 
 
 @pytest.mark.django_db
-def test_delete_mesh_rejects_non_admin(ionscale_repo, commit_callbacks):
+def test_delete_mesh_rejects_non_admin(
+    ionscale_repo: FakeIonscaleRepository, commit_callbacks: CommitCallbacks
+) -> None:
     from api.management.mutations.ionscale import (
         DeleteIonscaleLayerInput,
         delete_ionscale_layer,
@@ -308,7 +335,9 @@ UPDATE_MESH_DNS = """
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_update_mesh_dns_through_graphql_schema(ionscale_repo):
+async def test_update_mesh_dns_through_graphql_schema(
+    ionscale_repo: FakeIonscaleRepository,
+) -> None:
     """Full GraphQL path: camelCase inputs (magicDns/httpsCerts) coerce correctly
     and the resolver pushes DNS state — what the kontrol UI actually calls."""
     from asgiref.sync import sync_to_async
@@ -317,7 +346,7 @@ async def test_update_mesh_dns_through_graphql_schema(ionscale_repo):
     from tests import factories
     from tests.conftest import build_auth_context
 
-    def _setup():
+    def _setup() -> tuple[fakts_models.IonscaleLayer, HttpContext]:
         # Mesh settings are owner/admin-only: act as the organization's owner.
         organization = factories.make_organization()
         membership = factories.make_membership(
@@ -325,6 +354,7 @@ async def test_update_mesh_dns_through_graphql_schema(ionscale_repo):
         )
         request_client = factories.make_client(membership=membership)
         mesh = ensure_org_mesh(membership.organization)
+        assert mesh is not None
         ionscale_repo.dns_configs.clear()
         ctx = build_auth_context(
             membership.user, membership.organization, request_client
@@ -352,7 +382,9 @@ async def test_update_mesh_dns_through_graphql_schema(ionscale_repo):
 
 
 @pytest.mark.django_db
-def test_hub_auth_key_needs_opted_in_mesh(ionscale_repo):
+def test_hub_auth_key_needs_opted_in_mesh(
+    ionscale_repo: FakeIonscaleRepository,
+) -> None:
     hub = factories.make_hub()
     org = hub.organization
 
@@ -371,7 +403,9 @@ def test_hub_auth_key_needs_opted_in_mesh(ionscale_repo):
 
 
 @pytest.mark.django_db
-def test_a_hub_the_deployment_runs_gets_its_mesh_key_in_a_file(ionscale_repo, tmp_path):
+def test_a_hub_the_deployment_runs_gets_its_mesh_key_in_a_file(
+    ionscale_repo: FakeIonscaleRepository, tmp_path: Path
+) -> None:
     """A self-contained deployment's sidecar joins with the key the setup job writes."""
     from fakts.services.hubs import write_hub_mesh_keys
 
@@ -404,7 +438,7 @@ def test_a_hub_the_deployment_runs_gets_its_mesh_key_in_a_file(ionscale_repo, tm
 
 
 @pytest.mark.django_db
-def test_start_mesh_device_code_mints_distinct_codes():
+def test_start_mesh_device_code_mints_distinct_codes() -> None:
     from fakts import base_models
     from fakts.services.device_codes import start_mesh_device_code
 
@@ -420,7 +454,9 @@ def test_start_mesh_device_code_mints_distinct_codes():
 
 
 @pytest.mark.django_db
-def test_create_mesh_auth_key_needs_opted_in_mesh(ionscale_repo):
+def test_create_mesh_auth_key_needs_opted_in_mesh(
+    ionscale_repo: FakeIonscaleRepository,
+) -> None:
     from fakts.services.hubs import create_mesh_auth_key
 
     org = factories.make_organization()
@@ -443,7 +479,9 @@ def test_create_mesh_auth_key_needs_opted_in_mesh(ionscale_repo):
 
 
 @pytest.mark.django_db
-def test_accept_mesh_device_code_mints_key_and_sets_name(ionscale_repo):
+def test_accept_mesh_device_code_mints_key_and_sets_name(
+    ionscale_repo: FakeIonscaleRepository,
+) -> None:
     from api.management.mutations.mesh_device_code import (
         AcceptMeshDeviceCodeInput,
         accept_mesh_device_code,
@@ -474,7 +512,9 @@ def test_accept_mesh_device_code_mints_key_and_sets_name(ionscale_repo):
 
 
 @pytest.mark.django_db
-def test_a_machine_joins_as_a_relay_only_if_the_approver_says_so(ionscale_repo):
+def test_a_machine_joins_as_a_relay_only_if_the_approver_says_so(
+    ionscale_repo: FakeIonscaleRepository,
+) -> None:
     from graphql import GraphQLError
 
     from api.management.mutations.mesh_device_code import (
@@ -488,7 +528,7 @@ def test_a_machine_joins_as_a_relay_only_if_the_approver_says_so(ionscale_repo):
     ensure_org_mesh(org)
     relay_tag = f"tag:relay-{org.pk}"
 
-    def accept(**kwargs):
+    def accept(**kwargs: Any) -> tuple[fakts_models.MeshDeviceCode, list[str]]:
         dc = start_mesh_device_code(
             base_models.MeshDeviceCodeStartRequest(
                 requested_machine_name="relay-01", relay=True
@@ -520,7 +560,9 @@ def test_a_machine_joins_as_a_relay_only_if_the_approver_says_so(ionscale_repo):
 
 
 @pytest.mark.django_db
-def test_accept_mesh_device_code_human_overrides_name(ionscale_repo):
+def test_accept_mesh_device_code_human_overrides_name(
+    ionscale_repo: FakeIonscaleRepository,
+) -> None:
     from api.management.mutations.mesh_device_code import (
         AcceptMeshDeviceCodeInput,
         accept_mesh_device_code,
@@ -550,7 +592,9 @@ def test_accept_mesh_device_code_human_overrides_name(ionscale_repo):
 
 
 @pytest.mark.django_db
-def test_accept_mesh_device_code_rejects_non_member(ionscale_repo):
+def test_accept_mesh_device_code_rejects_non_member(
+    ionscale_repo: FakeIonscaleRepository,
+) -> None:
     from api.management.mutations.mesh_device_code import (
         AcceptMeshDeviceCodeInput,
         accept_mesh_device_code,
@@ -576,7 +620,9 @@ def test_accept_mesh_device_code_rejects_non_member(ionscale_repo):
 
 
 @pytest.mark.django_db
-def test_mesh_challenge_view_poll_lifecycle(ionscale_repo):
+def test_mesh_challenge_view_poll_lifecycle(
+    ionscale_repo: FakeIonscaleRepository,
+) -> None:
     """The poll endpoint returns pending before accept and the key + coord url +
     machine name once granted."""
     import json
@@ -598,7 +644,7 @@ def test_mesh_challenge_view_poll_lifecycle(ionscale_repo):
         base_models.MeshDeviceCodeStartRequest(requested_machine_name="gpu-01")
     )
 
-    def _poll():
+    def _poll() -> dict[str, Any]:
         rf = RequestFactory()
         req = rf.post(
             "/lok/f/meshchallenge/",
@@ -624,7 +670,7 @@ def test_mesh_challenge_view_poll_lifecycle(ionscale_repo):
     assert "ionscale_coord_url" in granted
 
 
-def test_mesh_device_code_type_never_exposes_the_key():
+def test_mesh_device_code_type_never_exposes_the_key() -> None:
     """Security: the by-code lookup is preview-friendly, so the minted mesh key must
     not be reachable through ManagementMeshDeviceCode. The machine gets it via the
     secret-gated REST poll instead."""
@@ -651,7 +697,9 @@ MESH_ACCEPT = """
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_accept_mesh_device_code_through_graphql_schema(ionscale_repo):
+async def test_accept_mesh_device_code_through_graphql_schema(
+    ionscale_repo: FakeIonscaleRepository,
+) -> None:
     """Full GraphQL path: camelCase input coercion (deviceCode/organization/machineName)
     and the resolver mints + links the key — what the kontrol configure page calls."""
     from asgiref.sync import sync_to_async
@@ -661,7 +709,7 @@ async def test_accept_mesh_device_code_through_graphql_schema(ionscale_repo):
     from fakts.services.device_codes import start_mesh_device_code
     from tests.conftest import build_auth_context
 
-    def _setup():
+    def _setup() -> tuple[Membership, fakts_models.MeshDeviceCode, HttpContext]:
         # Minting a mesh key is owner/admin-only: act as the organization's owner.
         organization = factories.make_organization()
         membership = factories.make_membership(
@@ -698,7 +746,7 @@ async def test_accept_mesh_device_code_through_graphql_schema(ionscale_repo):
 
     # The minted key is linked server-side but deliberately NOT exposed over GraphQL
     # (it is delivered only via the REST poll). Verify the mint via the DB.
-    def _check():
+    def _check() -> bool:
         dc.refresh_from_db()
         return dc.auth_key is not None and dc.auth_key.key == ionscale_repo.auth_key
 
@@ -729,13 +777,16 @@ query DetailMachine($id: ID!) {
 """
 
 
-def _machine_ctx(ionscale_repo):
+def _machine_ctx(
+    ionscale_repo: FakeIonscaleRepository,
+) -> tuple[fakts_models.IonscaleLayer, HttpContext]:
     """A mesh with an authenticated owner context. Returns (mesh, ctx)."""
     from tests.conftest import build_auth_context
 
     membership = factories.make_membership()
     request_client = factories.make_client(membership=membership)
     mesh = ensure_org_mesh(membership.organization)
+    assert mesh is not None
     ctx = build_auth_context(membership.user, membership.organization, request_client)
     # Management schema has no auth extension; production sets request.user at the
     # view layer, so set it directly here.
@@ -745,7 +796,9 @@ def _machine_ctx(ionscale_repo):
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_machine_detail_resolves_via_list_when_get_machine_fails(ionscale_repo):
+async def test_machine_detail_resolves_via_list_when_get_machine_fails(
+    ionscale_repo: FakeIonscaleRepository,
+) -> None:
     """The old page broke when `get_machine` couldn't be parsed. Seed only the LIST
     data (leave `machines[id]` unseeded so the fake's get_machine raises) and assert
     the machine still resolves — with the reliable connected/ipv4 from the list path."""
@@ -787,7 +840,9 @@ async def test_machine_detail_resolves_via_list_when_get_machine_fails(ionscale_
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_machine_detail_list_wins_over_detail_for_connected(ionscale_repo):
+async def test_machine_detail_list_wins_over_detail_for_connected(
+    ionscale_repo: FakeIonscaleRepository,
+) -> None:
     """Merge trap: the detail parser hardcodes connected=False. The list value must
     win so a live machine never renders 'Disconnected'."""
     from asgiref.sync import sync_to_async
@@ -817,7 +872,9 @@ async def test_machine_detail_list_wins_over_detail_for_connected(ionscale_repo)
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_machine_detail_unknown_id_returns_null(ionscale_repo):
+async def test_machine_detail_unknown_id_returns_null(
+    ionscale_repo: FakeIonscaleRepository,
+) -> None:
     """An id present in no layer of the caller resolves to null (not an error)."""
     from asgiref.sync import sync_to_async
 
@@ -838,7 +895,9 @@ async def test_machine_detail_unknown_id_returns_null(ionscale_repo):
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_machine_detail_hidden_from_non_member(ionscale_repo):
+async def test_machine_detail_hidden_from_non_member(
+    ionscale_repo: FakeIonscaleRepository,
+) -> None:
     """A machine on another org's mesh is not reachable — the caller's layer scan is
     empty, so it resolves to null."""
     from asgiref.sync import sync_to_async
@@ -846,7 +905,7 @@ async def test_machine_detail_hidden_from_non_member(ionscale_repo):
     from api.management.schema import schema as management_schema
     from ionscale.base_models import Machine
 
-    def _setup():
+    def _setup() -> tuple[fakts_models.IonscaleLayer, HttpContext]:
         # Owner org has the machine...
         owner_mesh, _ = _machine_ctx(ionscale_repo)
         ionscale_repo.machines_by_tailnet[owner_mesh.tailnet_name] = [
@@ -868,7 +927,9 @@ async def test_machine_detail_hidden_from_non_member(ionscale_repo):
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
 @override_settings(IONSCALE_MAGIC_DNS_SUFFIX="mesh.test")
-async def test_machine_detail_magic_dns_name(ionscale_repo):
+async def test_machine_detail_magic_dns_name(
+    ionscale_repo: FakeIonscaleRepository,
+) -> None:
     """MagicDNS name is derived from the configured suffix when the mesh has MagicDNS
     on, and null when off."""
     from asgiref.sync import sync_to_async
@@ -876,10 +937,11 @@ async def test_machine_detail_magic_dns_name(ionscale_repo):
     from api.management.schema import schema as management_schema
     from ionscale.base_models import Machine
 
-    def _setup(enabled):
+    def _setup(enabled: bool) -> tuple[fakts_models.IonscaleLayer, HttpContext]:
         membership = factories.make_membership()
         request_client = factories.make_client(membership=membership)
         mesh = ensure_org_mesh(membership.organization)
+        assert mesh is not None
         mesh.magic_dns_enabled = enabled
         mesh.save()
         from tests.conftest import build_auth_context
@@ -908,17 +970,20 @@ async def test_machine_detail_magic_dns_name(ionscale_repo):
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
 @override_settings(IONSCALE_MAGIC_DNS_SUFFIX="mesh.test")
-async def test_machine_detail_magic_dns_name_null_when_disabled(ionscale_repo):
+async def test_machine_detail_magic_dns_name_null_when_disabled(
+    ionscale_repo: FakeIonscaleRepository,
+) -> None:
     """MagicDNS off -> no name (it would not resolve)."""
     from asgiref.sync import sync_to_async
 
     from api.management.schema import schema as management_schema
     from ionscale.base_models import Machine
 
-    def _setup():
+    def _setup() -> tuple[fakts_models.IonscaleLayer, HttpContext]:
         membership = factories.make_membership()
         request_client = factories.make_client(membership=membership)
         mesh = ensure_org_mesh(membership.organization)
+        assert mesh is not None
         mesh.magic_dns_enabled = False
         mesh.save()
         from tests.conftest import build_auth_context
@@ -954,7 +1019,7 @@ REAL_MACHINES_LIST_OUTPUT = (
 )
 
 
-def test_parse_machine_list_maps_columns_by_header():
+def test_parse_machine_list_maps_columns_by_header() -> None:
     """Names and IPs land in the right fields, and authorized/tags/ephemeral parse."""
     from ionscale.repo import IonscaleRepository
 
@@ -989,7 +1054,9 @@ def test_parse_machine_list_maps_columns_by_header():
 
 
 @pytest.mark.django_db(transaction=True)
-def test_signup_gives_the_personal_organization_a_mesh(ionscale_repo, settings):
+def test_signup_gives_the_personal_organization_a_mesh(
+    ionscale_repo: FakeIonscaleRepository, settings: SettingsWrapper
+) -> None:
     """The personal organization is created by a signal, not a mutation, so it
     used to be the one kind of organization that never got a mesh."""
     from karakter.models import Organization
@@ -1006,7 +1073,9 @@ def test_signup_gives_the_personal_organization_a_mesh(ionscale_repo, settings):
 
 
 @pytest.mark.django_db(transaction=True)
-def test_no_mesh_is_provisioned_when_auto_create_is_off(ionscale_repo, settings):
+def test_no_mesh_is_provisioned_when_auto_create_is_off(
+    ionscale_repo: FakeIonscaleRepository, settings: SettingsWrapper
+) -> None:
     from karakter.models import Organization
 
     settings.IONSCALE_AUTO_CREATE_MESH = False
@@ -1019,8 +1088,8 @@ def test_no_mesh_is_provisioned_when_auto_create_is_off(ionscale_repo, settings)
 
 @pytest.mark.django_db(transaction=True)
 def test_reconcile_meshes_provisions_organizations_without_a_mesh(
-    ionscale_repo, settings
-):
+    ionscale_repo: FakeIonscaleRepository, settings: SettingsWrapper
+) -> None:
     from io import StringIO
 
     from django.core.management import call_command

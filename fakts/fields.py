@@ -1,4 +1,5 @@
 import logging
+from typing import Any
 
 from django.db import models
 
@@ -15,7 +16,7 @@ class VersionField(models.CharField):
 
     default_validators = [validate_semver]
 
-    def __init__(self, *args, **kwargs) -> None:
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
         # Set a default max_length for semantic versioning
         kwargs["max_length"] = 1000
         super().__init__(*args, **kwargs)
@@ -31,6 +32,6 @@ class IdentifierField(models.CharField):
 
     default_validators = [validate_app_identifier]
 
-    def __init__(self, *args, **kwargs) -> None:
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
         kwargs["max_length"] = 1000
         super().__init__(*args, **kwargs)

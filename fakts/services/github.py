@@ -33,6 +33,7 @@ from django.conf import settings
 from django.utils import timezone
 
 from fakts import models
+from karakter.models import User
 
 logger = logging.getLogger(__name__)
 
@@ -185,7 +186,7 @@ def _installation_token(installation: int) -> str:
 # The issue
 
 
-def _clock(at) -> str:
+def _clock(at: object) -> str:
     if not isinstance(at, (int, float)):
         return ""
     return datetime.fromtimestamp(at / 1000, UTC).strftime("%H:%M:%S")
@@ -320,7 +321,7 @@ def publish_screenshot(report: models.BugReport) -> str:
 
 def file_issue(
     report: models.BugReport,
-    user,
+    user: User,
     title: str,
     body: str,
     screenshot_url: str | None = None,

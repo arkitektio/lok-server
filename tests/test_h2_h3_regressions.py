@@ -6,8 +6,9 @@ H2 — invite tokens are bearer credentials; an ordinary member must not read th
 
 import pytest
 from asgiref.sync import sync_to_async
+from kante.context import HttpContext
 
-from karakter.models import Invite, Role
+from karakter.models import Invite, Organization, Role
 from lok_server.schema import schema
 from tests import factories
 from tests.conftest import build_auth_context
@@ -20,7 +21,7 @@ LIST_INVITE_TOKENS = "query { invites { id token } }"
 # --------------------------------------------------------------------------- #
 
 
-def _member_and_admin_invite():
+def _member_and_admin_invite() -> tuple[HttpContext, Invite, Organization]:
     """A plain member of an org that has a pending admin-bearing invite."""
     owner_membership = factories.make_membership()
     org = owner_membership.organization
@@ -38,7 +39,7 @@ def _member_and_admin_invite():
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_plain_member_cannot_read_invite_tokens_of_own_org():
+async def test_plain_member_cannot_read_invite_tokens_of_own_org() -> None:
     """The finding: scoping to the active organization alone let any member —
     `guest` included — list the pending tokens of their own tenant and redeem
     one carrying `admin`.
@@ -56,10 +57,10 @@ async def test_plain_member_cannot_read_invite_tokens_of_own_org():
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_owner_can_still_read_invite_tokens():
+async def test_owner_can_still_read_invite_tokens() -> None:
     """The fix must not break the people who legitimately manage invites."""
 
-    def _setup():
+    def _setup() -> tuple[HttpContext, Invite]:
         owner_membership = factories.make_membership()
         org = owner_membership.organization
         # `make_membership` does not necessarily create the owner's row.

@@ -258,9 +258,9 @@ def issue_child_mandate_key(
             allow_mesh=parent.allow_mesh,
             label=input.label or "",
         )
-    except services.MandateAgentMismatch:
+    except services.MandateAgentMismatch as exc:
         # Same answer as a missing mandate: the agent check must not be an oracle.
-        raise GraphQLError(DENIED)
+        raise GraphQLError(DENIED) from exc
     except services.MandateError as e:
         raise GraphQLError(str(e)) from e
     return types.IssuedMandateKey(mandate=issued.mandate, key=issued.key or "")

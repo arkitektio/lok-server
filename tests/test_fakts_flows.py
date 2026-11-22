@@ -18,9 +18,12 @@ The headless equivalent, the mandate-key grant, is tested in ``test_mandate_keys
 """
 
 import json
+from collections.abc import Mapping
+from typing import TYPE_CHECKING, Any
 
 import pytest
 from django.conf import settings
+from django.test import Client
 from django.urls import reverse
 from joserfc import jwt
 from joserfc.jwk import RSAKey
@@ -30,11 +33,16 @@ from fakts import models
 from fakts.services.device_codes import validate_device_code
 from tests import factories
 
+if TYPE_CHECKING:
+    from django.test.client import _MonkeyPatchedWSGIResponse as TestResponse
+
 DEVICE_CODE_GRANT = "urn:ietf:params:oauth:grant-type:device_code"
 
 
-def _start(client, manifest=None, **extra):
-    payload = {
+def _start(
+    client: Client, manifest: Mapping[str, object] | None = None, **extra: object
+) -> dict[str, Any]:
+    payload: dict[str, object] = {
         "manifest": manifest
         or {
             "identifier": "com.example.flow",
@@ -53,7 +61,7 @@ def _start(client, manifest=None, **extra):
     ).json()
 
 
-def _poll(client, device_code, client_id):
+def _poll(client: Client, device_code: str, client_id: str) -> "TestResponse":
     return client.post(
         reverse("token"),
         data={
@@ -65,7 +73,9 @@ def _poll(client, device_code, client_id):
     )
 
 
-def _accept(device_code, hub=None):
+def _accept(
+    device_code: models.DeviceCode, hub: models.Hub | None = None
+) -> models.DeviceCode:
     """Simulate the human approval in the kontrol frontend."""
     if hub is None:
         hub = factories.make_hub()
@@ -82,7 +92,7 @@ def _decode(access_token: str) -> dict:
 
 
 @pytest.mark.django_db
-def test_start_registers_a_public_client(client):
+def test_start_registers_a_public_client(client: Client) -> None:
     body = _start(client)
 
     assert body["status"] == "granted"
@@ -106,7 +116,7 @@ def test_start_registers_a_public_client(client):
     assert "refresh_token" in staged.grant_types
 
 
-def test_every_client_kind_maps_to_a_graphql_enum():
+def test_every_client_kind_maps_to_a_graphql_enum() -> None:
     """A kind missing from `_CLIENT_KINDS` does not error — it silently reports as
     DEVELOPMENT over GraphQL — so assert the mapping covers every DB choice."""
     from fakts.enums import ClientKindChoices
@@ -120,7 +130,7 @@ def test_every_client_kind_maps_to_a_graphql_enum():
 
 
 @pytest.mark.django_db
-def test_start_accepts_the_mobile_client_kind(client):
+def test_start_accepts_the_mobile_client_kind(client: Client) -> None:
     """A mobile app may register itself: `mobile` is a valid requested kind, and
     the staged client keeps it (rather than being rejected by request validation)."""
     body = _start(client, requested_client_kind="mobile", request_public=True)
@@ -132,7 +142,7 @@ def test_start_accepts_the_mobile_client_kind(client):
 
 
 @pytest.mark.django_db
-def test_poll_before_approval_is_authorization_pending(client):
+def test_poll_before_approval_is_authorization_pending(client: Client) -> None:
     body = _start(client)
 
     resp = _poll(client, body["device_code"], body["client_id"])
@@ -141,7 +151,7 @@ def test_poll_before_approval_is_authorization_pending(client):
 
 
 @pytest.mark.django_db
-def test_denied_code_yields_access_denied(client):
+def test_denied_code_yields_access_denied(client: Client) -> None:
     body = _start(client)
     models.DeviceCode.objects.filter(secret=body["device_code"]).update(denied=True)
 
@@ -151,7 +161,7 @@ def test_denied_code_yields_access_denied(client):
 
 
 @pytest.mark.django_db
-def test_full_device_code_grant_returns_tokens_and_instances(client):
+def test_full_device_code_grant_returns_tokens_and_instances(client: Client) -> None:
     body = _start(client)
     device_code = models.DeviceCode.objects.get(secret=body["device_code"])
 
@@ -195,7 +205,7 @@ def test_full_device_code_grant_returns_tokens_and_instances(client):
 
 
 @pytest.mark.django_db
-def test_refresh_rotates_and_rerenders_instances(client):
+def test_refresh_rotates_and_rerenders_instances(client: Client) -> None:
     body = _start(client)
     _accept(models.DeviceCode.objects.get(secret=body["device_code"]))
     token = _poll(client, body["device_code"], body["client_id"]).json()
@@ -236,7 +246,7 @@ def test_refresh_rotates_and_rerenders_instances(client):
 
 
 @pytest.mark.django_db
-def test_empty_refresh_token_is_rejected_cleanly(client):
+def test_empty_refresh_token_is_rejected_cleanly(client: Client) -> None:
     """Regression: an empty `refresh_token=` parameter must be a clean 400, not
     reach the DB lookup (where empty strings used to be stored)."""
     body = _start(client)
@@ -256,7 +266,7 @@ def test_empty_refresh_token_is_rejected_cleanly(client):
 
 
 @pytest.mark.django_db
-def test_full_hub_grant_returns_tokens_and_hub_config(client):
+def test_full_hub_grant_returns_tokens_and_hub_config(client: Client) -> None:
     """The hub flow rides the same canonical grant: hub-authorization registers
     a public client, accept creates the hub, and the token endpoint returns
     tokens + the full hub config (instances with private keys, clients by
@@ -341,7 +351,11 @@ def test_full_hub_grant_returns_tokens_and_hub_config(client):
     assert "clients" in refreshed.json()
 
 
-def _approve_twice(client, first_manifest, second_manifest):
+def _approve_twice(
+    client: Client,
+    first_manifest: Mapping[str, object],
+    second_manifest: Mapping[str, object],
+) -> list[tuple[str, dict[str, Any]]]:
     hub = factories.make_hub()
     user = factories.make_user()
     factories.make_membership(user=user, organization=hub.organization)
@@ -375,7 +389,9 @@ UNCHANGED = {
     [UNCHANGED, {k: v for k, v in UNCHANGED.items() if k != "device_id"}],
     ids=["device", "deviceless"],
 )
-def test_reapproving_an_unchanged_app_keeps_its_client(client, manifest):
+def test_reapproving_an_unchanged_app_keeps_its_client(
+    client: Client, manifest: dict[str, object]
+) -> None:
     """The same app, unchanged, approved again by the same member on the same device
     into the same hub keeps its client_id (services key on it) with a fresh session."""
     (first_staged, first), (second_staged, second) = _approve_twice(
@@ -416,7 +432,9 @@ def test_reapproving_an_unchanged_app_keeps_its_client(client, manifest):
     [{"version": "2.0.0"}, {"title": "Renamed"}, {"device_id": "box-2"}],
     ids=["new-version", "changed-manifest", "other-device"],
 )
-def test_reapproving_a_changed_app_is_a_new_client(client, change):
+def test_reapproving_a_changed_app_is_a_new_client(
+    client: Client, change: dict[str, str]
+) -> None:
     (_, first), (second_staged, second) = _approve_twice(
         client, UNCHANGED, {**UNCHANGED, **change}
     )
@@ -425,7 +443,7 @@ def test_reapproving_a_changed_app_is_a_new_client(client, change):
 
 
 @pytest.mark.django_db
-def test_reapproval_with_a_changed_manifest_rotates_identity(client):
+def test_reapproval_with_a_changed_manifest_rotates_identity(client: Client) -> None:
     """Approving the same release again with a changed manifest (same org, hub, user):
     the previous bound client row — and with it its client_id and refresh chain — is
     deleted, and the freshly registered row takes over."""
@@ -438,7 +456,7 @@ def test_reapproval_with_a_changed_manifest_rotates_identity(client):
 
 
 @pytest.mark.django_db
-def test_same_app_on_same_device_can_be_approved_into_two_hubs(client):
+def test_same_app_on_same_device_can_be_approved_into_two_hubs(client: Client) -> None:
     """A client's identity is (release, membership, node, hub): approving the
     same app from the same device into a *second* hub of the organization must
     create a second client, not trip the uniqueness constraint or rotate the
@@ -484,7 +502,7 @@ def test_same_app_on_same_device_can_be_approved_into_two_hubs(client):
 
 
 @pytest.mark.django_db
-def test_relying_party_rows_are_invisible_to_tenant_scoping(client):
+def test_relying_party_rows_are_invisible_to_tenant_scoping(client: Client) -> None:
     """Config-provisioned relying parties are global (no organization), so the
     org-scoped client listings never include them."""
     membership = factories.make_membership()

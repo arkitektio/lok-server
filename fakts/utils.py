@@ -1,6 +1,7 @@
 import collections.abc
 import ipaddress
 import socket
+from collections.abc import Mapping
 from urllib.parse import urlparse
 from uuid import uuid4
 
@@ -23,7 +24,7 @@ LOGO_READ_TIMEOUT = 10.0
 LOGO_MAX_BYTES = 2 * 1024 * 1024  # 2 MiB is generous for a PNG logo
 
 
-def update_nested(d, u):
+def update_nested(d: dict, u: Mapping) -> dict:
     """Update a nested dictionary or similar mapping."""
     for k, v in u.items():
         if isinstance(v, collections.abc.Mapping):
@@ -54,7 +55,7 @@ def assert_public_https_url(url: str, what: str = "URL") -> None:
     except socket.gaierror as exc:
         raise ValueError(f"Could not resolve {what} host {parsed.hostname!r}") from exc
 
-    for family, _type, _proto, _canonname, sockaddr in resolved:
+    for _family, _type, _proto, _canonname, sockaddr in resolved:
         ip = ipaddress.ip_address(sockaddr[0])
         if not ip.is_global or ip.is_multicast:
             # Covers loopback, RFC1918, link-local (including the 169.254.169.254

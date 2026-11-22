@@ -177,7 +177,7 @@ def file_bug_report_issue(
             report, get_user(info), input.title, input.body, screenshot_url
         )
     except github.GithubError as e:
-        raise GraphQLError(str(e))
+        raise GraphQLError(str(e)) from e
 
 
 @strawberry.input

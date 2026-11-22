@@ -1,16 +1,17 @@
 import json
 import logging
 
-from authlib.oauth2.rfc6749 import grants
+from authlib.oauth2.rfc6749 import OAuth2Request, grants
 from authlib.oauth2.rfc6749.errors import InvalidGrantError
 from authlib.oidc.core import UserInfo
 from authlib.oidc.core import grants as oidcgrants
 from django.conf import settings
 from django.db import transaction
 
+from fakts.models import Client
 from karakter.models import Membership
 
-from .fakts_grants import FaktsEnvelopeMixin
+from .fakts_grants import FaktsEnvelopeMixin, TokenResponse
 from .models import AuthorizationCode, OAuth2Token, UsedNonce
 from .oidc_claims import build_claims
 
@@ -22,7 +23,7 @@ class ClientCredentialsGrant(grants.ClientCredentialsGrant):
 
 
 class OpenIDCode(oidcgrants.OpenIDCode):
-    def exists_nonce(self, nonce, request):
+    def exists_nonce(self, nonce: str, request: OAuth2Request) -> bool:
         """Whether this client has already used this nonce.
 
         Consulting only `AuthorizationCode` could never detect a replay: the row
@@ -41,7 +42,9 @@ class OpenIDCode(oidcgrants.OpenIDCode):
             return True
         return UsedNonce.objects.filter(client_id=client_id, nonce=nonce).exists()
 
-    def validate_openid_authorization_request(self, grant, redirect_uri):
+    def validate_openid_authorization_request(
+        self, grant: grants.AuthorizationCodeGrant, redirect_uri: str
+    ) -> None:
         """Decide `nonce`-required *per client*, not once at construction.
 
         OIDC Core §3.1.2.1 makes `nonce` OPTIONAL for the authorization-code
@@ -62,7 +65,9 @@ class OpenIDCode(oidcgrants.OpenIDCode):
         self.require_nonce = bool(getattr(grant.request.client, "require_nonce", False))
         return super().validate_openid_authorization_request(grant, redirect_uri)
 
-    def get_jwt_config(self, grant, client):
+    def get_jwt_config(
+        self, grant: grants.AuthorizationCodeGrant, client: Client
+    ) -> dict[str, str | int]:
         # Implement key rotation and retrieval as needed
         return {
             "key": settings.PRIVATE_KEY,
@@ -72,7 +77,7 @@ class OpenIDCode(oidcgrants.OpenIDCode):
             "kid": settings.KEY_ID,
         }
 
-    def encode_id_token(self, token, request):
+    def encode_id_token(self, token: dict, request: OAuth2Request) -> str:
         # generate_user_info() only receives (user, scope), but the per-client
         # `sub`/`email` policy lives on the client. Stash the client on the
         # per-request membership instance (request.user is a freshly loaded
@@ -80,7 +85,7 @@ class OpenIDCode(oidcgrants.OpenIDCode):
         request.user._oauth_client = request.client
         return super().encode_id_token(token, request)
 
-    def generate_user_info(self, user: Membership, scope):
+    def generate_user_info(self, user: Membership, scope: str) -> UserInfo:
         # The user is actually a membership object (see token_generators.py)
         membership = user
         client = getattr(membership, "_oauth_client", None)
@@ -100,7 +105,9 @@ class AuthorizationCodeGrant(FaktsEnvelopeMixin, grants.AuthorizationCodeGrant):
     # per-client gate is OAuth2Client.check_endpoint_auth_method.
     TOKEN_ENDPOINT_AUTH_METHODS = ["client_secret_basic", "client_secret_post", "none"]
 
-    def query_authorization_code(self, code, client):
+    def query_authorization_code(
+        self, code: str, client: Client
+    ) -> AuthorizationCode | None:
         """Claim the code for this exchange, atomically.
 
         authlib runs query -> generate_token -> save_token -> delete with no
@@ -126,7 +133,7 @@ class AuthorizationCodeGrant(FaktsEnvelopeMixin, grants.AuthorizationCodeGrant):
                 return None
             return item
 
-    def delete_authorization_code(self, authorization_code: AuthorizationCode):
+    def delete_authorization_code(self, authorization_code: AuthorizationCode) -> None:
         # Delete by pk and check the affected-row count: if another concurrent
         # exchange already consumed this code, we must not let this one issue a
         # second token pair from it.
@@ -136,7 +143,7 @@ class AuthorizationCodeGrant(FaktsEnvelopeMixin, grants.AuthorizationCodeGrant):
                 description="Authorization code has already been used."
             )
 
-    def authenticate_user(self, authorization_code: AuthorizationCode):
+    def authenticate_user(self, authorization_code: AuthorizationCode) -> Membership:
         # Remember the nonce before the code row disappears, so `exists_nonce`
         # can still recognise it as spent (see OpenIDCode.exists_nonce).
         if authorization_code.nonce:
@@ -146,7 +153,9 @@ class AuthorizationCodeGrant(FaktsEnvelopeMixin, grants.AuthorizationCodeGrant):
             )
         return authorization_code.user
 
-    def save_authorization_code(self, code: str, request):
+    def save_authorization_code(
+        self, code: str, request: OAuth2Request
+    ) -> AuthorizationCode:
         # openid request MAY have "nonce" parameter
         nonce = request.payload.data.get("nonce")
         client = request.client
@@ -168,7 +177,7 @@ class AuthorizationCodeGrant(FaktsEnvelopeMixin, grants.AuthorizationCodeGrant):
         auth_code.save()
         return auth_code
 
-    def create_token_response(self):
+    def create_token_response(self) -> TokenResponse:
         # Post-process with the fakts envelope so website-kind fakts clients
         # receive their instances through the standard code flow (this replaced
         # the org-less /f/retrieve/ handout). The id_token hook runs inside
@@ -187,7 +196,9 @@ class RefreshTokenGrant(FaktsEnvelopeMixin, grants.RefreshTokenGrant):
     # OAuth2Client.check_endpoint_auth_method.
     TOKEN_ENDPOINT_AUTH_METHODS = ["client_secret_basic", "client_secret_post", "none"]
 
-    def authenticate_refresh_token(self, refresh_token):
+    def authenticate_refresh_token(
+        self, refresh_token: str | None
+    ) -> OAuth2Token | None:
         # Guard *falsy*, not just None: authlib only rejects a missing
         # `refresh_token` parameter, so an empty string would otherwise reach
         # the lookup.
@@ -235,7 +246,7 @@ class RefreshTokenGrant(FaktsEnvelopeMixin, grants.RefreshTokenGrant):
             )
         return None
 
-    def authenticate_user(self, credential: OAuth2Token):
+    def authenticate_user(self, credential: OAuth2Token) -> Membership:
         return credential.user
 
     def adopt_offered_manifest(self) -> str | None:
@@ -264,11 +275,11 @@ class RefreshTokenGrant(FaktsEnvelopeMixin, grants.RefreshTokenGrant):
             )
             return None
 
-    def revoke_old_credential(self, credential: OAuth2Token):
+    def revoke_old_credential(self, credential: OAuth2Token) -> None:
         credential.revoked = True
         credential.save()
 
-    def create_token_response(self):
+    def create_token_response(self) -> TokenResponse:
         # Post-process the standard response: carry the chain start through
         # rotation (so the absolute refresh-chain cap in
         # OAuth2Token.is_refresh_token_active cannot be reset by refreshing),

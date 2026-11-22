@@ -1,8 +1,9 @@
 import pytest
 from asgiref.sync import sync_to_async
 from kante.context import HttpContext
+from strawberry.types import ExecutionResult
 
-from karakter.models import Membership, Organization, Role, User
+from karakter.models import Invite, Membership, Organization, Role, User
 from lok_server.schema import schema
 
 ADD_USER = """
@@ -16,7 +17,7 @@ ADD_USER = """
 """
 
 
-def _invite(target, org):
+def _invite(target: User, org: Organization) -> Invite:
     """Give `target` a consented relationship with `org`.
 
     `addUserToOrganization` no longer attaches a stranger by raw pk: pks are
@@ -35,7 +36,9 @@ def _invite(target, org):
     return invite
 
 
-async def _add_user(context, user_id, org_id, roles):
+async def _add_user(
+    context: HttpContext, user_id: int | str, org_id: int | str, roles: list[str]
+) -> ExecutionResult:
     return await schema.execute(
         ADD_USER,
         context_value=context,
@@ -48,8 +51,8 @@ async def _add_user(context, user_id, org_id, roles):
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
 async def test_admin_can_add_user_to_organization(
-    db, authenticated_context: HttpContext
-):
+    db: None, authenticated_context: HttpContext
+) -> None:
     # The roles field is pre-scoped to the request's active organization, so the
     # user must be added to that same org (``testorg``) for the role to be visible.
     org = await sync_to_async(Organization.objects.get)(slug="testorg")
@@ -75,7 +78,9 @@ async def test_admin_can_add_user_to_organization(
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_ordinary_member_cannot_add_users(db, authenticated_context: HttpContext):
+async def test_ordinary_member_cannot_add_users(
+    db: None, authenticated_context: HttpContext
+) -> None:
     """The vulnerability this guard closes.
 
     ``fart`` is a plain member of ``testorg`` — neither its owner nor an admin.
@@ -97,8 +102,8 @@ async def test_ordinary_member_cannot_add_users(db, authenticated_context: HttpC
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
 async def test_cannot_add_users_to_a_foreign_organization(
-    db, authenticated_context: HttpContext
-):
+    db: None, authenticated_context: HttpContext
+) -> None:
     """Cross-tenant: being an admin somewhere grants nothing elsewhere."""
     org = await sync_to_async(Organization.objects.get)(slug="testorg")
     caller = await sync_to_async(User.objects.get)(username="fart")
@@ -120,8 +125,8 @@ async def test_cannot_add_users_to_a_foreign_organization(
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
 async def test_unknown_role_is_rejected_rather_than_half_applied(
-    db, authenticated_context: HttpContext
-):
+    db: None, authenticated_context: HttpContext
+) -> None:
     org = await sync_to_async(Organization.objects.get)(slug="testorg")
     caller = await sync_to_async(User.objects.get)(username="fart")
     await sync_to_async(_grant_admin)(caller, org)
@@ -148,8 +153,8 @@ def _grant_admin(user: User, organization: Organization) -> None:
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
 async def test_admin_cannot_add_an_uninvited_stranger(
-    db, authenticated_context: HttpContext
-):
+    db: None, authenticated_context: HttpContext
+) -> None:
     """The consent gap: `input.user` was an arbitrary pk and the person named by
     it never agreed to join. Combined with self-service org creation (any user
     can create an org and be its admin) this was a directory-harvesting

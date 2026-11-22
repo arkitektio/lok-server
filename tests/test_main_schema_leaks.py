@@ -11,13 +11,24 @@ error cannot be used as an existence oracle.
 
 import pytest
 from asgiref.sync import sync_to_async
+from kante.context import HttpContext
+from strawberry.types import ExecutionResult
 
+from fakts import models as fakts_models
+from karakter.models import Membership
 from lok_server.schema import schema
 from tests import factories
 from tests.conftest import build_auth_context
 
 
-def _two_principals():
+def _two_principals() -> tuple[
+    HttpContext,
+    Membership,
+    fakts_models.Client,
+    HttpContext,
+    Membership,
+    fakts_models.Client,
+]:
     """Two authenticated principals in unrelated organizations."""
     mine = factories.make_membership()
     my_client = factories.make_client(membership=mine)
@@ -29,7 +40,7 @@ def _two_principals():
     return my_context, mine, my_client, their_context, theirs, their_client
 
 
-def _assert_denied(result):
+def _assert_denied(result: ExecutionResult) -> None:
     assert result.errors, f"expected a denial, got data: {result.data}"
     assert "not authorized" in result.errors[0].message, result.errors[0].message
 
@@ -39,7 +50,9 @@ MANDATE = """
 """
 
 
-def _mandates(mine, theirs):
+def _mandates(
+    mine: Membership, theirs: Membership
+) -> tuple[fakts_models.Mandate, fakts_models.Mandate, fakts_models.Mandate]:
     """A mandate in their organization, one of mine, and one of a colleague's in mine."""
     their_hub = factories.make_hub(organization=theirs.organization)
     their_mandate, _ = factories.make_mandate_key(
@@ -59,7 +72,7 @@ def _mandates(mine, theirs):
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_a_mandate_is_not_readable_by_another_user():
+async def test_a_mandate_is_not_readable_by_another_user() -> None:
     (
         my_context,
         mine,
@@ -92,7 +105,7 @@ REVOKE_MANDATE = """
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_a_mandate_is_only_revocable_by_its_grantor():
+async def test_a_mandate_is_only_revocable_by_its_grantor() -> None:
     """Another tenant's mandate and a colleague's are 'not found'; only my own goes."""
     (
         my_context,
@@ -122,7 +135,7 @@ async def test_a_mandate_is_only_revocable_by_its_grantor():
     assert not result.errors, result.errors
     assert result.data["revokeMandate"]["isLive"] is False
 
-    def _live():
+    def _live() -> set[int]:
         from fakts import models
 
         return set(models.Mandate.objects.live().values_list("id", flat=True))
@@ -134,7 +147,7 @@ async def test_a_mandate_is_only_revocable_by_its_grantor():
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_user_by_id_is_denied_across_organizations():
+async def test_user_by_id_is_denied_across_organizations() -> None:
     (
         my_context,
         mine,
@@ -164,7 +177,7 @@ async def test_user_by_id_is_denied_across_organizations():
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_service_instance_by_id_is_denied_across_organizations():
+async def test_service_instance_by_id_is_denied_across_organizations() -> None:
     (
         my_context,
         _mine,
@@ -174,7 +187,7 @@ async def test_service_instance_by_id_is_denied_across_organizations():
         _their_client,
     ) = await sync_to_async(_two_principals)()
 
-    def _their_instance():
+    def _their_instance() -> fakts_models.ServiceInstance:
         hub = factories.make_hub(organization=theirs.organization)
         service = factories.make_service(organization=theirs.organization)
         release = factories.make_service_release(service=service)
@@ -207,7 +220,7 @@ NESTED_INSTANCES = """
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_nested_service_instance_mappings_do_not_leak_another_tenant():
+async def test_nested_service_instance_mappings_do_not_leak_another_tenant() -> None:
     (
         my_context,
         _mine,
@@ -217,7 +230,7 @@ async def test_nested_service_instance_mappings_do_not_leak_another_tenant():
         their_client,
     ) = await sync_to_async(_two_principals)()
 
-    def _their_topology():
+    def _their_topology() -> fakts_models.ServiceInstance:
         from fakts.models import ServiceInstanceMapping
 
         hub = factories.make_hub(organization=theirs.organization)
@@ -252,7 +265,7 @@ async def test_nested_service_instance_mappings_do_not_leak_another_tenant():
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_organization_roots_are_limited_to_the_active_organization():
+async def test_organization_roots_are_limited_to_the_active_organization() -> None:
     (
         my_context,
         mine,

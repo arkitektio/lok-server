@@ -16,7 +16,7 @@ reads the MFA app settings per request, and never on URL resolution.
 
 import pytest
 from django.conf import settings
-from django.test import override_settings
+from django.test import Client, override_settings
 from pydantic import ValidationError
 
 from lok_server.configuration import AccountSettings
@@ -25,7 +25,7 @@ BROWSER = "/lok/_allauth/browser/v1"
 
 
 @pytest.mark.django_db
-def test_config_advertises_webauthn_and_passkey_login(client):
+def test_config_advertises_webauthn_and_passkey_login(client: Client) -> None:
     """The SPA sees webauthn among the supported types, and passkey login on."""
     mfa = client.get(f"{BROWSER}/config").json()["data"]["mfa"]
     assert "webauthn" in mfa["supported_types"]
@@ -33,7 +33,7 @@ def test_config_advertises_webauthn_and_passkey_login(client):
 
 
 @pytest.mark.django_db
-def test_enabling_webauthn_keeps_the_existing_factors(client):
+def test_enabling_webauthn_keeps_the_existing_factors(client: Client) -> None:
     """MFA_SUPPORTED_TYPES replaces allauth's default rather than extending it,
     so TOTP and recovery codes must be re-listed — a regression here would log
     every enrolled user out of their second factor."""
@@ -43,7 +43,7 @@ def test_enabling_webauthn_keeps_the_existing_factors(client):
 
 @pytest.mark.django_db
 @override_settings(MFA_SUPPORTED_TYPES=["recovery_codes", "totp"])
-def test_config_hides_passkey_login_when_webauthn_off(client):
+def test_config_hides_passkey_login_when_webauthn_off(client: Client) -> None:
     """allauth ANDs PASSKEY_LOGIN_ENABLED with 'webauthn' in SUPPORTED_TYPES, so
     dropping the type is enough to hide the flow from the SPA."""
     mfa = client.get(f"{BROWSER}/config").json()["data"]["mfa"]
@@ -52,7 +52,7 @@ def test_config_hides_passkey_login_when_webauthn_off(client):
 
 
 @pytest.mark.django_db
-def test_config_reports_passkey_signup_state(client):
+def test_config_reports_passkey_signup_state(client: Client) -> None:
     """allauth does not advertise MFA_PASSKEY_SIGNUP_ENABLED, so lok's config
     view adds it — without it the SPA cannot tell whether /auth/webauthn/signup
     is mounted, and would offer a sign-up route that 404s."""
@@ -62,36 +62,36 @@ def test_config_reports_passkey_signup_state(client):
 
 @pytest.mark.django_db
 @override_settings(MFA_PASSKEY_SIGNUP_ENABLED=True)
-def test_config_reports_passkey_signup_when_enabled(client):
+def test_config_reports_passkey_signup_when_enabled(client: Client) -> None:
     mfa = client.get(f"{BROWSER}/config").json()["data"]["mfa"]
     assert mfa["passkey_signup_enabled"] is True
 
 
-def test_settings_install_the_rp_id_adapter():
+def test_settings_install_the_rp_id_adapter() -> None:
     """Without the custom adapter the rp_id knob is silently inert — allauth has
     no MFA_WEBAUTHN_RP_ID setting of its own."""
     assert settings.MFA_ADAPTER == "lok_server.mfa_adapter.LokMFAAdapter"
 
 
-def test_totp_issuer_is_named():
+def test_totp_issuer_is_named() -> None:
     """allauth's default is an empty string, which leaves the entry unlabelled in
     the user's authenticator app."""
     assert settings.MFA_TOTP_ISSUER
 
 
-def test_passkey_login_requires_webauthn():
+def test_passkey_login_requires_webauthn() -> None:
     with pytest.raises(ValidationError, match="mfa_webauthn_enabled"):
         AccountSettings(mfa_webauthn_enabled=False, mfa_passkey_login_enabled=True)
 
 
-def test_passkey_signup_requires_verification_by_code():
+def test_passkey_signup_requires_verification_by_code() -> None:
     """allauth raises a Critical system check for passkey signup without
     code-based email verification; fail at config load, with the reason."""
     with pytest.raises(ValidationError, match="email_verification_by_code_enabled"):
         AccountSettings(mfa_passkey_signup_enabled=True)
 
 
-def test_passkey_signup_accepted_with_verification_by_code():
+def test_passkey_signup_accepted_with_verification_by_code() -> None:
     account = AccountSettings(
         mfa_passkey_signup_enabled=True,
         email_verification_by_code_enabled=True,
@@ -99,7 +99,7 @@ def test_passkey_signup_accepted_with_verification_by_code():
     assert account.mfa_passkey_signup_enabled
 
 
-def test_rp_id_must_cover_every_host_the_spa_uses():
+def test_rp_id_must_cover_every_host_the_spa_uses() -> None:
     """The rule that makes pinning necessary: a browser accepts an RP ID that is
     a registrable-domain suffix of the page origin, but not a sibling host."""
     from fido2.rpid import verify_rp_id
@@ -111,7 +111,7 @@ def test_rp_id_must_cover_every_host_the_spa_uses():
     assert not verify_rp_id("go.arkitekt.live", "https://beta.arkitekt.live")
 
 
-def test_passkey_config_is_documented():
+def test_passkey_config_is_documented() -> None:
     """Every new account.* key must appear in CONFIG.md's account table."""
     from pathlib import Path
 

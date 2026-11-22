@@ -1,13 +1,15 @@
 import json
 import logging
 import secrets
+from typing import TypeVar
 
 from django.conf import settings
-from django.http import Http404, HttpResponse, JsonResponse
+from django.http import Http404, HttpRequest, HttpResponse, JsonResponse
 from django.utils import timezone
 from django.utils.decorators import method_decorator
 from django.views.decorators.csrf import csrf_exempt
 from django.views.generic import View
+from pydantic import BaseModel
 
 from authapp.bearer import InvalidBearerToken, decode_bearer_token
 from authapp.throttle import (
@@ -48,14 +50,18 @@ ERROR_SERVER_ERROR = "server_error"
 ERROR_HUB_NOT_FOUND = "hub_not_found"
 
 
+#: The pydantic model a request body is parsed into.
+_Body = TypeVar("_Body", bound=BaseModel)
+
+
 def _error(
     code: str,
     description: str,
     *,
     http_status: int = 400,
-    details=None,
+    details: list[dict[str, object]] | None = None,
     legacy_status: str = "error",
-    **extra,
+    **extra: object,
 ) -> JsonResponse:
     """Build the structured fakts error envelope (see the module comment above).
 
@@ -63,14 +69,20 @@ def _error(
     poll endpoint historically answered ``pending``/``denied``/``expired``
     there); ``extra`` keys (e.g. a legacy ``message``) are merged into the body.
     """
-    body = {"status": legacy_status, "error": code, "error_description": description}
+    body: dict[str, object] = {
+        "status": legacy_status,
+        "error": code,
+        "error_description": description,
+    }
     if details is not None:
         body["details"] = details
     body.update(extra)
     return JsonResponse(body, status=http_status)
 
 
-def _parse(request, model, *, error_key="error"):
+def _parse(
+    request: HttpRequest, model: type[_Body], *, error_key: str = "error"
+) -> tuple[_Body, None] | tuple[None, JsonResponse]:
     """Parse the JSON request body into ``model``.
 
     Returns ``(instance, None)`` on success or ``(None, JsonResponse)`` — an
@@ -115,7 +127,7 @@ def _parse(request, model, *, error_key="error"):
         )
 
 
-def _status(status, message):
+def _status(status: str, message: str) -> JsonResponse:
     return JsonResponse({"status": status, "message": message})
 
 
@@ -147,7 +159,7 @@ class WellKnownFakts(View):
     "Configure", the device-code "start" and "challenge" flows, as well as the
     name and version of the Fakts Protocol."""
 
-    def get(self, request, format=None):
+    def get(self, request: HttpRequest, format: str | None = None) -> HttpResponse:
         from authapp.server import (
             GRANT_TYPES_SUPPORTED,
             TOKEN_ENDPOINT_AUTH_METHODS_SUPPORTED,
@@ -215,7 +227,9 @@ class AppAuthorizationView(View):
     (authapp.fakts_grants.FaktsDeviceCodeGrant, at /o/token/) is conforming,
     which is why the grant type stays in `grant_types_supported`."""
 
-    def post(self, request, *args, **kwargs):
+    def post(
+        self, request: HttpRequest, *args: object, **kwargs: object
+    ) -> HttpResponse:
         if is_throttled(request, "authorization", AUTHORIZATION_LIMIT_PER_MINUTE):
             return throttled_response()
 
@@ -271,7 +285,9 @@ class HubAuthorizationView(View):
     token endpoint with the device-code grant and receives tokens + its
     rendered hub config in one response."""
 
-    def post(self, request, *args, **kwargs):
+    def post(
+        self, request: HttpRequest, *args: object, **kwargs: object
+    ) -> HttpResponse:
         if is_throttled(request, "authorization", AUTHORIZATION_LIMIT_PER_MINUTE):
             return throttled_response()
 
@@ -316,7 +332,9 @@ class HubAuthorizationView(View):
 class MeshStartChallengeView(View):
     """Start endpoint for the mesh device-code flow (a machine joining an org mesh)."""
 
-    def post(self, request, *args, **kwargs):
+    def post(
+        self, request: HttpRequest, *args: object, **kwargs: object
+    ) -> HttpResponse:
         # Same anonymous brute-force surface as app authorization; same budget.
         if is_throttled(request, "authorization", AUTHORIZATION_LIMIT_PER_MINUTE):
             return throttled_response()
@@ -351,7 +369,9 @@ class MeshChallengeView(View):
     machine needs the coordination URL and the authorized machine name.
     """
 
-    def post(self, request, *args, **kwargs):
+    def post(
+        self, request: HttpRequest, *args: object, **kwargs: object
+    ) -> HttpResponse:
         # Polling a secret challenge code is the brute-force target of this flow.
         if is_throttled(request, "authorization", AUTHORIZATION_LIMIT_PER_MINUTE):
             return throttled_response()
@@ -418,7 +438,9 @@ class MeshChallengeView(View):
 class ClaimHubView(View):
     """Retrieve a hub faktsclaim given a hub token."""
 
-    def post(self, request, *args, **kwargs):
+    def post(
+        self, request: HttpRequest, *args: object, **kwargs: object
+    ) -> HttpResponse:
         # The hub token is a long-lived bearer secret; make guessing it expensive.
         if is_throttled(request, "claim", AUTHORIZATION_LIMIT_PER_MINUTE):
             return throttled_response()
@@ -465,7 +487,9 @@ class ReportView(View):
     Authenticated with the client's Bearer access token — the JWT's `client_id`
     claim identifies the reporting client."""
 
-    def post(self, request, *args, **kwargs):
+    def post(
+        self, request: HttpRequest, *args: object, **kwargs: object
+    ) -> HttpResponse:
         try:
             claims = decode_bearer_token(request)
         except InvalidBearerToken as e:
@@ -508,7 +532,9 @@ class HubHealthView(View):
     device-code grant and refresh chain yield) — the JWT's `client_id` claim
     must be a hub identity."""
 
-    def post(self, request, *args, **kwargs):
+    def post(
+        self, request: HttpRequest, *args: object, **kwargs: object
+    ) -> HttpResponse:
         try:
             claims = decode_bearer_token(request)
         except InvalidBearerToken as e:
@@ -565,7 +591,9 @@ class MeshKeyView(View):
         "connected": (409, ERROR_ACCESS_DENIED),
     }
 
-    def post(self, request, *args, **kwargs):
+    def post(
+        self, request: HttpRequest, *args: object, **kwargs: object
+    ) -> HttpResponse:
         try:
             claims = decode_bearer_token(request)
         except InvalidBearerToken as e:
@@ -626,7 +654,9 @@ class HubDeleteView(View):
     caller tells "already removed" from "refused" by it, and from a server that
     has no such route by the error code."""
 
-    def post(self, request, *args, **kwargs):
+    def post(
+        self, request: HttpRequest, *args: object, **kwargs: object
+    ) -> HttpResponse:
         try:
             claims = decode_bearer_token(request)
         except InvalidBearerToken as e:
@@ -663,7 +693,9 @@ class GithubWebhookView(View):
 
     Authenticated by the App's webhook secret (``X-Hub-Signature-256``)."""
 
-    def post(self, request, *args, **kwargs):
+    def post(
+        self, request: HttpRequest, *args: object, **kwargs: object
+    ) -> HttpResponse:
         if not github.signature_is_valid(
             request.body, request.headers.get("X-Hub-Signature-256")
         ):
@@ -691,7 +723,9 @@ class BugReportScreenshotView(View):
     unguessable and exists only after that explicit choice. Deleting the report,
     or taking the forward back, ends it."""
 
-    def get(self, request, token, *args, **kwargs):
+    def get(
+        self, request: HttpRequest, token: str, *args: object, **kwargs: object
+    ) -> HttpResponse:
         report = (
             models.BugReport.objects.filter(screenshot_token=token)
             .only("screenshot", "screenshot_content_type")

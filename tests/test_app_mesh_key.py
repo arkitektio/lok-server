@@ -7,25 +7,41 @@ one ``AppMeshEnrollment``, so re-authenticating never accumulates keys or nodes.
 """
 
 import json
+from dataclasses import dataclass
 from types import SimpleNamespace
+from typing import TYPE_CHECKING, Any
 
 import pytest
 from django.conf import settings
+from django.test import Client
 from django.urls import reverse
+from pytest_django.fixtures import DjangoCaptureOnCommitCallbacks
 
 from api.management.mutations.device_code import (
     AcceptDeviceCodeInput,
     accept_device_code,
 )
+from api.management.types import ManagementClient
 from fakts import models
 from fakts.services.hubs import APP_MESH_KEY_EXPIRY_SECONDS
 from ionscale.base_models import Machine
+from ionscale.testing import FakeIonscaleRepository
+from karakter.models import Membership, Organization
 from tests import factories
+
+if TYPE_CHECKING:
+    from django.test.client import _MonkeyPatchedWSGIResponse as TestResponse
 
 DEVICE_CODE_GRANT = "urn:ietf:params:oauth:grant-type:device_code"
 
 
-def _start(client, *, version="1.0.0", device_id="laptop-1", request_auth_key=True):
+def _start(
+    client: Client,
+    *,
+    version: str = "1.0.0",
+    device_id: str = "laptop-1",
+    request_auth_key: bool = True,
+) -> dict[str, Any]:
     manifest = {
         "identifier": "com.example.meshapp",
         "version": version,
@@ -49,7 +65,7 @@ def _start(client, *, version="1.0.0", device_id="laptop-1", request_auth_key=Tr
     return resp.json()
 
 
-def _poll(client, body):
+def _poll(client: Client, body: dict[str, Any]) -> "TestResponse":
     return client.post(
         reverse("token"),
         data={
@@ -61,7 +77,13 @@ def _poll(client, body):
     )
 
 
-def _accept(body, membership, hub, *, allow_ionscale=True):
+def _accept(
+    body: dict[str, Any],
+    membership: Membership,
+    hub: models.Hub,
+    *,
+    allow_ionscale: bool = True,
+) -> ManagementClient:
     device_code = models.DeviceCode.objects.get(secret=body["device_code"])
     info = SimpleNamespace(
         context=SimpleNamespace(request=SimpleNamespace(user=membership.user))
@@ -69,15 +91,17 @@ def _accept(body, membership, hub, *, allow_ionscale=True):
     return accept_device_code(
         info,
         AcceptDeviceCodeInput(
-            device_code=str(device_code.id),
+            device_code=str(device_code.pk),
             code=device_code.code,
-            hub=str(hub.id),
+            hub=str(hub.pk),
             allow_ionscale=allow_ionscale,
         ),
     )
 
 
-def _grant(client, membership, hub, **start):
+def _grant(
+    client: Client, membership: Membership, hub: models.Hub, **start: Any
+) -> dict[str, Any]:
     allow_ionscale = start.pop("allow_ionscale", True)
     body = _start(client, **start)
     _accept(body, membership, hub, allow_ionscale=allow_ionscale)
@@ -86,8 +110,16 @@ def _grant(client, membership, hub, **start):
     return resp.json()
 
 
+@dataclass
+class MeshOrg:
+    organization: Organization
+    layer: models.IonscaleLayer
+    membership: Membership
+    hub: models.Hub
+
+
 @pytest.fixture
-def mesh_org():
+def mesh_org() -> MeshOrg:
     """A plain (non-admin) member of an organization that has a mesh, plus a hub."""
     organization = factories.make_organization()
     layer = models.IonscaleLayer.objects.create(
@@ -99,15 +131,15 @@ def mesh_org():
     )
     membership = factories.make_membership(organization=organization)
     hub = factories.make_hub(organization=organization)
-    return SimpleNamespace(
+    return MeshOrg(
         organization=organization, layer=layer, membership=membership, hub=hub
     )
 
 
 @pytest.mark.django_db
 def test_requested_key_rides_the_initial_token_response_once(
-    client, ionscale_repo, mesh_org
-):
+    client: Client, ionscale_repo: FakeIonscaleRepository, mesh_org: MeshOrg
+) -> None:
     token = _grant(client, mesh_org.membership, mesh_org.hub)
 
     assert token["mesh"] == {
@@ -152,8 +184,12 @@ def test_requested_key_rides_the_initial_token_response_once(
     "request_auth_key, allow_ionscale", [(False, True), (True, False)]
 )
 def test_no_key_unless_requested_and_allowed(
-    client, ionscale_repo, mesh_org, request_auth_key, allow_ionscale
-):
+    client: Client,
+    ionscale_repo: FakeIonscaleRepository,
+    mesh_org: MeshOrg,
+    request_auth_key: bool,
+    allow_ionscale: bool,
+) -> None:
     token = _grant(
         client,
         mesh_org.membership,
@@ -171,7 +207,9 @@ def test_no_key_unless_requested_and_allowed(
 
 
 @pytest.mark.django_db
-def test_org_without_mesh_still_authorizes_the_app(client, ionscale_repo):
+def test_org_without_mesh_still_authorizes_the_app(
+    client: Client, ionscale_repo: FakeIonscaleRepository
+) -> None:
     hub = factories.make_hub()
     membership = factories.make_membership(organization=hub.organization)
     token = _grant(client, membership, hub)
@@ -181,7 +219,9 @@ def test_org_without_mesh_still_authorizes_the_app(client, ionscale_repo):
 
 
 @pytest.mark.django_db
-def test_ionscale_failure_still_authorizes_the_app(client, ionscale_repo, mesh_org):
+def test_ionscale_failure_still_authorizes_the_app(
+    client: Client, ionscale_repo: FakeIonscaleRepository, mesh_org: MeshOrg
+) -> None:
     from ionscale.errors import IonscaleError
 
     ionscale_repo.fail_with["create_auth_key"] = IonscaleError("unavailable", "down")
@@ -192,8 +232,8 @@ def test_ionscale_failure_still_authorizes_the_app(client, ionscale_repo, mesh_o
 
 @pytest.mark.django_db
 def test_regrant_reuses_the_enrollment_and_revokes_the_previous_key(
-    client, ionscale_repo, mesh_org
-):
+    client: Client, ionscale_repo: FakeIonscaleRepository, mesh_org: MeshOrg
+) -> None:
     ionscale_repo.unique_auth_keys = True
     first = _grant(client, mesh_org.membership, mesh_org.hub)
     # An upgrade is the same installation: enrollment keys on the app, not the release.
@@ -213,8 +253,8 @@ def test_regrant_reuses_the_enrollment_and_revokes_the_previous_key(
 
 @pytest.mark.django_db
 def test_regrant_prunes_stale_nodes_but_keeps_the_newest_and_the_online(
-    client, ionscale_repo, mesh_org
-):
+    client: Client, ionscale_repo: FakeIonscaleRepository, mesh_org: MeshOrg
+) -> None:
     _grant(client, mesh_org.membership, mesh_org.hub)
     tag = models.AppMeshEnrollment.objects.get().tag
     other = "tag:app-999999"
@@ -233,7 +273,9 @@ def test_regrant_prunes_stale_nodes_but_keeps_the_newest_and_the_online(
 
 
 @pytest.mark.django_db
-def test_without_device_id_nodes_are_never_pruned(client, ionscale_repo, mesh_org):
+def test_without_device_id_nodes_are_never_pruned(
+    client: Client, ionscale_repo: FakeIonscaleRepository, mesh_org: MeshOrg
+) -> None:
     _grant(client, mesh_org.membership, mesh_org.hub, device_id=None)
     tag = models.AppMeshEnrollment.objects.get().tag
     ionscale_repo.machines_by_tailnet[mesh_org.layer.tailnet_name] = [
@@ -249,14 +291,18 @@ def test_without_device_id_nodes_are_never_pruned(client, ionscale_repo, mesh_or
 
 
 @pytest.mark.django_db
-def test_different_devices_get_separate_enrollments(client, ionscale_repo, mesh_org):
+def test_different_devices_get_separate_enrollments(
+    client: Client, ionscale_repo: FakeIonscaleRepository, mesh_org: MeshOrg
+) -> None:
     _grant(client, mesh_org.membership, mesh_org.hub, device_id="laptop-1")
     _grant(client, mesh_org.membership, mesh_org.hub, device_id="laptop-2")
     assert models.AppMeshEnrollment.objects.count() == 2
     assert ionscale_repo.deleted_auth_keys == []
 
 
-def _seed_nodes(ionscale_repo, mesh_org, tag):
+def _seed_nodes(
+    ionscale_repo: FakeIonscaleRepository, mesh_org: MeshOrg, tag: str
+) -> None:
     ionscale_repo.machines_by_tailnet[mesh_org.layer.tailnet_name] = [
         Machine(
             id="100",
@@ -270,8 +316,11 @@ def _seed_nodes(ionscale_repo, mesh_org, tag):
 
 @pytest.mark.django_db
 def test_leaving_the_organization_removes_the_apps_mesh_nodes(
-    client, ionscale_repo, mesh_org, django_capture_on_commit_callbacks
-):
+    client: Client,
+    ionscale_repo: FakeIonscaleRepository,
+    mesh_org: MeshOrg,
+    django_capture_on_commit_callbacks: DjangoCaptureOnCommitCallbacks,
+) -> None:
     """Key-joined nodes belong to the tailnet's service user, so account
     revocation alone would leave them behind."""
     ionscale_repo.unique_auth_keys = True
@@ -291,8 +340,11 @@ def test_leaving_the_organization_removes_the_apps_mesh_nodes(
 
 @pytest.mark.django_db
 def test_deactivation_removes_the_apps_mesh_nodes(
-    client, ionscale_repo, mesh_org, django_capture_on_commit_callbacks
-):
+    client: Client,
+    ionscale_repo: FakeIonscaleRepository,
+    mesh_org: MeshOrg,
+    django_capture_on_commit_callbacks: DjangoCaptureOnCommitCallbacks,
+) -> None:
     _grant(client, mesh_org.membership, mesh_org.hub)
     _seed_nodes(ionscale_repo, mesh_org, models.AppMeshEnrollment.objects.get().tag)
 
@@ -306,8 +358,11 @@ def test_deactivation_removes_the_apps_mesh_nodes(
 
 @pytest.mark.django_db
 def test_deleting_the_organization_leaves_node_cleanup_to_the_tailnet_teardown(
-    client, ionscale_repo, mesh_org, django_capture_on_commit_callbacks
-):
+    client: Client,
+    ionscale_repo: FakeIonscaleRepository,
+    mesh_org: MeshOrg,
+    django_capture_on_commit_callbacks: DjangoCaptureOnCommitCallbacks,
+) -> None:
     _grant(client, mesh_org.membership, mesh_org.hub)
     _seed_nodes(ionscale_repo, mesh_org, models.AppMeshEnrollment.objects.get().tag)
 
@@ -320,8 +375,11 @@ def test_deleting_the_organization_leaves_node_cleanup_to_the_tailnet_teardown(
 
 @pytest.mark.django_db(transaction=True)
 def test_approval_is_not_redeemable_until_the_mesh_key_is_attached(
-    client, ionscale_repo, mesh_org, monkeypatch
-):
+    client: Client,
+    ionscale_repo: FakeIonscaleRepository,
+    mesh_org: MeshOrg,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """Approve + mint is one transaction, so a poll can't redeem the code before the key lands.
 
     Regression: `validate_device_code` committed on its own, the device's poll
@@ -336,7 +394,7 @@ def test_approval_is_not_redeemable_until_the_mesh_key_is_attached(
     seen = {}
     real_enroll = logic.enroll_app_on_mesh
 
-    def enroll(**kwargs):
+    def enroll(**kwargs: Any) -> models.IonscaleAuthKey | None:
         seen["in_atomic_block"] = connection.in_atomic_block
         return real_enroll(**kwargs)
 
@@ -349,14 +407,17 @@ def test_approval_is_not_redeemable_until_the_mesh_key_is_attached(
 
 @pytest.mark.django_db
 def test_code_burned_during_minting_does_not_fail_the_approval(
-    client, ionscale_repo, mesh_org, monkeypatch
-):
+    client: Client,
+    ionscale_repo: FakeIonscaleRepository,
+    mesh_org: MeshOrg,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     from fakts import logic
 
     body = _start(client)
     real_enroll = logic.enroll_app_on_mesh
 
-    def enroll_then_burn(**kwargs):
+    def enroll_then_burn(**kwargs: Any) -> models.IonscaleAuthKey | None:
         key = real_enroll(**kwargs)
         models.DeviceCode.objects.filter(secret=body["device_code"]).delete()
         return key

@@ -11,10 +11,12 @@ its devices.
 
 import pytest
 from asgiref.sync import sync_to_async
+from kante.context import HttpContext
 
 from api.management.authz import DENIED
 from api.management.schema import schema as management_schema
 from fakts import models as fakts_models
+from karakter.models import Membership, Organization
 from tests import factories
 from tests.conftest import build_auth_context
 
@@ -24,7 +26,7 @@ ADD = "mutation ($d: ID!, $g: ID!) { addDeviceToGroup(input: { device: $d, devic
 REMOVE = "mutation ($d: ID!, $g: ID!) { removeDeviceFromGroup(input: { device: $d, deviceGroup: $g }) { id deviceGroups { id } } }"
 
 
-def _context(membership):
+def _context(membership: Membership) -> HttpContext:
     return build_auth_context(
         membership.user,
         membership.organization,
@@ -32,17 +34,17 @@ def _context(membership):
     )
 
 
-def _org_with_member():
+def _org_with_member() -> tuple[Organization, Membership, HttpContext]:
     membership = factories.make_membership()
     membership.roles.clear()
     return membership.organization, membership, _context(membership)
 
 
-def _group(org, name="lab"):
+def _group(org: Organization, name: str = "lab") -> fakts_models.DeviceGroup:
     return fakts_models.DeviceGroup.objects.create(name=name, organization=org)
 
 
-def _device(org, node_id="node-1"):
+def _device(org: Organization, node_id: str = "node-1") -> fakts_models.Device:
     return fakts_models.Device.objects.create(
         organization=org, node_id=node_id, name=node_id
     )
@@ -50,11 +52,11 @@ def _device(org, node_id="node-1"):
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_plain_member_can_create_and_delete_a_group():
+async def test_plain_member_can_create_and_delete_a_group() -> None:
     org, _membership, context = await sync_to_async(_org_with_member)()
 
     created = await management_schema.execute(
-        CREATE, context_value=context, variable_values={"org": str(org.id)}
+        CREATE, context_value=context, variable_values={"org": str(org.pk)}
     )
     assert not created.errors, created.errors
     group_id = created.data["createDeviceGroup"]["id"]
@@ -71,16 +73,16 @@ async def test_plain_member_can_create_and_delete_a_group():
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_non_member_cannot_create_or_delete_in_another_tenant():
+async def test_non_member_cannot_create_or_delete_in_another_tenant() -> None:
     org, _membership, _ = await sync_to_async(_org_with_member)()
     group = await sync_to_async(_group)(org)
     outsider = await sync_to_async(lambda: _context(factories.make_membership()))()
 
     created = await management_schema.execute(
-        CREATE, context_value=outsider, variable_values={"org": str(org.id)}
+        CREATE, context_value=outsider, variable_values={"org": str(org.pk)}
     )
     deleted = await management_schema.execute(
-        DELETE, context_value=outsider, variable_values={"id": str(group.id)}
+        DELETE, context_value=outsider, variable_values={"id": str(group.pk)}
     )
 
     assert created.errors and created.errors[0].message == DENIED
@@ -92,10 +94,10 @@ async def test_non_member_cannot_create_or_delete_in_another_tenant():
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_deleting_a_group_keeps_its_devices():
+async def test_deleting_a_group_keeps_its_devices() -> None:
     org, _membership, context = await sync_to_async(_org_with_member)()
 
-    def seed():
+    def seed() -> tuple[fakts_models.DeviceGroup, fakts_models.Device]:
         group = _group(org)
         device = _device(org)
         device.device_groups.add(group)
@@ -104,7 +106,7 @@ async def test_deleting_a_group_keeps_its_devices():
     group, device = await sync_to_async(seed)()
 
     result = await management_schema.execute(
-        DELETE, context_value=context, variable_values={"id": str(group.id)}
+        DELETE, context_value=context, variable_values={"id": str(group.pk)}
     )
 
     assert not result.errors, result.errors
@@ -115,18 +117,18 @@ async def test_deleting_a_group_keeps_its_devices():
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_add_then_remove_round_trips_the_membership():
+async def test_add_then_remove_round_trips_the_membership() -> None:
     org, _membership, context = await sync_to_async(_org_with_member)()
     group = await sync_to_async(_group)(org)
     device = await sync_to_async(_device)(org)
-    variables = {"d": str(device.id), "g": str(group.id)}
+    variables = {"d": str(device.pk), "g": str(group.pk)}
 
     added = await management_schema.execute(
         ADD, context_value=context, variable_values=variables
     )
     assert not added.errors, added.errors
     assert [g["id"] for g in added.data["addDeviceToGroup"]["deviceGroups"]] == [
-        str(group.id)
+        str(group.pk)
     ]
 
     removed = await management_schema.execute(
@@ -138,18 +140,20 @@ async def test_add_then_remove_round_trips_the_membership():
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_member_of_both_tenants_cannot_move_a_device_across_them():
+async def test_member_of_both_tenants_cannot_move_a_device_across_them() -> None:
     """Both ``assert_member`` checks pass for a dual member; only the same-org
     guard stops the cross-tenant move."""
     org_a, membership, _ = await sync_to_async(_org_with_member)()
 
-    def seed():
+    def seed() -> tuple[
+        Organization, fakts_models.Device, fakts_models.DeviceGroup, HttpContext
+    ]:
         org_b = factories.make_organization()
         factories.make_membership(user=membership.user, organization=org_b)
         return org_b, _device(org_a), _group(org_b), _context(membership)
 
     _org_b, device, group_b, context = await sync_to_async(seed)()
-    variables = {"d": str(device.id), "g": str(group_b.id)}
+    variables = {"d": str(device.pk), "g": str(group_b.pk)}
 
     added = await management_schema.execute(
         ADD, context_value=context, variable_values=variables
@@ -166,7 +170,7 @@ async def test_member_of_both_tenants_cannot_move_a_device_across_them():
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_outsider_cannot_add_to_a_group_they_are_not_in():
+async def test_outsider_cannot_add_to_a_group_they_are_not_in() -> None:
     org, _membership, _ = await sync_to_async(_org_with_member)()
     group = await sync_to_async(_group)(org)
     device = await sync_to_async(_device)(org)
@@ -175,7 +179,7 @@ async def test_outsider_cannot_add_to_a_group_they_are_not_in():
     result = await management_schema.execute(
         ADD,
         context_value=outsider,
-        variable_values={"d": str(device.id), "g": str(group.id)},
+        variable_values={"d": str(device.pk), "g": str(group.pk)},
     )
 
     assert result.errors and result.errors[0].message == DENIED

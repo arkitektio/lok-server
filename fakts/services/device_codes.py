@@ -24,7 +24,7 @@ logger = logging.getLogger(__name__)
 MAX_DEVICE_CODE_LIFETIME_SECONDS = 900
 
 
-def _expires_at(requested_seconds: int):
+def _expires_at(requested_seconds: int) -> datetime.datetime:
     """Clamp a caller-supplied lifetime and turn it into an absolute deadline."""
     seconds = max(1, min(int(requested_seconds), MAX_DEVICE_CODE_LIFETIME_SECONDS))
     return timezone.now() + datetime.timedelta(seconds=seconds)

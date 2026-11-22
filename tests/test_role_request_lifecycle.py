@@ -10,6 +10,8 @@ that only the requester may cancel — not even the owner on their behalf.
 
 import pytest
 from asgiref.sync import sync_to_async
+from kante.context import HttpContext
+from strawberry.types import ExecutionResult
 
 from api.management.authz import DENIED
 from api.management.schema import schema as management_schema
@@ -26,7 +28,9 @@ mutation ($org: ID!, $role: ID!) {
 CANCEL = "mutation ($id: ID!) { cancelRoleRequest(input: { id: $id }) }"
 
 
-async def _request(context, org, role):
+async def _request(
+    context: HttpContext, org: models.Organization, role: models.Role
+) -> ExecutionResult:
     return await management_schema.execute(
         REQUEST,
         context_value=context,
@@ -34,7 +38,9 @@ async def _request(context, org, role):
     )
 
 
-def _fresh_member_and_role():
+def _fresh_member_and_role() -> tuple[
+    models.Organization, models.Membership, models.Role
+]:
     """An org with a plain member who holds nothing, and a requestable role."""
     org = factories.make_organization()
     member = factories.make_membership(organization=org)
@@ -44,7 +50,7 @@ def _fresh_member_and_role():
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_member_can_request_a_role_of_their_organization():
+async def test_member_can_request_a_role_of_their_organization() -> None:
     org, member, role = await sync_to_async(_fresh_member_and_role)()
     context = await sync_to_async(_context_for)(member)
 
@@ -56,7 +62,7 @@ async def test_member_can_request_a_role_of_their_organization():
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_role_of_another_organization_is_refused():
+async def test_role_of_another_organization_is_refused() -> None:
     org, member, _role = await sync_to_async(_fresh_member_and_role)()
     foreign = await sync_to_async(
         lambda: create_role(factories.make_organization(), "editor")
@@ -71,7 +77,7 @@ async def test_role_of_another_organization_is_refused():
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_already_held_role_is_refused():
+async def test_already_held_role_is_refused() -> None:
     org, member, role = await sync_to_async(_fresh_member_and_role)()
     await sync_to_async(member.roles.add)(role)
     context = await sync_to_async(_context_for)(member)
@@ -84,7 +90,7 @@ async def test_already_held_role_is_refused():
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_second_pending_request_is_refused_until_the_first_is_resolved():
+async def test_second_pending_request_is_refused_until_the_first_is_resolved() -> None:
     org, member, role = await sync_to_async(_fresh_member_and_role)()
     context = await sync_to_async(_context_for)(member)
 
@@ -99,7 +105,7 @@ async def test_second_pending_request_is_refused_until_the_first_is_resolved():
 
     # Declining resolves the pending one; the partial unique constraint only
     # covers `status="pending"`, so asking again is allowed.
-    def decline():
+    def decline() -> None:
         models.RoleRequest.objects.get(pk=first.data["requestRole"]["id"]).decline(
             org.owner
         )
@@ -115,7 +121,7 @@ async def test_second_pending_request_is_refused_until_the_first_is_resolved():
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_non_member_gets_the_uniform_denial():
+async def test_non_member_gets_the_uniform_denial() -> None:
     org, _member, role = await sync_to_async(_fresh_member_and_role)()
     outsider = await sync_to_async(factories.make_membership)()
     context = await sync_to_async(_context_for)(outsider)
@@ -128,7 +134,7 @@ async def test_non_member_gets_the_uniform_denial():
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_requester_can_cancel_their_own_request():
+async def test_requester_can_cancel_their_own_request() -> None:
     _org, request, requester, _admin, _bystander = await sync_to_async(
         _org_with_request
     )()
@@ -147,7 +153,7 @@ async def test_requester_can_cancel_their_own_request():
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_admin_and_owner_cannot_cancel_on_the_members_behalf():
+async def test_admin_and_owner_cannot_cancel_on_the_members_behalf() -> None:
     org, request, _requester, admin, _bystander = await sync_to_async(
         _org_with_request
     )()

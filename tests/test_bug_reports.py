@@ -7,11 +7,15 @@ app. Admins see every report of the organization; a member sees their own.
 
 import base64
 import importlib
+from typing import Any, TypedDict
 
 import pytest
 from asgiref.sync import sync_to_async
+from kante.context import HttpContext
+from strawberry.types import ExecutionResult
 
 from fakts import models
+from karakter.models import Membership, Organization, User
 from lok_server.schema import schema
 from tests import factories
 from tests.conftest import build_auth_context
@@ -43,7 +47,22 @@ JPEG = b"\xff\xd8\xff\xe0" + b"\x00" * 32
 JPEG_URL = "data:image/jpeg;base64," + base64.b64encode(JPEG).decode()
 
 
-def _setup():
+class BugSetup(TypedDict):
+    """An organization's owner (admin) and a plain member, each with a client and a context, and an outsider."""
+
+    organization: Organization
+    release: models.Release
+    other_release: models.Release
+    app: models.App
+    owner_client: models.Client
+    member_client: models.Client
+    member: Membership
+    admin: HttpContext
+    plain: HttpContext
+    outsider: HttpContext
+
+
+def _setup() -> BugSetup:
     organization = factories.make_organization()
     owner = factories.make_membership(
         user=organization.owner, organization=organization
@@ -79,29 +98,35 @@ def _setup():
     }
 
 
-async def _run(query, context, **variables):
+async def _run(
+    query: str, context: HttpContext, **variables: object
+) -> ExecutionResult:
     return await schema.execute(query, variable_values=variables, context_value=context)
 
 
-async def _create(context, **fields):
+async def _create(context: HttpContext, **fields: object) -> dict[str, Any]:
     result = await _run(
         CREATE,
         context,
         input={"description": "The page is empty\nafter a move", **fields},
     )
     assert not result.errors, result.errors
+    assert result.data is not None
     return result.data["createBugReport"]
 
 
-async def _ids(context, filters=None):
+async def _ids(
+    context: HttpContext, filters: dict[str, object] | None = None
+) -> set[str]:
     result = await _run(LIST, context, filters=filters)
     assert not result.errors, result.errors
+    assert result.data is not None
     return {row["id"] for row in result.data["bugReports"]}
 
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_a_report_belongs_to_the_calling_client_and_its_release():
+async def test_a_report_belongs_to_the_calling_client_and_its_release() -> None:
     s = await sync_to_async(_setup)()
     report = await _create(
         s["admin"],
@@ -112,9 +137,9 @@ async def test_a_report_belongs_to_the_calling_client_and_its_release():
     )
 
     assert report["title"] == "The page is empty"
-    assert report["client"]["id"] == str(s["owner_client"].id)
-    assert report["release"]["id"] == str(s["release"].id)
-    assert report["app"]["id"] == str(s["app"].id)
+    assert report["client"]["id"] == str(s["owner_client"].pk)
+    assert report["release"]["id"] == str(s["release"].pk)
+    assert report["app"]["id"] == str(s["app"].pk)
     assert report["reporter"]["id"] == str(s["organization"].owner.id)
     assert report["diagnostics"] == {"errors": [{"message": "boom"}]}
     assert report["hasScreenshot"] is True
@@ -124,19 +149,19 @@ async def test_a_report_belongs_to_the_calling_client_and_its_release():
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_reports_filter_by_client_release_and_app():
+async def test_reports_filter_by_client_release_and_app() -> None:
     s = await sync_to_async(_setup)()
     from_owner = await _create(s["admin"])
     from_member = await _create(s["plain"])
 
     assert await _ids(s["admin"]) == {from_owner["id"], from_member["id"]}
-    assert await _ids(s["admin"], {"client": str(s["member_client"].id)}) == {
+    assert await _ids(s["admin"], {"client": str(s["member_client"].pk)}) == {
         from_member["id"]
     }
-    assert await _ids(s["admin"], {"release": str(s["release"].id)}) == {
+    assert await _ids(s["admin"], {"release": str(s["release"].pk)}) == {
         from_owner["id"]
     }
-    assert await _ids(s["admin"], {"app": str(s["app"].id)}) == {from_owner["id"]}
+    assert await _ids(s["admin"], {"app": str(s["app"].pk)}) == {from_owner["id"]}
     assert await _ids(s["admin"], {"reporter": str(s["member"].user.id)}) == {
         from_member["id"]
     }
@@ -145,7 +170,9 @@ async def test_reports_filter_by_client_release_and_app():
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_a_member_sees_their_own_reports_and_another_organization_sees_none():
+async def test_a_member_sees_their_own_reports_and_another_organization_sees_none() -> (
+    None
+):
     s = await sync_to_async(_setup)()
     from_owner = await _create(s["admin"])
     from_member = await _create(s["plain"])
@@ -157,7 +184,7 @@ async def test_a_member_sees_their_own_reports_and_another_organization_sees_non
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_only_an_admin_resolves_and_forwards():
+async def test_only_an_admin_resolves_and_forwards() -> None:
     s = await sync_to_async(_setup)()
     report = await _create(s["plain"])
 
@@ -197,7 +224,7 @@ async def test_only_an_admin_resolves_and_forwards():
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_the_reporter_may_delete_their_own_report_but_not_another():
+async def test_the_reporter_may_delete_their_own_report_but_not_another() -> None:
     s = await sync_to_async(_setup)()
     from_owner = await _create(s["admin"])
     from_member = await _create(s["plain"])
@@ -211,10 +238,10 @@ async def test_the_reporter_may_delete_their_own_report_but_not_another():
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_what_a_report_may_carry_is_bounded():
+async def test_what_a_report_may_carry_is_bounded() -> None:
     s = await sync_to_async(_setup)()
 
-    async def refused(**fields):
+    async def refused(**fields: object) -> bool:
         result = await _run(CREATE, s["admin"], input={"description": "x", **fields})
         return bool(result.errors)
 
@@ -239,7 +266,9 @@ async def test_what_a_report_may_carry_is_bounded():
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_one_person_cannot_flood_the_organization(monkeypatch):
+async def test_one_person_cannot_flood_the_organization(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     s = await sync_to_async(_setup)()
     monkeypatch.setattr(bug_report_mutations, "REPORTS_PER_HOUR", 2)
 
@@ -264,7 +293,7 @@ M_RESOLVE = """
 """
 
 
-def _as_session(context, user):
+def _as_session(context: HttpContext, user: User) -> HttpContext:
     # The management schema has no auth extension; production sets the user at
     # the view layer, so it is set directly here.
     context.request._user = user
@@ -273,7 +302,7 @@ def _as_session(context, user):
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_the_management_api_reads_and_triages_what_clients_filed():
+async def test_the_management_api_reads_and_triages_what_clients_filed() -> None:
     from api.management.schema import schema as management_schema
 
     s = await sync_to_async(_setup)()
@@ -291,7 +320,7 @@ async def test_the_management_api_reads_and_triages_what_clients_filed():
 
     by_app = await management_schema.execute(
         M_LIST,
-        variable_values={"filters": {"app": str(s["app"].id)}},
+        variable_values={"filters": {"app": str(s["app"].pk)}},
         context_value=owner,
     )
     assert [row["id"] for row in by_app.data["bugReports"]] == [from_owner["id"]]
@@ -327,7 +356,7 @@ async def test_the_management_api_reads_and_triages_what_clients_filed():
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_nul_characters_do_not_fail_a_report():
+async def test_nul_characters_do_not_fail_a_report() -> None:
     # Postgres refuses NUL in text and jsonb; a captured console line carried one.
     s = await sync_to_async(_setup)()
     report = await _create(

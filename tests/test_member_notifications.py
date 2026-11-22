@@ -15,6 +15,8 @@ from unittest.mock import patch
 
 import pytest
 from asgiref.sync import sync_to_async
+from kante.context import HttpContext
+from strawberry.types import ExecutionResult
 
 from api.management.authz import DENIED
 from api.management.schema import schema as management_schema
@@ -42,7 +44,9 @@ query ($id: ID!) {
 """
 
 
-def _org_with_member():
+def _org_with_member() -> tuple[
+    models.Organization, models.Membership, models.Membership, models.Membership
+]:
     """An org whose owner is a third party, so "owner" and "admin" stay distinct.
 
     Returns the org, an admin who does not own it, a plain member with one
@@ -64,24 +68,26 @@ def _org_with_member():
     return org, admin, member, bystander
 
 
-def _context_for(membership):
+def _context_for(membership: models.Membership) -> HttpContext:
     client = factories.make_client(membership=membership)
     return build_auth_context(membership.user, membership.organization, client)
 
 
-async def _run(query, context, variables):
+async def _run(
+    query: str, context: HttpContext, variables: dict[str, object]
+) -> ExecutionResult:
     return await management_schema.execute(
         query, context_value=context, variable_values=variables
     )
 
 
-def _reload(membership):
+def _reload(membership: models.Membership) -> models.Membership:
     return models.Membership.objects.get(pk=membership.pk)
 
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_new_membership_starts_opted_in():
+async def test_new_membership_starts_opted_in() -> None:
     """The flag is a mute, not a second consent — registering the device was the yes."""
     _org, _admin, member, _bystander = await sync_to_async(_org_with_member)()
     assert member.allow_notifications is True
@@ -89,7 +95,7 @@ async def test_new_membership_starts_opted_in():
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_member_can_opt_out_and_back_in():
+async def test_member_can_opt_out_and_back_in() -> None:
     org, _admin, member, _bystander = await sync_to_async(_org_with_member)()
     context = await sync_to_async(_context_for)(member)
 
@@ -113,7 +119,7 @@ async def test_member_can_opt_out_and_back_in():
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_member_cannot_flip_someone_elses_consent():
+async def test_member_cannot_flip_someone_elses_consent() -> None:
     """The lookup pins `user` to the caller, so there is no membership to hit."""
     org, _admin, member, bystander = await sync_to_async(_org_with_member)()
     context = await sync_to_async(_context_for)(bystander)
@@ -132,7 +138,7 @@ async def test_member_cannot_flip_someone_elses_consent():
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_admin_can_notify_an_opted_in_member():
+async def test_admin_can_notify_an_opted_in_member() -> None:
     _org, admin, member, _bystander = await sync_to_async(_org_with_member)()
     context = await sync_to_async(_context_for)(admin)
 
@@ -160,7 +166,7 @@ async def test_admin_can_notify_an_opted_in_member():
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_opted_out_member_is_never_published_to():
+async def test_opted_out_member_is_never_published_to() -> None:
     """The regression this whole feature hinges on: the mute must reach the wire."""
     _org, admin, member, _bystander = await sync_to_async(_org_with_member)()
     await sync_to_async(models.Membership.objects.filter(pk=member.pk).update)(
@@ -182,7 +188,7 @@ async def test_opted_out_member_is_never_published_to():
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_a_plain_member_may_notify_a_peer():
+async def test_a_plain_member_may_notify_a_peer() -> None:
     """Sending is member-level, not admin-level: the recipient's mute is the gate."""
     _org, _admin, member, bystander = await sync_to_async(_org_with_member)()
     context = await sync_to_async(_context_for)(bystander)
@@ -201,7 +207,7 @@ async def test_a_plain_member_may_notify_a_peer():
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_a_peers_send_still_respects_the_recipients_mute():
+async def test_a_peers_send_still_respects_the_recipients_mute() -> None:
     """Loosening *who* may send must not loosen whether the mute is honoured."""
     _org, _admin, member, bystander = await sync_to_async(_org_with_member)()
     await sync_to_async(models.Membership.objects.filter(pk=member.pk).update)(
@@ -223,7 +229,7 @@ async def test_a_peers_send_still_respects_the_recipients_mute():
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_outsider_may_not_notify_across_organizations():
+async def test_outsider_may_not_notify_across_organizations() -> None:
     """The membership lookup is unscoped, so `assert_member` is the only thing
     standing between a stranger and someone else's tenant."""
     _org, _admin, member, _bystander = await sync_to_async(_org_with_member)()
@@ -245,7 +251,9 @@ async def test_outsider_may_not_notify_across_organizations():
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_notifying_a_member_with_no_device_is_an_error_not_a_silent_success():
+async def test_notifying_a_member_with_no_device_is_an_error_not_a_silent_success() -> (
+    None
+):
     """`User.notify` returns [] with no channels — returning True there would lie."""
     _org, admin, _member, bystander = await sync_to_async(_org_with_member)()
     context = await sync_to_async(_context_for)(admin)
@@ -262,7 +270,7 @@ async def test_notifying_a_member_with_no_device_is_an_error_not_a_silent_succes
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_empty_message_is_rejected():
+async def test_empty_message_is_rejected() -> None:
     _org, admin, member, _bystander = await sync_to_async(_org_with_member)()
     context = await sync_to_async(_context_for)(admin)
 
@@ -280,7 +288,7 @@ async def test_empty_message_is_rejected():
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_title_defaults_to_the_organization_name():
+async def test_title_defaults_to_the_organization_name() -> None:
     """The send form leaves the title optional, so the push still needs a sender."""
     org, admin, member, _bystander = await sync_to_async(_org_with_member)()
     context = await sync_to_async(_context_for)(admin)
@@ -302,7 +310,7 @@ async def test_title_defaults_to_the_organization_name():
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_title_falls_back_to_the_slug_for_an_unnamed_organization():
+async def test_title_falls_back_to_the_slug_for_an_unnamed_organization() -> None:
     """`Organization.name` is nullable, and a push with an empty title reads as spam."""
     org, admin, member, _bystander = await sync_to_async(_org_with_member)()
     await sync_to_async(models.Organization.objects.filter(pk=org.pk).update)(name=None)
@@ -322,7 +330,7 @@ async def test_title_falls_back_to_the_slug_for_an_unnamed_organization():
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_has_notification_channel_reflects_registered_devices():
+async def test_has_notification_channel_reflects_registered_devices() -> None:
     """The send form disables itself on this, so it must track the real channels."""
     _org, admin, member, bystander = await sync_to_async(_org_with_member)()
     context = await sync_to_async(_context_for)(admin)
@@ -338,7 +346,7 @@ async def test_has_notification_channel_reflects_registered_devices():
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_a_rejecting_device_counts_as_attempted_but_not_delivered():
+async def test_a_rejecting_device_counts_as_attempted_but_not_delivered() -> None:
     """Expo answers per-device; the UI reports the split, so it must be truthful."""
     _org, admin, member, _bystander = await sync_to_async(_org_with_member)()
     await sync_to_async(models.ComChannel.objects.create)(

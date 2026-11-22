@@ -9,7 +9,7 @@ from .scopes import LOK_SCOPES
 logger = logging.getLogger(__name__)
 
 
-def create_role(organization: Organization, identifier: str):
+def create_role(organization: Organization, identifier: str) -> Role:
     """
     Create a role for the organization with the given identifier.
     """
@@ -19,7 +19,7 @@ def create_role(organization: Organization, identifier: str):
     return role
 
 
-def create_scope(organization: Organization, identifier: str):
+def create_scope(organization: Organization, identifier: str) -> Scope:
     """
     Create a role for the organization with the given identifier.
     """
@@ -35,12 +35,12 @@ def create_scope(organization: Organization, identifier: str):
 DEFAULT_ROLES = (ADMIN, "guest")
 
 
-def create_default_roles_for_org(org: Organization):
+def create_default_roles_for_org(org: Organization) -> None:
     for identifier in DEFAULT_ROLES:
         create_role(org, identifier)
 
 
-def create_default_scopes_for_org(org: Organization):
+def create_default_scopes_for_org(org: Organization) -> None:
     for identifier in ["openid", "profile", "email", "roles", "groups"]:
         create_scope(org, identifier)
     # lok's own: what an app may do at lok itself (karakter.scopes), built in and described.
@@ -56,7 +56,7 @@ def create_default_scopes_for_org(org: Organization):
         )
 
 
-def ensure_owner_is_admin(org: Organization):
+def ensure_owner_is_admin(org: Organization) -> None:
     """
     Ensure that the admin user is added to the admin group of the organization.
     """
@@ -69,7 +69,7 @@ def ensure_owner_is_admin(org: Organization):
     sync_organization(org)
 
 
-def add_user_roles(user: User, organization: Organization, roles: list[str]):
+def add_user_roles(user: User, organization: Organization, roles: list[str]) -> None:
     """
     Make the given user an admin of the specified organization.
     """
@@ -85,7 +85,7 @@ def add_user_roles(user: User, organization: Organization, roles: list[str]):
     membership.save()
 
 
-def create_user_default_organization(user: User):
+def create_user_default_organization(user: User) -> Organization | None:
     """Create a *new* organization for the user upon signup.
 
     This must never join an organization that already exists. It previously did

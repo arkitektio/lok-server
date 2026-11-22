@@ -4,8 +4,11 @@ mandate a device is keyed under), how many clients a mandate or a device has,
 releases paged and filtered, and member invites told apart from collaboration
 links."""
 
+from typing import Any, TypedDict
+
 import pytest
 from asgiref.sync import sync_to_async
+from kante.context import HttpContext
 
 from fakts import models as fmodels
 from fakts.base_models import MandatePin, Manifest
@@ -24,15 +27,26 @@ SUBJECT = {
 }
 
 
-async def _run(context, query, **variables):
+async def _run(context: HttpContext, query: str, **variables: object) -> dict[str, Any]:
     result = await schema.execute(
         query, context_value=context, variable_values=variables
     )
     assert not result.errors, result.errors
+    assert result.data is not None
     return result.data
 
 
-def _world():
+class World(TypedDict):
+    grantor: kmodels.Membership
+    org: kmodels.Organization
+    agent_client: fmodels.Client
+    standing: fmodels.Mandate
+    children: list[fmodels.Mandate]
+    keyed: fmodels.Mandate
+    hub: fmodels.Hub
+
+
+def _world() -> World:
     """An owner (admin) with a hub, a deployer agent app, and a standing agent mandate with two device keys."""
     owner = factories.make_user()
     org = factories.make_organization(owner=owner)
@@ -75,7 +89,7 @@ def _world():
     }
 
 
-def _context(world):
+def _context(world: World) -> HttpContext:
     return build_auth_context(
         world["grantor"].user, world["org"], world["agent_client"]
     )
@@ -88,7 +102,7 @@ query ($filters: MandateFilter) { mandates(filters: $filters) { id } }
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_the_standing_mandate_is_found_by_filters():
+async def test_the_standing_mandate_is_found_by_filters() -> None:
     world = await sync_to_async(_world)()
     context = await sync_to_async(_context)(world)
     standing = str(world["standing"].pk)
@@ -129,11 +143,11 @@ async def test_the_standing_mandate_is_found_by_filters():
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_client_counts_of_a_mandate_and_a_device():
+async def test_client_counts_of_a_mandate_and_a_device() -> None:
     world = await sync_to_async(_world)()
     context = await sync_to_async(_context)(world)
 
-    def _clients():
+    def _clients() -> fmodels.Device:
         device = fmodels.Device.objects.create(
             node_id="node-1", organization=world["org"]
         )
@@ -180,11 +194,11 @@ async def test_client_counts_of_a_mandate_and_a_device():
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_releases_page_and_filter():
+async def test_releases_page_and_filter() -> None:
     world = await sync_to_async(_world)()
     context = await sync_to_async(_context)(world)
 
-    def _releases():
+    def _releases() -> tuple[fmodels.App, list[fmodels.Release]]:
         app = factories.make_app(
             organization=world["org"], name="Napari", identifier="org.napari.napari"
         )
@@ -224,7 +238,7 @@ async def test_releases_page_and_filter():
     assert len(nested["app"]["releases"]) == 2
     assert nested["app"]["releaseCount"] == 3
 
-    def _run_release():
+    def _run_release() -> None:
         factories.make_client(membership=world["grantor"], release=releases[0])
 
     await sync_to_async(_run_release)()
@@ -238,11 +252,11 @@ async def test_releases_page_and_filter():
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_member_invites_apart_from_collaboration_links():
+async def test_member_invites_apart_from_collaboration_links() -> None:
     world = await sync_to_async(_world)()
     context = await sync_to_async(_context)(world)
 
-    def _invites():
+    def _invites() -> tuple[kmodels.Invite, kmodels.Invite]:
         user = world["grantor"].user
         member = kmodels.Invite.objects.create(
             created_by=user, created_for=world["org"]

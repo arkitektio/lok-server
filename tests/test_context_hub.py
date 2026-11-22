@@ -8,7 +8,10 @@ that it also names the client's hub, and stays null for a client without one.
 
 import pytest
 from asgiref.sync import sync_to_async
+from kante.context import HttpContext
+from strawberry.types import ExecutionResult
 
+from fakts.models import Hub
 from lok_server.schema import schema
 from tests import factories
 from tests.conftest import build_auth_context
@@ -16,14 +19,14 @@ from tests.conftest import build_auth_context
 QUERY = "query { mycontext { hub { id name identifier organization { id } } organization { id } } }"
 
 
-async def _run(context):
+async def _run(context: HttpContext) -> ExecutionResult:
     return await schema.execute(QUERY, context_value=context)
 
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_context_names_the_app_clients_hub():
-    def setup():
+async def test_context_names_the_app_clients_hub() -> None:
+    def setup() -> tuple[HttpContext, Hub]:
         membership = factories.make_membership()
         hub = factories.make_hub(organization=membership.organization)
         client = factories.make_client(membership=membership, hub=hub)
@@ -42,8 +45,8 @@ async def test_context_names_the_app_clients_hub():
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_context_hub_is_null_for_a_client_without_one():
-    def setup():
+async def test_context_hub_is_null_for_a_client_without_one() -> None:
+    def setup() -> HttpContext:
         membership = factories.make_membership()
         client = factories.make_client(membership=membership)
         return build_auth_context(membership.user, membership.organization, client)

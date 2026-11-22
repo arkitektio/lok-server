@@ -76,7 +76,7 @@ class YamlConfigModel(BaseModel):
     hubs: list[HubsConfigModel] = []
 
     @model_validator(mode="after")
-    def validate_args(self):
+    def validate_args(self) -> "YamlConfigModel":
         return self
 
 
@@ -132,5 +132,5 @@ class KommunityPartnerConfigModel(BaseModel):
     partners: list[KommunityPartnerModel] = []
 
     @model_validator(mode="after")
-    def validate_args(self):
+    def validate_args(self) -> "KommunityPartnerConfigModel":
         return self

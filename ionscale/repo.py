@@ -78,7 +78,9 @@ class IonscaleRepository:
     (configured via ``ionscale.service_token``); this stays for deployments that
     still hand lok a system admin key and a binary."""
 
-    def __init__(self, server_url: str, admin_key: str, binary_path: str = "ionscale"):
+    def __init__(
+        self, server_url: str, admin_key: str, binary_path: str = "ionscale"
+    ) -> None:
         """
         Initializes the repository.
         :param server_url: The full URL of your Ionscale instance (e.g. https://vpn.corp.com)
@@ -142,7 +144,7 @@ class IonscaleRepository:
             clean_error = e.stderr.replace(self.admin_key, "***")
             raise IonscaleError(
                 _cli_error_code(clean_error), f"Ionscale CLI Error: {clean_error}"
-            )
+            ) from e
 
     def list_tailnets(self) -> list[Tailnet]:
         """
@@ -545,7 +547,7 @@ class IonscaleRepository:
         try:
             return json.loads(output)
         except json.JSONDecodeError as exc:
-            raise RuntimeError(f"Could not parse IAM policy: {exc}")
+            raise RuntimeError(f"Could not parse IAM policy: {exc}") from exc
 
     def get_acl_policy(self, tailnet: str) -> str:
         """Runs `ionscale tailnets get-acl-policy`: the raw (HuJSON) ACL policy text."""
@@ -598,7 +600,7 @@ class IonscaleRepository:
         try:
             data = json.loads(output)
         except json.JSONDecodeError as exc:
-            raise RuntimeError(f"Could not parse tailnet lock status: {exc}")
+            raise RuntimeError(f"Could not parse tailnet lock status: {exc}") from exc
 
         return TailnetLockStatus(
             capability_enabled=bool(data.get("capability_enabled", False)),

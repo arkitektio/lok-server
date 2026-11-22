@@ -1,3 +1,4 @@
+from collections.abc import Iterator
 from contextvars import ContextVar
 from functools import cached_property
 
@@ -54,7 +55,7 @@ def get_current_datalayer() -> Datalayer:
 
 
 class DatalayerExtension(SchemaExtension):
-    def on_operation(self):
+    def on_operation(self) -> Iterator[None]:
         t1 = datalayer.set(Datalayer())
 
         yield

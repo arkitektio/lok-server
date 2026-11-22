@@ -12,7 +12,7 @@ import logging
 
 from django.conf import settings
 from django.db import transaction
-from django.db.models import Q
+from django.db.models import Q, QuerySet
 
 from fakts import base_models, enums, models
 from fakts.base_models import BASE_OIDC_SCOPES, Manifest
@@ -155,7 +155,7 @@ def bind_client(
     try:
         logo = download_logo(manifest.logo) if manifest.logo else None
     except Exception as e:
-        raise ValueError(f"Could not download logo {e}")
+        raise ValueError(f"Could not download logo {e}") from e
 
     display_name = manifest.title or manifest.identifier
 
@@ -402,7 +402,9 @@ PRIOR_ACCESS_EXPIRED = "expired"
 PRIOR_ACCESS_REVOKED = "revoked"
 
 
-def find_prior_clients(manifest: Manifest, user: karakter_models.User):
+def find_prior_clients(
+    manifest: Manifest, user: karakter_models.User
+) -> QuerySet[models.Client]:
     """Bound clients ``user`` previously approved for the app/device this manifest
     describes, most recently seen first.
 

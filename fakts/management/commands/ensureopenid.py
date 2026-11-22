@@ -1,3 +1,5 @@
+from typing import Any
+
 from django.conf import settings
 from django.core.management.base import BaseCommand
 from pydantic import BaseModel
@@ -17,7 +19,7 @@ class OpenIDAppConfig(BaseModel):
 class Command(BaseCommand):
     help = "Creates all configured apps or overwrites them"
 
-    def handle(self, *args, **options):
+    def handle(self, *args: Any, **options: Any) -> None:
         apps = settings.ENSURED_OPENID_APPS or []
 
         if not apps:

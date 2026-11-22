@@ -16,15 +16,26 @@ actually closes the enumeration.
 """
 
 import logging
+from typing import TypeVar
 
 from graphql import GraphQLError
 
 from api.management.authz import DENIED, get_or_denied
+from fakts import models as fakts_models
+
+#: The device-code model (or a proxy of it) a mutation answers for.
+_Code = TypeVar("_Code", bound=fakts_models.DeviceCode)
 
 logger = logging.getLogger(__name__)
 
 
-def resolve_device_code_with_proof(model, *, device_code_id, code, **extra_lookup):
+def resolve_device_code_with_proof(
+    model: type[_Code],
+    *,
+    device_code_id: object,
+    code: str | None,
+    **extra_lookup: object,
+) -> _Code:
     """Fetch a device code, requiring proof-of-possession of its user code.
 
     ``code`` must match the stored code, so a caller who guessed an id cannot

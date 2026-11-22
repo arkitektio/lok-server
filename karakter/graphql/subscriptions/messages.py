@@ -14,7 +14,7 @@ __all__ = ["my_messages"]
 
 
 async def my_messages(
-    self, info: Info
+    self: object, info: Info
 ) -> AsyncGenerator[types.SystemMessageEvent, None]:
     """An event whenever one of the caller's system messages is created, changed or deleted."""
     user = await database_sync_to_async(get_user)(info)

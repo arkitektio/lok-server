@@ -1,11 +1,17 @@
 import logging
+from collections.abc import Iterable
+from typing import TYPE_CHECKING
 
 from django.contrib.auth import get_user_model
+from django.db.models import QuerySet
 from kante.types import Info
 
 from api.management.authz import assert_owner_or_admin
 from fakts import inputs, models, types
 from karakter.authz import get_organization, get_scoped_or_denied
+
+if TYPE_CHECKING:
+    from karakter.models import User as KarakterUser
 
 logger = logging.getLogger(__name__)
 
@@ -36,7 +42,7 @@ def update_service_instance(
     # tables, so rows belonging to other tenants landed in `allowed_users` /
     # `denied_users`. Every other m2m write in the codebase scopes its member ids;
     # this one does too.
-    def _scoped_users(ids):
+    def _scoped_users(ids: Iterable[object]) -> "QuerySet[KarakterUser]":
         return User.objects.filter(
             id__in=ids, memberships__organization=organization
         ).distinct()

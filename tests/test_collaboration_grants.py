@@ -10,29 +10,36 @@ with roles that never exceed what the granter holds now.
 """
 
 import json
+from collections.abc import Awaitable, Sequence
 from datetime import timedelta
 from types import SimpleNamespace
+from typing import Any
 
 import pytest
 from asgiref.sync import sync_to_async
 from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.db import transaction
+from django.test import Client
 from django.urls import reverse
 from django.utils import timezone
 from graphql import GraphQLError
 from joserfc import jwt
 from joserfc.jwk import RSAKey
+from kante.context import HttpContext
+from strawberry.types import ExecutionResult
 
 from api.management.mutations.device_code import (
     AcceptDeviceCodeInput,
     accept_device_code,
 )
 from api.management.schema import schema as management_schema
+from api.management.types import ManagementClient
 from authapp.server import SCOPED_ACCESS_TOKEN_EXPIRES_IN, access_token_expires_in
 from authapp.token_generators import MyJWTBearerTokenGenerator
 from fakts import models as fakts_models
 from ionscale.acl import build_acl_policy
+from ionscale.testing import FakeIonscaleRepository
 from karakter import collaboration_grants, models
 from karakter.invites import InviteError, redeem_invite
 from tests import factories
@@ -61,23 +68,27 @@ REVOKE = """
 MEMBER_ROLES = ("user", "editor", "viewer")
 
 
-def _generator():
+def _generator() -> MyJWTBearerTokenGenerator:
     return MyJWTBearerTokenGenerator(issuer="https://lok.test")
 
 
-def _role(organization, identifier):
+def _role(organization: models.Organization, identifier: str) -> models.Role:
     return models.Role.objects.get_or_create(
         identifier=identifier, organization=organization
     )[0]
 
 
-def _member(organization, roles=MEMBER_ROLES):
+def _member(
+    organization: models.Organization, roles: Sequence[str] = MEMBER_ROLES
+) -> models.Membership:
     member = factories.make_membership(organization=organization)
     member.roles.add(*[_role(organization, r) for r in roles])
     return member
 
 
-def _org_with_member(roles=MEMBER_ROLES):
+def _org_with_member(
+    roles: Sequence[str] = MEMBER_ROLES,
+) -> tuple[models.Organization, models.Membership, fakts_models.ServiceInstance]:
     """An organization with a hub, a service instance on it, and a member holding ``roles``."""
     organization = factories.make_organization()
     hub = factories.make_hub(organization=organization)
@@ -85,7 +96,11 @@ def _org_with_member(roles=MEMBER_ROLES):
     return organization, _member(organization, roles), instance
 
 
-def _entry(instance, collaboration="12", roles=()):
+def _entry(
+    instance: fakts_models.ServiceInstance,
+    collaboration: str = "12",
+    roles: Sequence[str] = (),
+) -> dict[str, str | list[str]]:
     return {
         "instance": str(instance.pk),
         "collaboration": collaboration,
@@ -93,7 +108,12 @@ def _entry(instance, collaboration="12", roles=()):
     }
 
 
-def _collaboration_invite(organization, created_by, entries, **kw):
+def _collaboration_invite(
+    organization: models.Organization,
+    created_by: models.User,
+    entries: list[dict[str, str | list[str]]],
+    **kw: Any,
+) -> models.Invite:
     return models.Invite.objects.create(
         created_by=created_by,
         created_for=organization,
@@ -104,7 +124,9 @@ def _collaboration_invite(organization, created_by, entries, **kw):
     )
 
 
-def _client(membership, *instances):
+def _client(
+    membership: models.Membership, *instances: fakts_models.ServiceInstance
+) -> fakts_models.Client:
     """A fakts client of ``membership`` whose tokens are minted for ``instances``."""
     client = factories.make_client(membership=membership)
     for n, instance in enumerate(instances):
@@ -114,7 +136,9 @@ def _client(membership, *instances):
     return client
 
 
-def _claims(membership, *instances):
+def _claims(
+    membership: models.Membership, *instances: fakts_models.ServiceInstance
+) -> dict[str, object]:
     return _generator().get_extra_claims(
         _client(membership, *instances), "authorization_code", membership, None
     )
@@ -125,7 +149,7 @@ def _claims(membership, *instances):
 # --------------------------------------------------------------------------- #
 
 
-def test_entries_normalize_and_the_same_collaboration_twice_holds_both_roles():
+def test_entries_normalize_and_the_same_collaboration_twice_holds_both_roles() -> None:
     entries = collaboration_grants.normalize_collaborations(
         [
             {"instance": 7, "collaboration": "12", "roles": ["viewer"]},
@@ -156,12 +180,12 @@ def test_entries_normalize_and_the_same_collaboration_twice_holds_both_roles():
         {"instance": "7", "collaboration": "12", "roles": [3]},
     ],
 )
-def test_malformed_entries_are_refused(bad):
+def test_malformed_entries_are_refused(bad: dict[str, object]) -> None:
     with pytest.raises(ValidationError):
         collaboration_grants.normalize_collaborations([bad])
 
 
-def test_an_invite_grants_at_least_one_and_at_most_fifty_collaborations():
+def test_an_invite_grants_at_least_one_and_at_most_fifty_collaborations() -> None:
     with pytest.raises(ValidationError):
         collaboration_grants.normalize_collaborations([])
     many = [
@@ -173,7 +197,7 @@ def test_an_invite_grants_at_least_one_and_at_most_fifty_collaborations():
 
 
 @pytest.mark.django_db
-def test_only_the_organizations_own_instances_and_roles_can_be_granted():
+def test_only_the_organizations_own_instances_and_roles_can_be_granted() -> None:
     organization, _, instance = _org_with_member()
     foreign = factories.make_service_instance()  # on another organization's hub
 
@@ -211,7 +235,7 @@ def test_only_the_organizations_own_instances_and_roles_can_be_granted():
 
 
 @pytest.mark.django_db
-def test_accepting_a_collaboration_invite_makes_a_guest_without_roles():
+def test_accepting_a_collaboration_invite_makes_a_guest_without_roles() -> None:
     organization, member, instance = _org_with_member()
     invite = _collaboration_invite(
         organization,
@@ -243,7 +267,7 @@ def test_accepting_a_collaboration_invite_makes_a_guest_without_roles():
 
 
 @pytest.mark.django_db
-def test_a_collaboration_invite_closes_after_max_uses():
+def test_a_collaboration_invite_closes_after_max_uses() -> None:
     organization, member, instance = _org_with_member()
     invite = _collaboration_invite(
         organization, member.user, [_entry(instance)], max_uses=2
@@ -259,7 +283,9 @@ def test_a_collaboration_invite_closes_after_max_uses():
 
 
 @pytest.mark.django_db
-def test_a_full_member_accepting_a_collaboration_invite_gets_nothing_and_spends_nothing():
+def test_a_full_member_accepting_a_collaboration_invite_gets_nothing_and_spends_nothing() -> (
+    None
+):
     organization, member, instance = _org_with_member()
     invite = _collaboration_invite(
         organization, member.user, [_entry(instance)], max_uses=1
@@ -276,7 +302,7 @@ def test_a_full_member_accepting_a_collaboration_invite_gets_nothing_and_spends_
 
 
 @pytest.mark.django_db
-def test_granting_a_collaboration_again_takes_the_union_of_its_roles():
+def test_granting_a_collaboration_again_takes_the_union_of_its_roles() -> None:
     organization, karl, instance = _org_with_member()
     anna = _member(organization)
     visitor = factories.make_user()
@@ -305,7 +331,7 @@ def test_granting_a_collaboration_again_takes_the_union_of_its_roles():
 
 
 @pytest.mark.django_db
-def test_re_accepting_what_one_already_has_spends_nothing():
+def test_re_accepting_what_one_already_has_spends_nothing() -> None:
     organization, member, instance = _org_with_member()
     visitor = factories.make_user()
     redeem_invite(
@@ -326,7 +352,9 @@ def test_re_accepting_what_one_already_has_spends_nothing():
 
 
 @pytest.mark.django_db
-def test_an_instance_gone_since_the_invite_was_made_grants_nothing_and_makes_no_member():
+def test_an_instance_gone_since_the_invite_was_made_grants_nothing_and_makes_no_member() -> (
+    None
+):
     organization, member, instance = _org_with_member()
     invite = _collaboration_invite(organization, member.user, [_entry(instance)])
     instance.delete()
@@ -341,7 +369,7 @@ def test_an_instance_gone_since_the_invite_was_made_grants_nothing_and_makes_no_
 
 
 @pytest.mark.django_db
-def test_an_ordinary_invite_makes_a_guest_a_full_member():
+def test_an_ordinary_invite_makes_a_guest_a_full_member() -> None:
     organization, member, instance = _org_with_member()
     visitor = factories.make_user()
     scoped = redeem_invite(
@@ -359,7 +387,7 @@ def test_an_ordinary_invite_makes_a_guest_a_full_member():
 
 
 @pytest.mark.django_db
-def test_declining_a_collaboration_invite_does_not_close_it_for_others():
+def test_declining_a_collaboration_invite_does_not_close_it_for_others() -> None:
     organization, member, instance = _org_with_member()
     invite = _collaboration_invite(organization, member.user, [_entry(instance)])
     invite.decline(factories.make_user())
@@ -373,7 +401,7 @@ def test_declining_a_collaboration_invite_does_not_close_it_for_others():
 
 
 @pytest.mark.django_db
-def test_a_guest_cannot_be_given_roles_without_being_upgraded():
+def test_a_guest_cannot_be_given_roles_without_being_upgraded() -> None:
     organization, member, instance = _org_with_member()
     membership = redeem_invite(
         _collaboration_invite(organization, member.user, [_entry(instance)]),
@@ -392,7 +420,7 @@ def test_a_guest_cannot_be_given_roles_without_being_upgraded():
 
 
 @pytest.mark.django_db
-def test_taking_back_the_last_grant_removes_the_membership():
+def test_taking_back_the_last_grant_removes_the_membership() -> None:
     organization, member, instance = _org_with_member()
     membership = redeem_invite(
         _collaboration_invite(
@@ -409,7 +437,7 @@ def test_taking_back_the_last_grant_removes_the_membership():
 
 
 @pytest.mark.django_db
-def test_revoking_an_invite_takes_back_everything_it_granted():
+def test_revoking_an_invite_takes_back_everything_it_granted() -> None:
     organization, member, instance = _org_with_member()
     invite = _collaboration_invite(organization, member.user, [_entry(instance)])
     a = redeem_invite(invite, factories.make_user())
@@ -425,7 +453,7 @@ def test_revoking_an_invite_takes_back_everything_it_granted():
 
 
 @pytest.mark.django_db
-def test_a_guests_token_lists_the_collaborations_of_its_own_instances_only():
+def test_a_guests_token_lists_the_collaborations_of_its_own_instances_only() -> None:
     organization, member, mikro = _org_with_member()
     other = factories.make_service_instance(hub=mikro.hub)
     unmapped = factories.make_service_instance(hub=mikro.hub)
@@ -467,7 +495,7 @@ def test_a_guests_token_lists_the_collaborations_of_its_own_instances_only():
 
 
 @pytest.mark.django_db
-def test_a_token_minted_for_no_instance_lists_no_collaborations():
+def test_a_token_minted_for_no_instance_lists_no_collaborations() -> None:
     organization, member, instance = _org_with_member()
     membership = redeem_invite(
         _collaboration_invite(
@@ -481,7 +509,7 @@ def test_a_token_minted_for_no_instance_lists_no_collaborations():
 
 
 @pytest.mark.django_db
-def test_a_guests_roles_are_cut_to_what_the_granter_holds_now():
+def test_a_guests_roles_are_cut_to_what_the_granter_holds_now() -> None:
     organization, karl, instance = _org_with_member()
     membership = redeem_invite(
         _collaboration_invite(
@@ -512,7 +540,7 @@ def test_a_guests_roles_are_cut_to_what_the_granter_holds_now():
 
 
 @pytest.mark.django_db
-def test_a_granter_who_left_takes_their_grants_along():
+def test_a_granter_who_left_takes_their_grants_along() -> None:
     organization, karl, instance = _org_with_member()
     anna = _member(organization)
     visitor = factories.make_user()
@@ -539,7 +567,7 @@ def test_a_granter_who_left_takes_their_grants_along():
 
 
 @pytest.mark.django_db
-def test_a_granter_who_is_only_a_guest_or_inactive_grants_nothing():
+def test_a_granter_who_is_only_a_guest_or_inactive_grants_nothing() -> None:
     organization, karl, instance = _org_with_member()
     membership = redeem_invite(
         _collaboration_invite(
@@ -561,7 +589,7 @@ def test_a_granter_who_is_only_a_guest_or_inactive_grants_nothing():
 
 
 @pytest.mark.django_db
-def test_a_grant_whose_granter_is_gone_grants_nothing():
+def test_a_grant_whose_granter_is_gone_grants_nothing() -> None:
     organization, karl, instance = _org_with_member()
     membership = redeem_invite(
         _collaboration_invite(organization, karl.user, [_entry(instance)]),
@@ -573,7 +601,7 @@ def test_a_grant_whose_granter_is_gone_grants_nothing():
 
 
 @pytest.mark.django_db
-def test_expired_grants_leave_the_token_but_it_stays_scoped():
+def test_expired_grants_leave_the_token_but_it_stays_scoped() -> None:
     organization, member, instance = _org_with_member()
     membership = redeem_invite(
         _collaboration_invite(
@@ -600,7 +628,7 @@ def test_expired_grants_leave_the_token_but_it_stays_scoped():
 
 
 @pytest.mark.django_db
-def test_a_full_members_token_is_unchanged():
+def test_a_full_members_token_is_unchanged() -> None:
     organization, member, instance = _org_with_member(roles=("user",))
     claims = _claims(member, instance)
     assert claims["org"] == str(organization.pk)
@@ -613,7 +641,14 @@ def test_a_full_members_token_is_unchanged():
 # --------------------------------------------------------------------------- #
 
 
-def _api_setup():
+def _api_setup() -> tuple[
+    models.Organization,
+    models.Membership,
+    fakts_models.ServiceInstance,
+    HttpContext,
+    HttpContext,
+    models.User,
+]:
     organization, member, instance = _org_with_member()
     member_context = build_auth_context(
         member.user,
@@ -634,7 +669,9 @@ def _api_setup():
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_members_grant_collaborations_and_the_visitor_sees_only_the_org_shell():
+async def test_members_grant_collaborations_and_the_visitor_sees_only_the_org_shell() -> (
+    None
+):
     (
         organization,
         member,
@@ -732,7 +769,7 @@ async def test_members_grant_collaborations_and_the_visitor_sees_only_the_org_sh
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_whoever_granted_can_take_it_back():
+async def test_whoever_granted_can_take_it_back() -> None:
     organization, member, instance, member_context, _, visitor = await sync_to_async(
         _api_setup
     )()
@@ -755,7 +792,7 @@ async def test_whoever_granted_can_take_it_back():
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_another_guest_cannot_take_a_grant_back():
+async def test_another_guest_cannot_take_a_grant_back() -> None:
     organization, member, instance, _, guest_context, visitor = await sync_to_async(
         _api_setup
     )()
@@ -783,7 +820,12 @@ async def test_another_guest_cannot_take_a_grant_back():
 DEVICE_CODE_GRANT = "urn:ietf:params:oauth:grant-type:device_code"
 
 
-def _mesh_org_with_member():
+def _mesh_org_with_member() -> tuple[
+    models.Organization,
+    models.Membership,
+    fakts_models.ServiceInstance,
+    fakts_models.IonscaleLayer,
+]:
     """``_org_with_member`` whose organization has a mesh."""
     organization, member, instance = _org_with_member()
     layer = fakts_models.IonscaleLayer.objects.create(
@@ -796,7 +838,13 @@ def _mesh_org_with_member():
     return organization, member, instance, layer
 
 
-def _guest(organization, member, instance, roles=("editor",), **invite):
+def _guest(
+    organization: models.Organization,
+    member: models.Membership,
+    instance: fakts_models.ServiceInstance,
+    roles: Sequence[str] = ("editor",),
+    **invite: Any,
+) -> models.Membership:
     return redeem_invite(
         _collaboration_invite(
             organization, member.user, [_entry(instance, roles=roles)], **invite
@@ -805,7 +853,12 @@ def _guest(organization, member, instance, roles=("editor",), **invite):
     )
 
 
-def _start_app(client, instance, *, request_auth_key=True):
+def _start_app(
+    client: Client,
+    instance: fakts_models.ServiceInstance,
+    *,
+    request_auth_key: bool = True,
+) -> dict[str, Any]:
     manifest = {
         "identifier": "com.example.guestapp",
         "version": "1.0.0",
@@ -830,18 +883,25 @@ def _start_app(client, instance, *, request_auth_key=True):
     return resp.json()
 
 
-def _accept_app(body, user, hub):
+def _accept_app(
+    body: dict[str, Any], user: models.User, hub: fakts_models.Hub
+) -> ManagementClient:
     device_code = fakts_models.DeviceCode.objects.get(secret=body["device_code"])
     info = SimpleNamespace(context=SimpleNamespace(request=SimpleNamespace(user=user)))
     return accept_device_code(
         info,
         AcceptDeviceCodeInput(
-            device_code=str(device_code.id), code=device_code.code, hub=str(hub.id)
+            device_code=str(device_code.id), code=device_code.code, hub=str(hub.pk)
         ),
     )
 
 
-def _login_app(client, user, instance, **start):
+def _login_app(
+    client: Client,
+    user: models.User,
+    instance: fakts_models.ServiceInstance,
+    **start: Any,
+) -> dict[str, Any]:
     body = _start_app(client, instance, **start)
     _accept_app(body, user, instance.hub)
     resp = client.post(
@@ -857,14 +917,16 @@ def _login_app(client, user, instance, **start):
     return resp.json()
 
 
-def _decode(access_token):
+def _decode(access_token: str) -> dict[str, Any]:
     return jwt.decode(
         access_token, RSAKey.import_key(settings.PUBLIC_KEY), algorithms=["RS256"]
     ).claims
 
 
 @pytest.mark.django_db
-def test_a_guest_approves_an_app_whose_token_carries_only_their_collaborations(client):
+def test_a_guest_approves_an_app_whose_token_carries_only_their_collaborations(
+    client: Client,
+) -> None:
     organization, member, instance = _org_with_member()
     guest = _guest(organization, member, instance)
 
@@ -888,8 +950,15 @@ ACCEPT_DEVICE_CODE = """
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_a_guest_approves_an_app_through_the_management_api(client):
-    def _setup():
+async def test_a_guest_approves_an_app_through_the_management_api(
+    client: Client,
+) -> None:
+    def _setup() -> tuple[
+        models.Membership,
+        fakts_models.ServiceInstance,
+        fakts_models.DeviceCode,
+        HttpContext,
+    ]:
         organization, member, instance = _org_with_member()
         guest = _guest(organization, member, instance)
         body = _start_app(client, instance, request_auth_key=False)
@@ -923,7 +992,7 @@ async def test_a_guest_approves_an_app_through_the_management_api(client):
 
 
 @pytest.mark.django_db
-def test_a_non_member_or_a_lapsed_guest_cannot_approve_an_app(client):
+def test_a_non_member_or_a_lapsed_guest_cannot_approve_an_app(client: Client) -> None:
     organization, member, instance = _org_with_member()
     stranger = factories.make_user()
     with pytest.raises(GraphQLError, match="Not found"):
@@ -936,7 +1005,9 @@ def test_a_non_member_or_a_lapsed_guest_cannot_approve_an_app(client):
 
 
 @pytest.mark.django_db
-def test_a_guest_approves_apps_only_into_a_hub_their_collaborations_run_on(client):
+def test_a_guest_approves_apps_only_into_a_hub_their_collaborations_run_on(
+    client: Client,
+) -> None:
     organization, member, instance = _org_with_member()
     other = factories.make_service_instance(
         hub=factories.make_hub(organization=organization)
@@ -948,7 +1019,9 @@ def test_a_guest_approves_apps_only_into_a_hub_their_collaborations_run_on(clien
 
 
 @pytest.mark.django_db
-def test_redeeming_copies_the_invites_mesh_onto_its_grants_and_a_re_grant_ors_it():
+def test_redeeming_copies_the_invites_mesh_onto_its_grants_and_a_re_grant_ors_it() -> (
+    None
+):
     organization, member, instance = _org_with_member()
     visitor = factories.make_user()
     closed = _collaboration_invite(
@@ -974,8 +1047,8 @@ def test_redeeming_copies_the_invites_mesh_onto_its_grants_and_a_re_grant_ors_it
 @pytest.mark.django_db
 @pytest.mark.parametrize("mesh", [True, False])
 def test_a_guests_app_gets_a_mesh_key_only_when_the_invite_allowed_it(
-    client, ionscale_repo, mesh
-):
+    client: Client, ionscale_repo: FakeIonscaleRepository, mesh: bool
+) -> None:
     organization, member, instance, layer = _mesh_org_with_member()
     guest = _guest(organization, member, instance, mesh=mesh)
 
@@ -991,7 +1064,9 @@ def test_a_guests_app_gets_a_mesh_key_only_when_the_invite_allowed_it(
 
 
 @pytest.mark.django_db
-def test_a_guests_lapsed_mesh_grant_renews_no_mesh_key(client, ionscale_repo):
+def test_a_guests_lapsed_mesh_grant_renews_no_mesh_key(
+    client: Client, ionscale_repo: FakeIonscaleRepository
+) -> None:
     from fakts.services.hubs import MeshKeyRefused, renew_mesh_key
 
     organization, member, instance, layer = _mesh_org_with_member()
@@ -1011,8 +1086,8 @@ def test_a_guests_lapsed_mesh_grant_renews_no_mesh_key(client, ionscale_repo):
 
 @pytest.mark.django_db
 def test_the_acl_lets_a_guests_app_reach_only_the_hub_of_their_collaboration(
-    client, ionscale_repo
-):
+    client: Client, ionscale_repo: FakeIonscaleRepository
+) -> None:
     organization, member, instance, layer = _mesh_org_with_member()
     other_hub = factories.make_hub(organization=organization)
     guest = _guest(organization, member, instance, mesh=True)
@@ -1052,8 +1127,8 @@ def test_the_acl_lets_a_guests_app_reach_only_the_hub_of_their_collaboration(
 @pytest.mark.django_db
 @pytest.mark.parametrize("how", ["expired", "revoked", "mesh_off"])
 def test_a_guest_whose_mesh_grant_lapses_drops_out_at_the_next_reconcile(
-    client, ionscale_repo, how
-):
+    client: Client, ionscale_repo: FakeIonscaleRepository, how: str
+) -> None:
     from ionscale.reconcile import reconcile_sidecars
 
     organization, member, instance, layer = _mesh_org_with_member()
@@ -1113,7 +1188,9 @@ TOKEN_INVITES = """
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_the_creator_sees_their_collaboration_invites_on_the_token_schema():
+async def test_the_creator_sees_their_collaboration_invites_on_the_token_schema() -> (
+    None
+):
     from lok_server.schema import schema as token_schema
 
     (
@@ -1189,7 +1266,9 @@ async def test_the_creator_sees_their_collaboration_invites_on_the_token_schema(
 
 
 @pytest.mark.django_db(transaction=True)
-def test_deleting_a_guests_membership_runs_its_side_effects_once(monkeypatch):
+def test_deleting_a_guests_membership_runs_its_side_effects_once(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     import ionscale.sync
 
     calls = []
@@ -1211,7 +1290,7 @@ def test_deleting_a_guests_membership_runs_its_side_effects_once(monkeypatch):
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.parametrize("what", ["user", "organization"])
-def test_deleting_the_user_or_organization_of_a_guest_works(what):
+def test_deleting_the_user_or_organization_of_a_guest_works(what: str) -> None:
     organization, member, instance = _org_with_member()
     visitor = factories.make_user()
     membership = redeem_invite(
@@ -1228,7 +1307,9 @@ def test_deleting_the_user_or_organization_of_a_guest_works(what):
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.parametrize("what", ["instance", "hub"])
-def test_deleting_the_instance_or_its_hub_removes_a_guest_left_with_nothing(what):
+def test_deleting_the_instance_or_its_hub_removes_a_guest_left_with_nothing(
+    what: str,
+) -> None:
     organization, member, instance = _org_with_member()
     membership = redeem_invite(
         _collaboration_invite(organization, member.user, [_entry(instance)]),
@@ -1247,9 +1328,9 @@ HUBS = "query { hubs { id name organization { id } instances { id } clients { id
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
 async def test_a_guest_sees_the_hubs_their_collaborations_run_on_to_approve_an_app_into(
-    client,
-):
-    def _setup():
+    client: Client,
+) -> None:
+    def _setup() -> tuple[models.Membership, fakts_models.ServiceInstance, HttpContext]:
         organization, member, instance = _org_with_member()
         factories.make_service_instance(
             hub=factories.make_hub(organization=organization)
@@ -1294,8 +1375,15 @@ VALIDATE = """
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_a_guest_dry_runs_an_app_approval_into_their_hub_only(client):
-    def _setup():
+async def test_a_guest_dry_runs_an_app_approval_into_their_hub_only(
+    client: Client,
+) -> None:
+    def _setup() -> tuple[
+        fakts_models.ServiceInstance,
+        fakts_models.ServiceInstance,
+        fakts_models.DeviceCode,
+        HttpContext,
+    ]:
         organization, member, instance = _org_with_member()
         other = factories.make_service_instance(
             hub=factories.make_hub(organization=organization)
@@ -1310,7 +1398,7 @@ async def test_a_guest_dry_runs_an_app_approval_into_their_hub_only(client):
 
     instance, other, device_code, context = await sync_to_async(_setup)()
 
-    def run(hub):
+    def run(hub: int) -> Awaitable[ExecutionResult]:
         return management_schema.execute(
             VALIDATE,
             variable_values={
@@ -1329,11 +1417,13 @@ async def test_a_guest_dry_runs_an_app_approval_into_their_hub_only(client):
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_an_app_names_the_instance_by_its_own_requirement_key():
+async def test_an_app_names_the_instance_by_its_own_requirement_key() -> None:
     """An app knows its services by manifest key (``mikro``); lok resolves it through that app's mappings only."""
     from lok_server.schema import schema as token_schema
 
-    def setup():
+    def setup() -> tuple[
+        models.Organization, fakts_models.ServiceInstance, HttpContext
+    ]:
         organization, member, instance = _org_with_member()
         other = factories.make_service_instance(
             hub=factories.make_hub(organization=organization)

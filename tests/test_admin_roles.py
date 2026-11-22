@@ -10,6 +10,7 @@ from typing import Any, cast
 
 import pytest
 from django.core.management import call_command
+from django.db.models import QuerySet
 from graphql import GraphQLError
 
 from api.management.authz import get_scoped, owner_or_admin_q
@@ -30,7 +31,7 @@ def _flag(membership: models.Membership) -> bool:
 
 
 @pytest.fixture
-def organization():
+def organization() -> models.Organization:
     return factories.make_organization()
 
 
@@ -41,13 +42,17 @@ def _role(organization: models.Organization, identifier: str) -> models.Role:
 
 
 @pytest.mark.django_db
-def test_the_owner_is_an_admin_from_the_start(organization):
+def test_the_owner_is_an_admin_from_the_start(
+    organization: models.Organization,
+) -> None:
     owner = organization.memberships.get(user=organization.owner)
     assert _flag(owner) and _holds(owner)
 
 
 @pytest.mark.django_db
-def test_the_flag_follows_the_membership_side(organization):
+def test_the_flag_follows_the_membership_side(
+    organization: models.Organization,
+) -> None:
     member = factories.make_membership(organization=organization)
     admin, editor = _role(organization, ADMIN), _role(organization, "editor")
     assert not _flag(member)
@@ -65,7 +70,7 @@ def test_the_flag_follows_the_membership_side(organization):
 
 
 @pytest.mark.django_db
-def test_the_flag_follows_the_role_side(organization):
+def test_the_flag_follows_the_role_side(organization: models.Organization) -> None:
     first, second = (
         factories.make_membership(organization=organization),
         factories.make_membership(organization=organization),
@@ -83,7 +88,9 @@ def test_the_flag_follows_the_role_side(organization):
 
 
 @pytest.mark.django_db
-def test_the_flag_follows_a_role_renamed_to_or_from_admin(organization):
+def test_the_flag_follows_a_role_renamed_to_or_from_admin(
+    organization: models.Organization,
+) -> None:
     member = factories.make_membership(organization=organization)
     lead = _role(organization, "lead")
     member.roles.add(lead)
@@ -98,7 +105,9 @@ def test_the_flag_follows_a_role_renamed_to_or_from_admin(organization):
 
 
 @pytest.mark.django_db
-def test_deleting_the_admin_role_takes_the_flag_along(organization):
+def test_deleting_the_admin_role_takes_the_flag_along(
+    organization: models.Organization,
+) -> None:
     member = factories.make_membership(organization=organization)
     member.roles.add(_role(organization, ADMIN))
 
@@ -107,7 +116,9 @@ def test_deleting_the_admin_role_takes_the_flag_along(organization):
 
 
 @pytest.mark.django_db
-def test_after_a_mix_of_changes_the_flag_is_the_join(organization):
+def test_after_a_mix_of_changes_the_flag_is_the_join(
+    organization: models.Organization,
+) -> None:
     members = [factories.make_membership(organization=organization) for _ in range(4)]
     admin, editor = _role(organization, ADMIN), _role(organization, "editor")
     members[0].roles.add(admin, editor)
@@ -119,7 +130,9 @@ def test_after_a_mix_of_changes_the_flag_is_the_join(organization):
 
 
 @pytest.mark.django_db
-def test_owner_or_admin_matches_on_one_membership_row(organization):
+def test_owner_or_admin_matches_on_one_membership_row(
+    organization: models.Organization,
+) -> None:
     admin_user, other = factories.make_user(), factories.make_user()
     factories.make_membership(user=admin_user, organization=organization).roles.add(
         _role(organization, ADMIN)
@@ -131,7 +144,7 @@ def test_owner_or_admin_matches_on_one_membership_row(organization):
         _role(elsewhere, ADMIN)
     )
 
-    def visible(user):
+    def visible(user: models.User) -> set[models.Organization]:
         return set(
             models.Organization.objects.filter(
                 owner_or_admin_q(user, "memberships__organization")
@@ -144,7 +157,9 @@ def test_owner_or_admin_matches_on_one_membership_row(organization):
 
 
 @pytest.mark.django_db
-def test_syncadmins_repairs_a_flag_written_behind_its_back_and_runs_again(organization):
+def test_syncadmins_repairs_a_flag_written_behind_its_back_and_runs_again(
+    organization: models.Organization,
+) -> None:
     member = factories.make_membership(organization=organization)
     member.roles.add(_role(organization, ADMIN))
     models.Membership.objects.filter(pk=member.pk).update(
@@ -162,19 +177,25 @@ class _NoPolicy:
 
 
 @pytest.mark.django_db
-def test_a_scoped_lookup_refuses_a_type_without_a_policy(organization):
+def test_a_scoped_lookup_refuses_a_type_without_a_policy(
+    organization: models.Organization,
+) -> None:
     with pytest.raises(TypeError, match="get_queryset"):
         get_scoped(_NoPolicy, models.Organization.objects.all(), cast(Any, None))  # pyright: ignore[reportArgumentType]  # the point: it has no policy
 
 
 class _NothingVisible:
     @classmethod
-    def get_queryset(cls, queryset, info, /):
+    def get_queryset(
+        cls, queryset: QuerySet[models.Organization], info: object, /
+    ) -> QuerySet[models.Organization]:
         return queryset.none()
 
 
 @pytest.mark.django_db
-def test_a_scoped_lookup_is_held_to_the_types_policy(organization):
+def test_a_scoped_lookup_is_held_to_the_types_policy(
+    organization: models.Organization,
+) -> None:
     with pytest.raises(GraphQLError):
         get_scoped(
             _NothingVisible,

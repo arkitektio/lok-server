@@ -4,21 +4,24 @@ lifetime ran out."""
 
 import pytest
 from asgiref.sync import sync_to_async
+from django.test import Client
+from kante.context import HttpContext
 
 from authapp.models import OAuth2Token
+from karakter.models import User
 from lok_server.schema import schema as main_schema
 from tests import factories
 from tests.conftest import build_auth_context
 from tests.test_oauth_hardening import _granted_session, _refresh
 
 
-def _deactivate(user):
+def _deactivate(user: User) -> None:
     user.is_active = False
     user.save(update_fields=["is_active"])
 
 
 @pytest.mark.django_db
-def test_a_deactivated_account_refreshes_no_more(client):
+def test_a_deactivated_account_refreshes_no_more(client: Client) -> None:
     body, token = _granted_session(client)
     row = OAuth2Token.objects.get(access_token=token["access_token"])
     _deactivate(row.user.user)
@@ -30,14 +33,14 @@ def test_a_deactivated_account_refreshes_no_more(client):
 
 
 @pytest.mark.django_db
-def test_an_active_account_still_refreshes(client):
+def test_an_active_account_still_refreshes(client: Client) -> None:
     body, token = _granted_session(client)
     assert (
         _refresh(client, token["refresh_token"], body["client_id"]).status_code == 200
     )
 
 
-def _context(active: bool):
+def _context(active: bool) -> HttpContext:
     membership = factories.make_membership()
     if not active:
         _deactivate(membership.user)
@@ -51,7 +54,7 @@ def _context(active: bool):
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_a_deactivated_accounts_access_token_is_refused_at_once():
+async def test_a_deactivated_accounts_access_token_is_refused_at_once() -> None:
     context = await sync_to_async(_context)(active=False)
     result = await main_schema.execute("query { me { id } }", context_value=context)
     assert result.errors
@@ -59,7 +62,7 @@ async def test_a_deactivated_accounts_access_token_is_refused_at_once():
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_an_active_accounts_access_token_works():
+async def test_an_active_accounts_access_token_works() -> None:
     context = await sync_to_async(_context)(active=True)
     result = await main_schema.execute("query { me { id } }", context_value=context)
     assert result.errors is None, result.errors

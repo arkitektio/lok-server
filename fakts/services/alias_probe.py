@@ -257,7 +257,7 @@ def probe_aliases(
 
         jobs = [(key, new_nonce()) for key in groups]
 
-        def run(job):
+        def run(job: tuple[tuple[str, str | None], str]) -> Fetched:
             (url, pem), nonce = job
             try:
                 return fetch(url, nonce, bundles.get(pem) if pem else None)
@@ -277,7 +277,7 @@ def probe_aliases(
     now = timezone.now()
     results: list[ProbeResult] = []
     updated: list[models.InstanceAlias] = []
-    for (key, nonce), fetched in zip(jobs, answers):
+    for (key, nonce), fetched in zip(jobs, answers, strict=True):
         for alias in groups[key]:
             status = judge(fetched, nonce, alias.instance.public_key)
             alias.probe_status = status

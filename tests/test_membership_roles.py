@@ -12,12 +12,15 @@ because the ORM is not usable from the event loop the async schema executes on.
 
 import pytest
 from asgiref.sync import sync_to_async
+from kante.context import HttpContext
+from strawberry.types import ExecutionResult
 
 from api.management.schema import schema as management_schema
 from karakter.managers import create_role
+from karakter.models import Membership, Role
 from tests import factories
 from tests.conftest import build_auth_context
-from tests.test_management_tenant_isolation import _org_with_admin_and_member
+from tests.test_management_tenant_isolation import OrgRoles, _org_with_admin_and_member
 
 UPDATE_MEMBERSHIP = """
 mutation ($id: ID!, $roles: [ID!]) {
@@ -29,26 +32,39 @@ mutation ($id: ID!, $roles: [ID!]) {
 """
 
 
-def _setup():
-    s = _org_with_admin_and_member()
-    org = s["org"]
-    s["editor"] = create_role(org, "editor")
-    s["viewer"] = create_role(org, "viewer")
-    s["admin_role"] = create_role(org, "admin")
+class RolesSetup(OrgRoles):
+    """`OrgRoles` plus the organization's editor, viewer and admin roles."""
+
+    editor: Role
+    viewer: Role
+    admin_role: Role
+
+
+def _setup() -> RolesSetup:
+    base = _org_with_admin_and_member()
+    org = base["org"]
+    s: RolesSetup = {
+        **base,
+        "editor": create_role(org, "editor"),
+        "viewer": create_role(org, "viewer"),
+        "admin_role": create_role(org, "admin"),
+    }
     # Start the plain member off holding exactly one role so "replace" is observable.
     s["member_membership"].roles.set([s["viewer"]])
     return s
 
 
-async def _update(context, membership, roles):
+async def _update(
+    context: HttpContext, membership: Membership, roles: list[str]
+) -> ExecutionResult:
     return await management_schema.execute(
         UPDATE_MEMBERSHIP,
         context_value=context,
-        variable_values={"id": str(membership.id), "roles": roles},
+        variable_values={"id": str(membership.pk), "roles": roles},
     )
 
 
-async def _held(membership):
+async def _held(membership: Membership) -> list[str]:
     return await sync_to_async(
         lambda: sorted(membership.roles.values_list("identifier", flat=True))
     )()
@@ -56,11 +72,11 @@ async def _held(membership):
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_plain_member_cannot_grant_themselves_admin():
+async def test_plain_member_cannot_grant_themselves_admin() -> None:
     s = await sync_to_async(_setup)()
 
     result = await _update(
-        s["member"], s["member_membership"], [str(s["admin_role"].id)]
+        s["member"], s["member_membership"], [str(s["admin_role"].pk)]
     )
 
     assert result.errors, f"a plain member escalated to admin: {result.data}"
@@ -70,10 +86,10 @@ async def test_plain_member_cannot_grant_themselves_admin():
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_owner_replaces_roles_rather_than_appending():
+async def test_owner_replaces_roles_rather_than_appending() -> None:
     s = await sync_to_async(_setup)()
 
-    result = await _update(s["owner"], s["member_membership"], [str(s["editor"].id)])
+    result = await _update(s["owner"], s["member_membership"], [str(s["editor"].pk)])
 
     assert not result.errors, result.errors
     assert [r["identifier"] for r in result.data["updateMembership"]["roles"]] == [
@@ -85,10 +101,10 @@ async def test_owner_replaces_roles_rather_than_appending():
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_admin_who_is_not_owner_may_also_set_roles():
+async def test_admin_who_is_not_owner_may_also_set_roles() -> None:
     s = await sync_to_async(_setup)()
 
-    result = await _update(s["admin"], s["member_membership"], [str(s["editor"].id)])
+    result = await _update(s["admin"], s["member_membership"], [str(s["editor"].pk)])
 
     assert not result.errors, result.errors
     assert await _held(s["member_membership"]) == ["editor"]
@@ -96,14 +112,14 @@ async def test_admin_who_is_not_owner_may_also_set_roles():
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_role_from_another_organization_is_dropped():
+async def test_role_from_another_organization_is_dropped() -> None:
     s = await sync_to_async(_setup)()
     foreign_role = await sync_to_async(
         lambda: create_role(factories.make_organization(), "editor")
     )()
 
     result = await _update(
-        s["owner"], s["member_membership"], [str(s["editor"].id), str(foreign_role.id)]
+        s["owner"], s["member_membership"], [str(s["editor"].pk), str(foreign_role.pk)]
     )
 
     assert not result.errors, result.errors
@@ -112,12 +128,12 @@ async def test_role_from_another_organization_is_dropped():
     attached_ids = await sync_to_async(
         lambda: list(s["member_membership"].roles.values_list("id", flat=True))
     )()
-    assert foreign_role.id not in attached_ids
+    assert foreign_role.pk not in attached_ids
 
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_empty_role_list_leaves_roles_untouched():
+async def test_empty_role_list_leaves_roles_untouched() -> None:
     """The resolver guards on ``if input.roles:``, so an empty list is a no-op rather
     than a clear. Pinned so a future "clear all roles" change is deliberate."""
     s = await sync_to_async(_setup)()
@@ -130,7 +146,7 @@ async def test_empty_role_list_leaves_roles_untouched():
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_outsider_gets_the_uniform_denial():
+async def test_outsider_gets_the_uniform_denial() -> None:
     s = await sync_to_async(_setup)()
     outsider = await sync_to_async(factories.make_membership)()
     outsider_context = await sync_to_async(
@@ -142,7 +158,7 @@ async def test_outsider_gets_the_uniform_denial():
     )()
 
     result = await _update(
-        outsider_context, s["member_membership"], [str(s["editor"].id)]
+        outsider_context, s["member_membership"], [str(s["editor"].pk)]
     )
 
     assert result.errors

@@ -11,6 +11,7 @@ Relationships are kept consistent by default (e.g. a ``Client``'s
 
 import itertools
 from datetime import timedelta
+from typing import Any
 from uuid import uuid4
 
 from django.utils import timezone
@@ -27,13 +28,13 @@ def _n() -> int:
     return next(_seq)
 
 
-def make_user(**kw) -> User:
+def make_user(**kw: Any) -> User:
     kw.setdefault("username", f"user{_n()}")
     kw.setdefault("email", f"{kw['username']}@example.com")
     return User.objects.create(**kw)
 
 
-def make_organization(owner: User | None = None, **kw) -> Organization:
+def make_organization(owner: User | None = None, **kw: Any) -> Organization:
     if owner is None:
         owner = make_user()
     kw.setdefault("slug", f"org{_n()}")
@@ -42,7 +43,7 @@ def make_organization(owner: User | None = None, **kw) -> Organization:
 
 
 def make_membership(
-    user: User | None = None, organization: Organization | None = None, **kw
+    user: User | None = None, organization: Organization | None = None, **kw: Any
 ) -> Membership:
     if user is None:
         user = make_user()
@@ -54,7 +55,9 @@ def make_membership(
     return membership
 
 
-def make_oauth2_client(membership: Membership | None = None, **kw) -> fmodels.Client:
+def make_oauth2_client(
+    membership: Membership | None = None, **kw: Any
+) -> fmodels.Client:
     """An identity-only unified Client (what OAuth2Client used to be) — used
     for relying-party-style rows and as the identity half of make_client."""
     if membership is None:
@@ -71,7 +74,7 @@ def make_oauth2_client(membership: Membership | None = None, **kw) -> fmodels.Cl
     return fmodels.Client.objects.create(membership=membership, **kw)
 
 
-def make_app(organization: Organization | None = None, **kw) -> fmodels.App:
+def make_app(organization: Organization | None = None, **kw: Any) -> fmodels.App:
     n = _n()
     kw.setdefault("name", f"App {n}")
     kw.setdefault("identifier", f"com.example.app{n}")
@@ -79,7 +82,7 @@ def make_app(organization: Organization | None = None, **kw) -> fmodels.App:
     return fmodels.App.objects.create(**kw)
 
 
-def make_release(app: fmodels.App | None = None, **kw) -> fmodels.Release:
+def make_release(app: fmodels.App | None = None, **kw: Any) -> fmodels.Release:
     if app is None:
         app = make_app()
     kw.setdefault("version", "1.0.0")
@@ -88,7 +91,9 @@ def make_release(app: fmodels.App | None = None, **kw) -> fmodels.Release:
 
 
 def make_client(
-    membership: Membership | None = None, release: fmodels.Release | None = None, **kw
+    membership: Membership | None = None,
+    release: fmodels.Release | None = None,
+    **kw: Any,
 ) -> fmodels.Client:
     """A bound unified client (identity + app side in one row)."""
     if membership is None:
@@ -121,7 +126,7 @@ def make_client(
     return fmodels.Client.objects.create(release=release, membership=membership, **kw)
 
 
-def make_hub(organization: Organization | None = None, **kw) -> fmodels.Hub:
+def make_hub(organization: Organization | None = None, **kw: Any) -> fmodels.Hub:
     if organization is None:
         organization = make_organization()
     n = _n()
@@ -131,7 +136,9 @@ def make_hub(organization: Organization | None = None, **kw) -> fmodels.Hub:
     return fmodels.Hub.objects.create(organization=organization, **kw)
 
 
-def make_service(organization: Organization | None = None, **kw) -> fmodels.Service:
+def make_service(
+    organization: Organization | None = None, **kw: Any
+) -> fmodels.Service:
     n = _n()
     kw.setdefault("name", f"Service {n}")
     kw.setdefault("identifier", f"com.example.service{n}")
@@ -140,7 +147,7 @@ def make_service(organization: Organization | None = None, **kw) -> fmodels.Serv
 
 
 def make_service_release(
-    service: fmodels.Service | None = None, **kw
+    service: fmodels.Service | None = None, **kw: Any
 ) -> fmodels.ServiceRelease:
     if service is None:
         service = make_service()
@@ -149,7 +156,9 @@ def make_service_release(
 
 
 def make_service_instance(
-    hub: fmodels.Hub | None = None, release: fmodels.ServiceRelease | None = None, **kw
+    hub: fmodels.Hub | None = None,
+    release: fmodels.ServiceRelease | None = None,
+    **kw: Any,
 ) -> fmodels.ServiceInstance:
     if hub is None:
         hub = make_hub()
@@ -163,7 +172,7 @@ def make_service_instance(
     return fmodels.ServiceInstance.objects.create(hub=hub, release=release, **kw)
 
 
-def make_device_code(**kw) -> fmodels.DeviceCode:
+def make_device_code(**kw: Any) -> fmodels.DeviceCode:
     kw.setdefault("code", f"device-code-{_n()}")
     kw.setdefault("secret", f"device-secret-{_n()}-{uuid4().hex}")
     kw.setdefault(
@@ -189,9 +198,9 @@ def make_device_code(**kw) -> fmodels.DeviceCode:
 def make_mandate_key(
     hub: fmodels.Hub | None = None,
     membership: Membership | None = None,
-    pin: dict | None = None,
+    pin: dict[str, object] | None = None,
     key: str | None = None,
-    **kw,
+    **kw: Any,
 ) -> tuple[fmodels.Mandate, str]:
     """A keyed mandate, issued as a member through ``issue_mandate``, and its key.
 

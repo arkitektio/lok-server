@@ -3,6 +3,7 @@ import binascii
 import datetime
 import json
 import logging
+from typing import overload
 
 import strawberry
 from django.utils import timezone
@@ -75,8 +76,8 @@ def _parse_screenshot(data_url: str | None) -> tuple[bytes | None, str | None]:
         raise GraphQLError("The screenshot is larger than 1 MB.")
     try:
         raw = base64.b64decode(payload, validate=True)
-    except (binascii.Error, ValueError):
-        raise GraphQLError("The screenshot is not valid base64.")
+    except (binascii.Error, ValueError) as exc:
+        raise GraphQLError("The screenshot is not valid base64.") from exc
     if len(raw) > SCREENSHOT_MAX_BYTES:
         raise GraphQLError("The screenshot is larger than 1 MB.")
     if not raw.startswith(signatures):
@@ -89,7 +90,11 @@ def _parse_screenshot(data_url: str | None) -> tuple[bytes | None, str | None]:
 NUL_STANDIN = "\ufffd"
 
 
-def _without_nul(value):
+@overload
+def _without_nul(value: str) -> str: ...
+@overload
+def _without_nul(value: object) -> object: ...
+def _without_nul(value: object) -> object:
     """``value`` with every NUL character replaced, in keys and strings at any depth."""
     if isinstance(value, str):
         return value.replace("\x00", NUL_STANDIN)

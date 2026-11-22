@@ -9,7 +9,7 @@ User = get_user_model()
 
 
 class OrganizationClientCleanupTests(TestCase):
-    def test_deleting_organization_deletes_membership_bound_clients(self):
+    def test_deleting_organization_deletes_membership_bound_clients(self) -> None:
         owner = User.objects.create_user(username="owner", password="secret")
         organization = Organization.objects.create(
             owner=owner,
@@ -27,7 +27,7 @@ class OrganizationClientCleanupTests(TestCase):
 
         self.assertFalse(Client.objects.filter(pk=client.pk).exists())
 
-    def test_deleting_organization_deletes_org_bound_clients(self):
+    def test_deleting_organization_deletes_org_bound_clients(self) -> None:
         owner = User.objects.create_user(username="owner2", password="secret")
         organization = Organization.objects.create(
             owner=owner,
@@ -46,7 +46,7 @@ class OrganizationClientCleanupTests(TestCase):
 
 
 class TokenEndpointHardeningTests(TestCase):
-    def test_client_credentials_is_not_a_registered_grant(self):
+    def test_client_credentials_is_not_a_registered_grant(self) -> None:
         client = Client.objects.create(
             client_id="orphan-client-id",
             client_secret="orphan-client-secret",

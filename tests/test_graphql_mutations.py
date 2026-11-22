@@ -2,13 +2,18 @@
 
 import pytest
 from asgiref.sync import sync_to_async
+from kante.context import HttpContext
 
+from fakts import models as fakts_models
+from karakter.models import Organization, User
 from lok_server.schema import schema
 from tests import factories
 from tests.conftest import build_auth_context
 
 
-def _context(user, organization, client):
+def _context(
+    user: User, organization: Organization, client: fakts_models.Client
+) -> HttpContext:
     # ``client`` is a fakts Client; authenticate through its backing OAuth2Client.
     return build_auth_context(user, organization, client)
 
@@ -33,7 +38,7 @@ PINNED_MANIFEST = {
 }
 
 
-def _setup_with_hub():
+def _setup_with_hub() -> tuple[User, Organization, fakts_models.Client]:
     """A calling app that composes against a hub and holds what PINNED_MANIFEST asks for."""
     from karakter.models import Scope
 
@@ -55,7 +60,7 @@ def _setup_with_hub():
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_issue_mandate_key_pins_the_manifest():
+async def test_issue_mandate_key_pins_the_manifest() -> None:
     user, organization, request_client = await sync_to_async(_setup_with_hub)()
 
     result = await schema.execute(
@@ -82,7 +87,7 @@ async def test_issue_mandate_key_pins_the_manifest():
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_issue_mandate_key_requires_an_expiry():
+async def test_issue_mandate_key_requires_an_expiry() -> None:
     user, organization, request_client = await sync_to_async(_setup_with_hub)()
 
     result = await schema.execute(
@@ -96,7 +101,7 @@ async def test_issue_mandate_key_requires_an_expiry():
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_the_deprecated_node_id_input_still_pins_the_device():
+async def test_the_deprecated_node_id_input_still_pins_the_device() -> None:
     """``nodeId`` on ``ManifestInput`` is deprecated but still accepted, and lands as
     ``device_id`` in the pin."""
     user, organization, request_client = await sync_to_async(_setup_with_hub)()
@@ -113,7 +118,7 @@ async def test_the_deprecated_node_id_input_still_pins_the_device():
     assert result.data["issueMandateKey"]["mandate"]["subject"]["deviceId"] == "node-a"
 
 
-def test_the_deprecated_node_id_input_is_marked_deprecated_in_the_schema():
+def test_the_deprecated_node_id_input_is_marked_deprecated_in_the_schema() -> None:
     sdl = schema.as_str()
     start = sdl.index("input ManifestInput ")
     block = sdl[start : sdl.index("\n}", start)]
@@ -124,7 +129,7 @@ def test_the_deprecated_node_id_input_is_marked_deprecated_in_the_schema():
     assert "@deprecated" in node_line
 
 
-def test_the_redeem_token_surface_is_gone():
+def test_the_redeem_token_surface_is_gone() -> None:
     sdl = schema.as_str()
     for name in (
         "createRedeemToken",

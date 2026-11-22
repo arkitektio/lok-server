@@ -7,7 +7,9 @@ counts. Public aliases are https-only.
 """
 
 import base64
+from collections.abc import Iterator
 from datetime import timedelta
+from typing import Any
 
 import pytest
 from asgiref.sync import sync_to_async
@@ -15,7 +17,9 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
 from django.db import IntegrityError
 from django.utils import timezone
+from kante.context import HttpContext
 from pydantic import ValidationError
+from pytest_django.fixtures import SettingsWrapper
 
 from api.management.schema import schema as management_schema
 from fakts import base_models, models
@@ -23,6 +27,7 @@ from fakts.services import alias_probe
 from fakts.services.alias_probe import (
     CHALLENGE_DOMAIN,
     Fetched,
+    Fetcher,
     challenge_url,
     fetch_challenge,
     probe_aliases,
@@ -32,7 +37,7 @@ from tests import factories
 from tests.conftest import build_auth_context
 
 
-def _keypair():
+def _keypair() -> tuple[Ed25519PrivateKey, str]:
     private = Ed25519PrivateKey.generate()
     public = base64.b64encode(
         private.public_key().public_bytes(Encoding.Raw, PublicFormat.Raw)
@@ -40,16 +45,18 @@ def _keypair():
     return private, public
 
 
-def _sign(private, nonce):
+def _sign(private: Ed25519PrivateKey, nonce: str) -> str:
     return base64.b64encode(
         private.sign(f"{CHALLENGE_DOMAIN}:{nonce}".encode())
     ).decode()
 
 
-def _signing(private, calls=None):
+def _signing(
+    private: Ed25519PrivateKey, calls: list[tuple[str, str | None]] | None = None
+) -> Fetcher:
     """A fetcher whose far end signs every nonce with ``private``."""
 
-    def fetch(url, nonce, ca_bundle):
+    def fetch(url: str, nonce: str, ca_bundle: str | None) -> Fetched:
         if calls is not None:
             calls.append((url, ca_bundle))
         return Fetched(http_status=200, signature=_sign(private, nonce), latency_ms=12)
@@ -57,7 +64,13 @@ def _signing(private, calls=None):
     return fetch
 
 
-def _public_alias(hub=None, *, public_key=None, host="lab.example.org", **kw):
+def _public_alias(
+    hub: models.Hub | None = None,
+    *,
+    public_key: str | None = None,
+    host: str = "lab.example.org",
+    **kw: Any,
+) -> models.InstanceAlias:
     instance = factories.make_service_instance(hub=hub, public_key=public_key)
     kw.setdefault("port", None)
     return models.InstanceAlias.objects.create(
@@ -73,7 +86,7 @@ def _public_alias(hub=None, *, public_key=None, host="lab.example.org", **kw):
     )
 
 
-def test_challenge_url_is_the_alias_path_then_its_challenge():
+def test_challenge_url_is_the_alias_path_then_its_challenge() -> None:
     alias = models.InstanceAlias(
         host="lab.example.org", port=8443, path="/mikro/", challenge="ht"
     )
@@ -85,7 +98,7 @@ def test_challenge_url_is_the_alias_path_then_its_challenge():
 
 
 @pytest.mark.django_db
-def test_a_valid_signature_verifies_and_makes_the_hub_reachable():
+def test_a_valid_signature_verifies_and_makes_the_hub_reachable() -> None:
     private, public = _keypair()
     alias = _public_alias(public_key=public)
     hub = alias.instance.hub
@@ -105,7 +118,7 @@ def test_a_valid_signature_verifies_and_makes_the_hub_reachable():
 
 
 @pytest.mark.django_db
-def test_a_signature_of_another_key_is_not_proof():
+def test_a_signature_of_another_key_is_not_proof() -> None:
     _, public = _keypair()
     impostor, _ = _keypair()
     alias = _public_alias(public_key=public)
@@ -119,7 +132,7 @@ def test_a_signature_of_another_key_is_not_proof():
 
 
 @pytest.mark.django_db
-def test_a_plain_200_is_not_proof():
+def test_a_plain_200_is_not_proof() -> None:
     _, public = _keypair()
     alias = _public_alias(public_key=public)
 
@@ -135,7 +148,7 @@ def test_a_plain_200_is_not_proof():
 
 
 @pytest.mark.django_db
-def test_an_instance_without_a_key_cannot_be_proven():
+def test_an_instance_without_a_key_cannot_be_proven() -> None:
     signer, _ = _keypair()
     alias = _public_alias(public_key=None)
 
@@ -147,7 +160,7 @@ def test_an_instance_without_a_key_cannot_be_proven():
 
 
 @pytest.mark.django_db
-def test_a_signature_for_a_different_nonce_is_a_replay():
+def test_a_signature_for_a_different_nonce_is_a_replay() -> None:
     private, public = _keypair()
     alias = _public_alias(public_key=public)
     replayed = _sign(private, "an-old-nonce")
@@ -161,7 +174,7 @@ def test_a_signature_for_a_different_nonce_is_a_replay():
 
 
 @pytest.mark.django_db
-def test_one_url_is_fetched_once_and_judged_against_each_rows_key():
+def test_one_url_is_fetched_once_and_judged_against_each_rows_key() -> None:
     """A partner hub repeats its aliases in every organization: one request, but a stale
     key in one organization does not ride on another's verified answer."""
     private, public = _keypair()
@@ -179,7 +192,7 @@ def test_one_url_is_fetched_once_and_judged_against_each_rows_key():
 
 
 @pytest.mark.django_db
-def test_a_hub_with_its_own_certificate_is_trusted_on_exactly_it():
+def test_a_hub_with_its_own_certificate_is_trusted_on_exactly_it() -> None:
     private, public = _keypair()
     hub = factories.make_hub(
         tls_certificate="-----BEGIN CERTIFICATE-----\nMIIB\n-----END CERTIFICATE-----\n"
@@ -194,7 +207,7 @@ def test_a_hub_with_its_own_certificate_is_trusted_on_exactly_it():
 
 
 @pytest.mark.django_db
-def test_only_public_https_absolute_aliases_are_probed():
+def test_only_public_https_absolute_aliases_are_probed() -> None:
     private, public = _keypair()
     instance = factories.make_service_instance(public_key=public)
     models.InstanceAlias.objects.create(
@@ -215,7 +228,7 @@ def test_only_public_https_absolute_aliases_are_probed():
 
 
 @pytest.mark.django_db
-def test_a_manual_recheck_moments_after_a_probe_does_not_refetch():
+def test_a_manual_recheck_moments_after_a_probe_does_not_refetch() -> None:
     private, public = _keypair()
     alias = _public_alias(public_key=public)
     calls = []
@@ -232,7 +245,9 @@ def test_a_manual_recheck_moments_after_a_probe_does_not_refetch():
 
 
 @pytest.mark.django_db
-def test_reachability_lapses_after_three_probe_intervals(settings):
+def test_reachability_lapses_after_three_probe_intervals(
+    settings: SettingsWrapper,
+) -> None:
     private, public = _keypair()
     alias = _public_alias(public_key=public)
     probe_aliases(fetch=_signing(private))
@@ -247,17 +262,17 @@ def test_reachability_lapses_after_three_probe_intervals(settings):
 
 
 class _FakeResponse:
-    def __init__(self, status_code=200, body=b""):
+    def __init__(self, status_code: int = 200, body: bytes = b"") -> None:
         self.status_code = status_code
         self._body = body
 
-    def __enter__(self):
+    def __enter__(self) -> "_FakeResponse":
         return self
 
-    def __exit__(self, *exc):
+    def __exit__(self, *exc: object) -> bool:
         return False
 
-    def iter_content(self, chunk_size=1024):
+    def iter_content(self, chunk_size: int = 1024) -> Iterator[bytes]:
         for start in range(0, len(self._body), chunk_size):
             yield self._body[start : start + chunk_size]
 
@@ -278,11 +293,11 @@ class _FakeResponse:
     ],
 )
 def test_fetch_reads_a_signed_answer_and_nothing_else(
-    monkeypatch, status, body, expected
-):
+    monkeypatch: pytest.MonkeyPatch, status: int, body: bytes, expected: Fetched
+) -> None:
     seen = {}
 
-    def fake_get(url, **kwargs):
+    def fake_get(url: str, **kwargs: object) -> _FakeResponse:
         seen.update(kwargs)
         return _FakeResponse(status, body)
 
@@ -298,7 +313,9 @@ def test_fetch_reads_a_signed_answer_and_nothing_else(
     assert seen["allow_redirects"] is False and seen["verify"] is True
 
 
-def test_fetch_refuses_hosts_that_are_not_public(monkeypatch):
+def test_fetch_refuses_hosts_that_are_not_public(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     monkeypatch.setattr(
         alias_probe.requests,
         "get",
@@ -316,7 +333,7 @@ def test_fetch_refuses_hosts_that_are_not_public(monkeypatch):
 # --- https only --------------------------------------------------------------------------
 
 
-def test_a_staged_public_alias_must_be_https():
+def test_a_staged_public_alias_must_be_https() -> None:
     with pytest.raises(ValidationError, match="https"):
         base_models.StagingAlias(
             id="a", host="lab.example.org", reach="public", lok_checks=True, ssl=False
@@ -327,7 +344,7 @@ def test_a_staged_public_alias_must_be_https():
 
 
 @pytest.mark.django_db
-def test_the_database_refuses_a_plain_http_public_alias():
+def test_the_database_refuses_a_plain_http_public_alias() -> None:
     instance = factories.make_service_instance()
     with pytest.raises(IntegrityError):
         models.InstanceAlias.objects.create(
@@ -352,7 +369,9 @@ mutation ($id: ID!) {
 """
 
 
-def _setup_hub_with_admin_and_member():
+def _setup_hub_with_admin_and_member() -> tuple[
+    Ed25519PrivateKey, models.Hub, dict[str, HttpContext]
+]:
     private, public = _keypair()
     alias = _public_alias(public_key=public)
     hub = alias.instance.hub
@@ -371,7 +390,7 @@ def _setup_hub_with_admin_and_member():
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_an_admin_probes_a_hub_now(monkeypatch):
+async def test_an_admin_probes_a_hub_now(monkeypatch: pytest.MonkeyPatch) -> None:
     private, hub, contexts = await sync_to_async(_setup_hub_with_admin_and_member)()
     monkeypatch.setattr(alias_probe, "fetch_challenge", _signing(private))
 
@@ -389,7 +408,9 @@ async def test_an_admin_probes_a_hub_now(monkeypatch):
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_a_plain_member_cannot_trigger_a_probe(monkeypatch):
+async def test_a_plain_member_cannot_trigger_a_probe(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     private, hub, contexts = await sync_to_async(_setup_hub_with_admin_and_member)()
     monkeypatch.setattr(
         alias_probe, "fetch_challenge", lambda *a: pytest.fail("must not probe")
@@ -405,7 +426,7 @@ async def test_a_plain_member_cannot_trigger_a_probe(monkeypatch):
 # --- the partner path, end to end --------------------------------------------------------
 
 
-def _partner(public_key, *, lok_checks=True):
+def _partner(public_key: str, *, lok_checks: bool = True) -> models.KommunityPartner:
     return models.KommunityPartner.objects.create(
         name="Demo",
         identifier="demo-probe",
@@ -439,7 +460,7 @@ def _partner(public_key, *, lok_checks=True):
 
 
 @pytest.mark.django_db
-def test_a_partner_hub_in_two_organizations_is_verified_with_one_request():
+def test_a_partner_hub_in_two_organizations_is_verified_with_one_request() -> None:
     """Configured from lok's config, the partner hub never reports itself: lok's probe of
     its `lok_checks` alias, signed with the manifest's `challenge_key`, makes it reachable
     in every organization that connected it."""
@@ -462,7 +483,7 @@ def test_a_partner_hub_in_two_organizations_is_verified_with_one_request():
 
 
 @pytest.mark.django_db
-def test_a_partner_alias_without_lok_checks_is_not_probed():
+def test_a_partner_alias_without_lok_checks_is_not_probed() -> None:
     from fakts.services.hubs import create_hub_from_partner
 
     private, public = _keypair()

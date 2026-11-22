@@ -4,11 +4,13 @@ someone became a member."""
 
 import datetime
 import importlib
+from typing import Any, TypedDict
 
 import pytest
 from asgiref.sync import sync_to_async
 from django.apps import apps as django_apps
 from django.utils import timezone
+from kante.context import HttpContext
 
 from karakter import models
 from karakter.managers import create_role
@@ -17,7 +19,7 @@ from tests import factories
 from tests.conftest import build_auth_context
 
 
-def _context(membership):
+def _context(membership: models.Membership) -> HttpContext:
     return build_auth_context(
         membership.user,
         membership.organization,
@@ -25,15 +27,25 @@ def _context(membership):
     )
 
 
-async def _run(context, query, **variables):
+async def _run(context: HttpContext, query: str, **variables: object) -> dict[str, Any]:
     result = await schema.execute(
         query, context_value=context, variable_values=variables
     )
     assert not result.errors, result.errors
+    assert result.data is not None
     return result.data
 
 
-def _team():
+class Team(TypedDict):
+    owner: models.Membership
+    admin: models.Membership
+    editor_role: models.Role
+    editors: list[models.Membership]
+    plain: list[models.Membership]
+    organization: models.Organization
+
+
+def _team() -> Team:
     """An organization with its owner (an admin), one more admin, three editors and two plain members."""
     owner = factories.make_user()
     organization = factories.make_organization(owner=owner)
@@ -69,7 +81,7 @@ query ($filters: MembershipFilter) { membershipStats(filters: $filters) { count 
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_memberships_filter_by_role_and_admin_and_count_per_role():
+async def test_memberships_filter_by_role_and_admin_and_count_per_role() -> None:
     team = await sync_to_async(_team)()
     context = await sync_to_async(_context)(team["owner"])
     organization = str(team["organization"].pk)
@@ -115,7 +127,7 @@ async def test_memberships_filter_by_role_and_admin_and_count_per_role():
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_membership_stats_count_only_the_active_organization():
+async def test_membership_stats_count_only_the_active_organization() -> None:
     team = await sync_to_async(_team)()
     await sync_to_async(factories.make_membership)()  # another organization's member
     context = await sync_to_async(_context)(team["owner"])
@@ -129,7 +141,9 @@ query ($filters: MembershipRequestFilter, $pagination: OffsetPaginationInput) {
 """
 
 
-def _requests(organization, pending: int, declined: int):
+def _requests(
+    organization: models.Organization, pending: int, declined: int
+) -> list[models.MembershipRequest]:
     rows = []
     for status, count in [
         (models.MembershipRequest.Status.PENDING, pending),
@@ -146,7 +160,7 @@ def _requests(organization, pending: int, declined: int):
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_membership_requests_filter_by_status_and_page_for_admins_only():
+async def test_membership_requests_filter_by_status_and_page_for_admins_only() -> None:
     team = await sync_to_async(_team)()
     await sync_to_async(_requests)(team["organization"], pending=3, declined=5)
     owner = await sync_to_async(_context)(team["owner"])
@@ -173,7 +187,7 @@ CONTEXT = """
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_context_names_the_active_membership_and_the_brand_in_effect():
+async def test_context_names_the_active_membership_and_the_brand_in_effect() -> None:
     team = await sync_to_async(_team)()
     organization = team["organization"]
     organization.brand_hue = 120.0
@@ -199,7 +213,7 @@ query { organization: mycontext { organization { memberships(ordering: [{ create
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_a_new_membership_has_its_creation_time_and_sorts_by_it():
+async def test_a_new_membership_has_its_creation_time_and_sorts_by_it() -> None:
     team = await sync_to_async(_team)()
     before = timezone.now() - datetime.timedelta(seconds=5)
     newest = await sync_to_async(factories.make_membership)(
@@ -219,8 +233,8 @@ query ($filters: MembershipFilter) { mycontext { organization { memberships(filt
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_memberships_sort_by_username_and_filter_by_creation_time():
-    def setup():
+async def test_memberships_sort_by_username_and_filter_by_creation_time() -> None:
+    def setup() -> HttpContext:
         team = _team()
         organization = team["organization"]
         for name in ["zoe", "anna", "mike"]:
@@ -270,7 +284,7 @@ async def test_memberships_sort_by_username_and_filter_by_creation_time():
 
 
 @pytest.mark.django_db
-def test_the_backfill_takes_the_time_an_invite_or_request_was_answered():
+def test_the_backfill_takes_the_time_an_invite_or_request_was_answered() -> None:
     migration = importlib.import_module(
         "karakter.migrations.0004_membership_created_at"
     )

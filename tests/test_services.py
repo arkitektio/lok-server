@@ -7,7 +7,11 @@ from fakts.services import clients, device_codes, rendering
 from tests import factories
 
 
-def _manifest(identifier="com.example.app", version="1.0.0", requirements=None):
+def _manifest(
+    identifier: str = "com.example.app",
+    version: str = "1.0.0",
+    requirements: list[base_models.Requirement] | None = None,
+) -> base_models.Manifest:
     return base_models.Manifest(
         identifier=identifier,
         version=version,
@@ -17,7 +21,7 @@ def _manifest(identifier="com.example.app", version="1.0.0", requirements=None):
 
 
 @pytest.mark.django_db
-def test_bind_client_creates_development_client_with_role():
+def test_bind_client_creates_development_client_with_role() -> None:
     membership = factories.make_membership()
 
     client = clients.create_public_client(role=enums.ClientRoleVanilla.AGENT.value)
@@ -32,9 +36,10 @@ def test_bind_client_creates_development_client_with_role():
 
 
 @pytest.mark.django_db
-def test_create_client_rejects_missing_device_id_when_org_requires_device_auth():
+def test_create_client_rejects_missing_device_id_when_org_requires_device_auth() -> (
+    None
+):
     membership = factories.make_membership()
-    user = membership.user
     organization = membership.organization
     organization.require_device_auth = True
     organization.save()
@@ -44,9 +49,8 @@ def test_create_client_rejects_missing_device_id_when_org_requires_device_auth()
 
 
 @pytest.mark.django_db
-def test_create_client_allows_device_id_when_org_requires_device_auth():
+def test_create_client_allows_device_id_when_org_requires_device_auth() -> None:
     membership = factories.make_membership()
-    user = membership.user
     organization = membership.organization
     organization.require_device_auth = True
     organization.save()
@@ -65,7 +69,7 @@ def test_create_client_allows_device_id_when_org_requires_device_auth():
 
 
 @pytest.mark.django_db
-def test_the_deprecated_node_id_spelling_still_names_the_device():
+def test_the_deprecated_node_id_spelling_still_names_the_device() -> None:
     """``node_id`` is read as ``device_id`` and dumps as ``device_id``: an old client
     and a new one on the same machine share one Device."""
     membership = factories.make_membership()
@@ -94,7 +98,7 @@ def test_the_deprecated_node_id_spelling_still_names_the_device():
     assert a.node is not None and a.node_id == b.node_id
 
 
-def test_a_pin_stored_under_the_old_device_key_still_reads():
+def test_a_pin_stored_under_the_old_device_key_still_reads() -> None:
     """Pins stored before the rename named the device ``node_id``."""
     manifest = base_models.Manifest(
         identifier="com.example.pinned",
@@ -117,7 +121,7 @@ def test_a_pin_stored_under_the_old_device_key_still_reads():
 
 
 @pytest.mark.django_db
-def test_validate_device_code_creates_client():
+def test_validate_device_code_creates_client() -> None:
     hub = factories.make_hub()
     user = hub.creator
     organization = hub.organization
@@ -137,7 +141,7 @@ def test_validate_device_code_creates_client():
 
 
 @pytest.mark.django_db
-def test_validate_device_code_uses_provided_name_for_node_device():
+def test_validate_device_code_uses_provided_name_for_node_device() -> None:
     hub = factories.make_hub()
     user = hub.creator
     organization = hub.organization
@@ -161,14 +165,14 @@ def test_validate_device_code_uses_provided_name_for_node_device():
 
 
 @pytest.mark.django_db
-def test_auto_compose_noop_without_requirements():
+def test_auto_compose_noop_without_requirements() -> None:
     client = factories.make_client()
     out = rendering.auto_compose(client, _manifest(), client.user, client.organization)
     assert out == client
 
 
 @pytest.mark.django_db
-def test_auto_compose_is_atomic_and_rolls_back_on_required_missing():
+def test_auto_compose_is_atomic_and_rolls_back_on_required_missing() -> None:
     """A failing required requirement must not delete the client's existing mappings."""
     client = factories.make_client()
     instance = factories.make_service_instance()
@@ -184,7 +188,8 @@ def test_auto_compose_is_atomic_and_rolls_back_on_required_missing():
         ],
     )
 
-    with pytest.raises(Exception):
+    # auto_compose raises a bare Exception for a missing required instance.
+    with pytest.raises(Exception, match="Unable to find instance for requirement"):
         rendering.auto_compose(client, manifest, client.user, client.organization)
 
     # the @transaction.atomic decorator should have rolled back the mapping deletion

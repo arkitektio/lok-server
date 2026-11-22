@@ -1,3 +1,5 @@
+from typing import Any
+
 from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.core.management.base import BaseCommand
@@ -13,7 +15,7 @@ User = get_user_model()
 class Command(BaseCommand):
     help = "Import kommunity partners from YAML configuration. This command should be run before users and organizations are created."
 
-    def handle(self, *args, **options):
+    def handle(self, *args: Any, **options: Any) -> None:
         partners_config = settings.KOMMUNITY_PARTNERS
 
         # Validate YAML structure

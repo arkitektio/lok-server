@@ -19,7 +19,7 @@ from allauth.headless.constants import Client
 from arkitekt_service.service.views import answers_challenge
 from django.contrib import admin
 from django.contrib.auth.decorators import login_required
-from django.http import HttpResponse
+from django.http import HttpRequest, HttpResponse
 from django.shortcuts import render
 from django.urls import include
 from django.views.decorators.csrf import csrf_exempt
@@ -33,7 +33,7 @@ from fakts.views import WellKnownFakts
 from lok_server.headless_config import PrivacyConfigView
 
 
-def fakts_challenge(request):
+def fakts_challenge(request: HttpRequest) -> HttpResponse:
     """
     Placeholdesr view for the .well-known/fakts-challenge endpoint.
     This should be replaced with the actual logic to handle the challenge.
@@ -42,12 +42,12 @@ def fakts_challenge(request):
 
 
 # Bootstrap Backend
-def index(request):
+def index(request: HttpRequest) -> HttpResponse:
     # Render that in the index template
     return render(request, "index.html")
 
 
-def management_schema(request):
+def management_schema(request: HttpRequest) -> HttpResponse:
     schema_content = schema.as_str().encode("utf-8")
 
     response = HttpResponse(schema_content, content_type="text/plain")

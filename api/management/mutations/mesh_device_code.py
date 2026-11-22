@@ -1,3 +1,5 @@
+from collections.abc import Iterable
+
 import kante
 import strawberry
 from graphql import GraphQLError
@@ -100,7 +102,7 @@ def decline_mesh_device_code(
     return device_code
 
 
-def _reject_reserved_tags(tags) -> None:
+def _reject_reserved_tags(tags: Iterable[str] | None) -> None:
     """`tag:app-*` / `tag:hub-*` mark app and hub sidecars, `tag:relay-*` peer relays; only lok mints them."""
     reserved = reserved_tags(tags)
     if reserved:

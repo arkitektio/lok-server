@@ -6,8 +6,11 @@ management order/filter, the removed wrong-entity `*_instance_alias` mutations,
 and `UsedAlias.used_at` refreshing on re-report.
 """
 
+from typing import Any
+
 import pytest
 from asgiref.sync import sync_to_async
+from kante.context import HttpContext
 
 from api.management.schema import schema as management_schema
 from fakts import base_models, models
@@ -21,14 +24,14 @@ from tests.conftest import build_auth_context
 # --------------------------------------------------------------------------- #
 
 
-def _staging(**kw) -> base_models.StagingAlias:
+def _staging(**kw: Any) -> base_models.StagingAlias:
     kw.setdefault("id", "alias-x")
     kw.setdefault("host", "example.com")
     return base_models.StagingAlias(**kw)
 
 
 @pytest.mark.django_db
-def test_upsert_persists_full_field_set():
+def test_upsert_persists_full_field_set() -> None:
     instance = factories.make_service_instance()
     alias, created = aliases.upsert_instance_alias(
         instance,
@@ -59,7 +62,7 @@ def test_upsert_persists_full_field_set():
 
 
 @pytest.mark.django_db
-def test_upsert_null_challenge_falls_back_to_model_default():
+def test_upsert_null_challenge_falls_back_to_model_default() -> None:
     """A staging alias without a challenge must not violate the NOT NULL column."""
     instance = factories.make_service_instance()
     alias, _ = aliases.upsert_instance_alias(instance, _staging(challenge=None))
@@ -68,14 +71,14 @@ def test_upsert_null_challenge_falls_back_to_model_default():
 
 
 @pytest.mark.django_db
-def test_upsert_null_name_falls_back_to_alias_id():
+def test_upsert_null_name_falls_back_to_alias_id() -> None:
     instance = factories.make_service_instance()
     alias, _ = aliases.upsert_instance_alias(instance, _staging(id="the-id", name=None))
     assert alias.name == "the-id"
 
 
 @pytest.mark.django_db
-def test_upsert_is_idempotent_on_natural_key():
+def test_upsert_is_idempotent_on_natural_key() -> None:
     """Re-upserting the same (host, port, ssl, path, kind) updates rather than duplicates."""
     instance = factories.make_service_instance()
     a1, created1 = aliases.upsert_instance_alias(
@@ -93,7 +96,7 @@ def test_upsert_is_idempotent_on_natural_key():
 
 
 @pytest.mark.django_db
-def test_both_persistence_paths_produce_equivalent_rows():
+def test_both_persistence_paths_produce_equivalent_rows() -> None:
     """hubs path and the helper agree on the stored row for one staging alias."""
     staging = _staging(
         name="n",
@@ -155,10 +158,10 @@ ALIASES_WITH_LAYER = """
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_aliases_layer_resolves_when_null():
+async def test_aliases_layer_resolves_when_null() -> None:
     """`aliases { layer }` must not raise a non-null violation for the (normal) null layer."""
 
-    def setup():
+    def setup() -> HttpContext:
         membership = factories.make_membership()
         request_client = factories.make_client(membership=membership)
         # Service instances are tenant-scoped on this schema, so the instance
@@ -186,7 +189,7 @@ async def test_aliases_layer_resolves_when_null():
         assert alias["layer"] is None
 
 
-def test_management_alias_order_and_filter_have_no_phantom_columns():
+def test_management_alias_order_and_filter_have_no_phantom_columns() -> None:
     sdl = str(management_schema)
     # order type exposes only `name` now (no createdAt/updatedAt)
     assert "ManagementInstanceAliasOrder" in sdl
@@ -196,7 +199,7 @@ def test_management_alias_order_and_filter_have_no_phantom_columns():
     assert "functional" not in _block(sdl, "input ManagementInstanceAliasFilter")
 
 
-def test_wrong_entity_instance_alias_mutations_removed():
+def test_wrong_entity_instance_alias_mutations_removed() -> None:
     sdl = str(lok_schema)
     assert "createInstanceAlias" not in sdl
     assert "updateInstanceAlias" not in sdl
@@ -219,7 +222,7 @@ def _block(sdl: str, header: str) -> str:
 
 
 @pytest.mark.django_db
-def test_report_client_updates_usage_in_place():
+def test_report_client_updates_usage_in_place() -> None:
     from fakts.services import clients
 
     client = factories.make_client()

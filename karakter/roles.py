@@ -24,7 +24,7 @@ from collections.abc import Iterable
 from typing import TYPE_CHECKING, Any
 from weakref import WeakKeyDictionary
 
-from django.db.models import Exists, F, OuterRef, Q
+from django.db.models import Exists, F, Model, OuterRef, Q
 from django.db.models.signals import (
     m2m_changed,
     post_delete,
@@ -112,7 +112,7 @@ def _memberships_of(role: models.Role) -> list[int]:
 
 @receiver(m2m_changed, sender=models.Membership.roles.through)
 def _roles_changed(
-    sender: Any,
+    sender: type[Model],
     instance: models.Membership | models.Role,
     action: str,
     reverse: bool,
@@ -137,7 +137,9 @@ def _roles_changed(
 
 
 @receiver(pre_save, sender=models.Role)
-def _role_renaming(sender: Any, instance: models.Role, **kwargs: Any) -> None:
+def _role_renaming(
+    sender: type[models.Role], instance: models.Role, **kwargs: Any
+) -> None:
     if instance.pk is not None:
         _identifier_before[instance] = (
             models.Role.objects.filter(pk=instance.pk)
@@ -147,7 +149,9 @@ def _role_renaming(sender: Any, instance: models.Role, **kwargs: Any) -> None:
 
 
 @receiver(post_save, sender=models.Role)
-def _role_renamed(sender: Any, instance: models.Role, **kwargs: Any) -> None:
+def _role_renamed(
+    sender: type[models.Role], instance: models.Role, **kwargs: Any
+) -> None:
     if (_identifier_before.pop(instance, None) == ADMIN) != (
         instance.identifier == ADMIN
     ):
@@ -155,13 +159,17 @@ def _role_renamed(sender: Any, instance: models.Role, **kwargs: Any) -> None:
 
 
 @receiver(pre_delete, sender=models.Role)
-def _role_deleting(sender: Any, instance: models.Role, **kwargs: Any) -> None:
+def _role_deleting(
+    sender: type[models.Role], instance: models.Role, **kwargs: Any
+) -> None:
     if instance.identifier == ADMIN:
         _held_before[instance] = _memberships_of(instance)
 
 
 @receiver(post_delete, sender=models.Role)
-def _role_deleted(sender: Any, instance: models.Role, **kwargs: Any) -> None:
+def _role_deleted(
+    sender: type[models.Role], instance: models.Role, **kwargs: Any
+) -> None:
     sync_admin(_held_before.pop(instance, []))
 
 

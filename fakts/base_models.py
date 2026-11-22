@@ -518,7 +518,7 @@ class InstanceRequest(BaseModel):
     aliases: list[StagingAlias] = Field(default_factory=list)
 
     @model_validator(mode="after")
-    def named_in_the_hub(self):
+    def named_in_the_hub(self) -> "InstanceRequest":
         """The name defaults to the service's kind, and is a plain lowercase name either way."""
         if not self.name:
             self.name = self.manifest.identifier.rsplit(".", 1)[-1].lower()
@@ -570,7 +570,7 @@ class HubManifest(BaseModel):
     )
 
     @model_validator(mode="after")
-    def named_by_itself(self):
+    def named_by_itself(self) -> "HubManifest":
         """A hub that names no uid is named by its label, so it is the same hub wherever it is configured."""
         if self.uid is None:
             self.uid = uuid.uuid5(uuid.NAMESPACE_URL, f"arkitekt-hub:{self.identifier}")

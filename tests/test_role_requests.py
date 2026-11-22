@@ -13,6 +13,8 @@ because the ORM is not usable from the event loop the async schema executes on.
 
 import pytest
 from asgiref.sync import sync_to_async
+from kante.context import HttpContext
+from strawberry.types import ExecutionResult
 
 from api.management.schema import schema as management_schema
 from karakter import models
@@ -31,7 +33,13 @@ query ($org: ID!) {
 """
 
 
-def _org_with_request():
+def _org_with_request() -> tuple[
+    models.Organization,
+    models.RoleRequest,
+    models.Membership,
+    models.Membership,
+    models.Membership,
+]:
     """An org whose owner is a *third* party, so "owner" and "admin" stay distinct.
 
     Returns the org, the pending request, the requesting member, an admin who
@@ -54,12 +62,12 @@ def _org_with_request():
     return org, request, requester, admin, bystander
 
 
-def _context_for(membership):
+def _context_for(membership: models.Membership) -> HttpContext:
     client = factories.make_client(membership=membership)
     return build_auth_context(membership.user, membership.organization, client)
 
 
-async def _list(context, org):
+async def _list(context: HttpContext, org: models.Organization) -> ExecutionResult:
     return await management_schema.execute(
         ROLE_REQUESTS, context_value=context, variable_values={"org": str(org.id)}
     )
@@ -67,7 +75,7 @@ async def _list(context, org):
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_admin_can_list_the_orgs_role_requests():
+async def test_admin_can_list_the_orgs_role_requests() -> None:
     org, request, _requester, admin, _bystander = await sync_to_async(
         _org_with_request
     )()
@@ -81,7 +89,7 @@ async def test_admin_can_list_the_orgs_role_requests():
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_owner_can_list_the_orgs_role_requests():
+async def test_owner_can_list_the_orgs_role_requests() -> None:
     org, request, _requester, _admin, _bystander = await sync_to_async(
         _org_with_request
     )()
@@ -98,7 +106,7 @@ async def test_owner_can_list_the_orgs_role_requests():
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_plain_member_sees_no_one_elses_role_requests():
+async def test_plain_member_sees_no_one_elses_role_requests() -> None:
     org, _request, _requester, _admin, bystander = await sync_to_async(
         _org_with_request
     )()
@@ -112,7 +120,7 @@ async def test_plain_member_sees_no_one_elses_role_requests():
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_requester_still_sees_their_own_request():
+async def test_requester_still_sees_their_own_request() -> None:
     org, request, requester, _admin, _bystander = await sync_to_async(
         _org_with_request
     )()
@@ -126,7 +134,7 @@ async def test_requester_still_sees_their_own_request():
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_admin_can_approve_and_the_role_lands_on_the_membership():
+async def test_admin_can_approve_and_the_role_lands_on_the_membership() -> None:
     org, request, requester, admin, _bystander = await sync_to_async(
         _org_with_request
     )()
@@ -152,7 +160,7 @@ async def test_admin_can_approve_and_the_role_lands_on_the_membership():
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_plain_member_cannot_approve():
+async def test_plain_member_cannot_approve() -> None:
     _org, request, _requester, _admin, bystander = await sync_to_async(
         _org_with_request
     )()

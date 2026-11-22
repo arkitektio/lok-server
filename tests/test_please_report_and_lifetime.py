@@ -10,14 +10,17 @@
 """
 
 import json
+from typing import TYPE_CHECKING, Any, Never
 
 import pytest
 from asgiref.sync import sync_to_async
 from django.conf import settings
+from django.test import Client
 from django.urls import reverse
 from django.utils import timezone
 from joserfc import jwt
 from joserfc.jwk import RSAKey
+from kante.context import HttpContext
 
 from api.management.authz import DENIED
 from api.management.schema import schema as management_schema
@@ -29,6 +32,9 @@ from karakter import models as karakter_models
 from tests import factories
 from tests.conftest import build_auth_context
 
+if TYPE_CHECKING:
+    from django.test.client import _MonkeyPatchedWSGIResponse as TestResponse
+
 DEVICE_CODE_GRANT = "urn:ietf:params:oauth:grant-type:device_code"
 
 
@@ -37,7 +43,7 @@ def _decode(access_token: str) -> dict:
     return jwt.decode(access_token, key, algorithms=["RS256"]).claims
 
 
-def _start(client):
+def _start(client: Client) -> dict[str, Any]:
     payload = {
         "manifest": {
             "identifier": "com.example.report",
@@ -55,7 +61,7 @@ def _start(client):
     ).json()
 
 
-def _granted(client):
+def _granted(client: Client) -> tuple[dict[str, Any], dict[str, Any], models.Client]:
     """Run the device-code flow to completion; return (body, token, fakts_client)."""
     body = _start(client)
     device_code = models.DeviceCode.objects.get(secret=body["device_code"])
@@ -78,7 +84,7 @@ def _granted(client):
     return body, token, models.Client.objects.get(client_id=body["client_id"])
 
 
-def _refresh(client, client_id, refresh_token):
+def _refresh(client: Client, client_id: str, refresh_token: str) -> "TestResponse":
     return client.post(
         reverse("token"),
         data={
@@ -96,7 +102,7 @@ def _refresh(client, client_id, refresh_token):
 
 
 @pytest.mark.django_db
-def test_refresh_carries_please_report_only_while_requested(client):
+def test_refresh_carries_please_report_only_while_requested(client: Client) -> None:
     body, token, fakts_client = _granted(client)
 
     # Nothing pending: the key is absent entirely, so unaffected clients see the
@@ -116,7 +122,9 @@ def test_refresh_carries_please_report_only_while_requested(client):
 
 
 @pytest.mark.django_db
-def test_please_report_survives_a_failing_envelope_render(client, monkeypatch):
+def test_please_report_survives_a_failing_envelope_render(
+    client: Client, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """A client whose envelope cannot be rendered is exactly the client an
     operator most wants a report from, so the flag must be set before the
     rendering guard swallows the failure."""
@@ -125,7 +133,7 @@ def test_please_report_survives_a_failing_envelope_render(client, monkeypatch):
         report_requested_at=timezone.now()
     )
 
-    def boom(*args, **kwargs):
+    def boom(*args: Any, **kwargs: Any) -> Never:
         raise RuntimeError("no instances for you")
 
     monkeypatch.setattr("fakts.services.rendering.render_envelope", boom)
@@ -138,7 +146,7 @@ def test_please_report_survives_a_failing_envelope_render(client, monkeypatch):
 
 
 @pytest.mark.django_db
-def test_device_code_grant_carries_please_report(client):
+def test_device_code_grant_carries_please_report(client: Client) -> None:
     """A re-registering client that is already flagged learns about it on its
     very first token, not only on a refresh."""
     body = _start(client)
@@ -164,7 +172,7 @@ def test_device_code_grant_carries_please_report(client):
 
 
 @pytest.mark.django_db
-def test_reporting_clears_the_request(client):
+def test_reporting_clears_the_request(client: Client) -> None:
     body, token, fakts_client = _granted(client)
     models.Client.objects.filter(pk=fakts_client.pk).update(
         report_requested_at=timezone.now()
@@ -191,7 +199,9 @@ def test_reporting_clears_the_request(client):
 
 
 @pytest.mark.django_db
-def test_org_lifetime_applies_to_both_expires_in_and_the_jwt_exp(client):
+def test_org_lifetime_applies_to_both_expires_in_and_the_jwt_exp(
+    client: Client,
+) -> None:
     body, token, fakts_client = _granted(client)
     assert token["expires_in"] == server.ACCESS_TOKEN_EXPIRES_IN
 
@@ -207,7 +217,7 @@ def test_org_lifetime_applies_to_both_expires_in_and_the_jwt_exp(client):
 
 
 @pytest.mark.django_db
-def test_org_lifetime_is_clamped_at_issue_time(client):
+def test_org_lifetime_is_clamped_at_issue_time(client: Client) -> None:
     """A value written straight into the database (or stored before the cap
     existed) must not outlive the cap."""
     body, token, fakts_client = _granted(client)
@@ -231,7 +241,7 @@ class _OrglessClient:
     organization = None
 
 
-def test_orgless_client_falls_back_to_the_default():
+def test_orgless_client_falls_back_to_the_default() -> None:
     assert (
         server.access_token_expires_in(_OrglessClient(), "authorization_code")
         == server.ACCESS_TOKEN_EXPIRES_IN
@@ -259,7 +269,7 @@ UPDATE_ORGANIZATION = """
 """
 
 
-def _flagged_setup():
+def _flagged_setup() -> tuple[karakter_models.Organization, HttpContext, models.Client]:
     """An organization, its owner's context, and a client in it."""
     organization = factories.make_organization()
     owner_membership = factories.make_membership(
@@ -276,7 +286,7 @@ def _flagged_setup():
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_admin_can_request_and_withdraw_a_client_report():
+async def test_admin_can_request_and_withdraw_a_client_report() -> None:
     organization, context, target = await sync_to_async(_flagged_setup)()
 
     result = await management_schema.execute(
@@ -302,11 +312,11 @@ async def test_admin_can_request_and_withdraw_a_client_report():
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_a_plain_member_cannot_request_a_client_report():
+async def test_a_plain_member_cannot_request_a_client_report() -> None:
     """Flagging is an operator action on a running deployment, so it takes the
     owner/admin bar — not the plain-member bar that report triage uses."""
 
-    def setup():
+    def setup() -> tuple[models.Client, HttpContext]:
         organization, _, target = _flagged_setup()
         member = factories.make_membership(organization=organization)
         return target, build_auth_context(
@@ -332,7 +342,9 @@ async def test_a_plain_member_cannot_request_a_client_report():
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_owner_sets_the_org_access_token_lifetime_within_the_allowed_range():
+async def test_owner_sets_the_org_access_token_lifetime_within_the_allowed_range() -> (
+    None
+):
     organization, context, _ = await sync_to_async(_flagged_setup)()
 
     result = await management_schema.execute(

@@ -57,7 +57,7 @@ def _assign_invite_roles(membership: models.Membership, invite: models.Invite) -
 
 
 @transaction.atomic
-def redeem_invite(invite: models.Invite, user) -> models.Membership:
+def redeem_invite(invite: models.Invite, user: models.User) -> models.Membership:
     """Accept ``invite`` for ``user`` and return their membership. Raises ``InviteError``."""
     invite = models.Invite.objects.select_for_update().get(pk=invite.pk)
     check_acceptable(invite)

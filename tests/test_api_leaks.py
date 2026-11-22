@@ -13,6 +13,7 @@ because the ORM is not usable from the event loop the async schema executes on.
 import pytest
 from asgiref.sync import sync_to_async
 from kante.context import HttpContext, TemporalResponse, UniversalRequest
+from strawberry.types import ExecutionResult
 
 from api.management.authz import DENIED
 from api.management.schema import schema as management_schema
@@ -26,7 +27,7 @@ from tests.conftest import build_auth_context
 # --------------------------------------------------------------------------- #
 
 
-def _owner_context(organization):
+def _owner_context(organization: karakter_models.Organization) -> HttpContext:
     """An authenticated context for the organization's owner (who is also admin)."""
     membership = factories.make_membership(
         user=organization.owner, organization=organization
@@ -35,21 +36,29 @@ def _owner_context(organization):
     return build_auth_context(organization.owner, organization, request_client)
 
 
-def _member_context(organization, user=None):
+def _member_context(
+    organization: karakter_models.Organization, user: karakter_models.User | None = None
+) -> HttpContext:
     """An authenticated context for a plain (role-less) member of ``organization``."""
     membership = factories.make_membership(user=user, organization=organization)
     request_client = factories.make_client(membership=membership)
     return build_auth_context(membership.user, organization, request_client)
 
 
-def _anonymous_context():
+def _anonymous_context() -> HttpContext:
     request = UniversalRequest(_extensions={})
     return HttpContext(
         request=request, response=TemporalResponse(), headers={}, type="http"
     )
 
 
-def _two_org_setup():
+def _two_org_setup() -> tuple[
+    HttpContext,
+    karakter_models.Organization,
+    karakter_models.Organization,
+    karakter_models.User,
+    karakter_models.User,
+]:
     """Two unrelated tenants plus an authenticated context for the attacker's org."""
     attacker_membership = factories.make_membership()
     request_client = factories.make_client(membership=attacker_membership)
@@ -63,7 +72,7 @@ def _two_org_setup():
     return context, org_a, org_b, attacker, victim
 
 
-def _assert_denied(result):
+def _assert_denied(result: ExecutionResult) -> None:
     assert result.errors, f"expected a denial, got data: {result.data}"
     message = result.errors[0].message
     assert message == DENIED or "not authorized" in message, message
@@ -82,13 +91,15 @@ def _sdl_block(type_name: str) -> str:
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_device_code_by_id_is_tenant_scoped():
+async def test_device_code_by_id_is_tenant_scoped() -> None:
     """``deviceCode(id)`` used to be a bare ``objects.get`` — any authenticated user
     could read any tenant's (pending or accepted) device code, including its user
     code, by walking sequential ids."""
     context, org_a, org_b, _attacker, _victim = await sync_to_async(_two_org_setup)()
 
-    def _codes():
+    def _codes() -> tuple[
+        fakts_models.DeviceCode, fakts_models.DeviceCode, fakts_models.DeviceCode
+    ]:
         theirs = factories.make_device_code(organization=org_b)
         mine = factories.make_device_code(organization=org_a)
         pending = factories.make_device_code()  # organization is NULL while pending
@@ -119,7 +130,7 @@ async def test_device_code_by_id_is_tenant_scoped():
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_hub_device_code_by_id_is_tenant_scoped():
+async def test_hub_device_code_by_id_is_tenant_scoped() -> None:
     context, _org_a, org_b, _attacker, _victim = await sync_to_async(_two_org_setup)()
     theirs = await sync_to_async(factories.make_device_code)(
         organization=org_b,
@@ -137,7 +148,7 @@ async def test_hub_device_code_by_id_is_tenant_scoped():
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_mesh_device_code_by_id_is_tenant_scoped():
+async def test_mesh_device_code_by_id_is_tenant_scoped() -> None:
     """A mesh device code is tied to a tenant through the key minted on accept
     (``auth_key -> layer -> organization``). Another tenant must not see it by id;
     a pending one (no key, no user) is invisible by id to everyone."""
@@ -145,7 +156,9 @@ async def test_mesh_device_code_by_id_is_tenant_scoped():
 
     context, _org_a, org_b, _attacker, victim = await sync_to_async(_two_org_setup)()
 
-    def _setup():
+    def _setup() -> tuple[
+        fakts_models.MeshDeviceCode, fakts_models.MeshDeviceCode, HttpContext
+    ]:
         layer = ensure_org_mesh(org_b)
         key = fakts_models.IonscaleAuthKey.objects.create(
             layer=layer, key="tskey-secret", creator=victim
@@ -199,11 +212,11 @@ ACCEPT_DEVICE_CODE = """
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_accept_device_code_requires_proof_of_possession():
+async def test_accept_device_code_requires_proof_of_possession() -> None:
     """Accepting without the user code is a schema error, with a wrong code is a
     denial, with the right code succeeds (for a member of the hub's organization)."""
 
-    def _setup():
+    def _setup() -> tuple[HttpContext, fakts_models.Hub, fakts_models.DeviceCode]:
         org = factories.make_organization()
         context = _member_context(org)
         hub = factories.make_hub(organization=org)
@@ -259,10 +272,10 @@ async def test_accept_device_code_requires_proof_of_possession():
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_accept_device_code_into_another_tenants_hub_is_denied():
+async def test_accept_device_code_into_another_tenants_hub_is_denied() -> None:
     context, _org_a, org_b, _attacker, _victim = await sync_to_async(_two_org_setup)()
 
-    def _setup():
+    def _setup() -> tuple[fakts_models.Hub, fakts_models.DeviceCode]:
         hub = factories.make_hub(organization=org_b)
         device_code = factories.make_device_code()
         return hub, device_code
@@ -291,12 +304,12 @@ VALIDATE_DEVICE_CODE = """
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_validate_device_code_cross_tenant_is_denied():
+async def test_validate_device_code_cross_tenant_is_denied() -> None:
     """``validateDeviceCode`` took any hub id and any device code id and ran the
     requirement matching for them — reading another tenant's pending manifest."""
     context, org_a, org_b, _attacker, _victim = await sync_to_async(_two_org_setup)()
 
-    def _setup():
+    def _setup() -> tuple[fakts_models.Hub, fakts_models.Hub, fakts_models.DeviceCode]:
         their_hub = factories.make_hub(organization=org_b)
         my_hub = factories.make_hub(organization=org_a)
         device_code = factories.make_device_code()
@@ -343,12 +356,12 @@ async def test_validate_device_code_cross_tenant_is_denied():
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_hub_device_code_hub_is_null_for_non_members():
+async def test_hub_device_code_hub_is_null_for_non_members() -> None:
     """The by-code lookup is the capability path, but the hub it was accepted into
     belongs to a tenant: only that tenant's members get to see it."""
     context, _org_a, org_b, _attacker, _victim = await sync_to_async(_two_org_setup)()
 
-    def _setup():
+    def _setup() -> tuple[fakts_models.DeviceCode, fakts_models.Hub, HttpContext]:
         dc = factories.make_device_code(
             organization=org_b,
             kind="hub",
@@ -380,7 +393,7 @@ async def test_hub_device_code_hub_is_null_for_non_members():
 # --------------------------------------------------------------------------- #
 
 
-def test_secret_and_raw_fields_are_gone_from_the_schema():
+def test_secret_and_raw_fields_are_gone_from_the_schema() -> None:
     """Fields that carried credentials or raw identifiers are removed outright."""
     assert "token" not in _sdl_block("ManagementHub")
     assert "deviceId" not in _sdl_block("ManagementStagingManifest")
@@ -394,8 +407,10 @@ def test_secret_and_raw_fields_are_gone_from_the_schema():
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_invite_email_is_hidden_from_anonymous_preview_but_visible_to_owner():
-    def _setup():
+async def test_invite_email_is_hidden_from_anonymous_preview_but_visible_to_owner() -> (
+    None
+):
+    def _setup() -> tuple[karakter_models.Invite, HttpContext]:
         org = factories.make_organization()
         invite = karakter_models.Invite.objects.create(
             created_by=org.owner,
@@ -426,7 +441,7 @@ async def test_invite_email_is_hidden_from_anonymous_preview_but_visible_to_owne
     assert result.data["invite"]["email"] == "invitee@example.com"
 
 
-def test_a_mandate_never_exposes_its_key():
+def test_a_mandate_never_exposes_its_key() -> None:
     block = _sdl_block("ManagementMandate")
     assert "keyHash" not in block
     assert "\n  key:" not in block
@@ -434,8 +449,8 @@ def test_a_mandate_never_exposes_its_key():
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_members_see_their_own_mandates_and_admins_see_all():
-    def _setup():
+async def test_members_see_their_own_mandates_and_admins_see_all() -> None:
+    def _setup() -> tuple[fakts_models.Mandate, HttpContext, HttpContext]:
         org = factories.make_organization()
         hub = factories.make_hub(organization=org)
         owner_context = _owner_context(org)
@@ -456,8 +471,8 @@ async def test_members_see_their_own_mandates_and_admins_see_all():
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_issuing_a_key_for_any_app_is_owner_admin_only():
-    def _setup():
+async def test_issuing_a_key_for_any_app_is_owner_admin_only() -> None:
+    def _setup() -> tuple[fakts_models.Hub, HttpContext, HttpContext, HttpContext]:
         org = factories.make_organization()
         hub = factories.make_hub(organization=org)
         outsider = _member_context(factories.make_organization())
@@ -496,10 +511,10 @@ async def test_issuing_a_key_for_any_app_is_owner_admin_only():
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_ionscale_auth_key_secret_only_for_creator_or_owner_admin():
+async def test_ionscale_auth_key_secret_only_for_creator_or_owner_admin() -> None:
     from ionscale.manager import ensure_org_mesh
 
-    def _setup():
+    def _setup() -> tuple[fakts_models.IonscaleAuthKey, HttpContext, HttpContext]:
         org = factories.make_organization()
         layer = ensure_org_mesh(org)
         key = fakts_models.IonscaleAuthKey.objects.create(
@@ -521,11 +536,11 @@ async def test_ionscale_auth_key_secret_only_for_creator_or_owner_admin():
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_user_personal_details_only_for_self_and_colleagues():
+async def test_user_personal_details_only_for_self_and_colleagues() -> None:
     """`email`/`firstName`/`lastName` follow the `friends` scoping; `socialAccounts`
     is self-only."""
 
-    def _setup():
+    def _setup() -> tuple[HttpContext, karakter_models.User, karakter_models.User]:
         org = factories.make_organization()
         me = factories.make_user(first_name="Me", last_name="Myself")
         colleague = factories.make_user(first_name="Col", last_name="League")
@@ -556,11 +571,18 @@ async def test_user_personal_details_only_for_self_and_colleagues():
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_catalog_lists_exclude_other_tenants():
+async def test_catalog_lists_exclude_other_tenants() -> None:
     """``services``/``serviceInstances``/``apps`` (and friends) were global lists."""
     context, org_a, org_b, _attacker, _victim = await sync_to_async(_two_org_setup)()
 
-    def _setup():
+    def _setup() -> tuple[
+        fakts_models.Service,
+        fakts_models.Service,
+        fakts_models.ServiceInstance,
+        fakts_models.ServiceInstance,
+        fakts_models.App,
+        fakts_models.App,
+    ]:
         mine_service = factories.make_service(organization=org_a)
         theirs_service = factories.make_service(organization=org_b)
         my_hub = factories.make_hub(organization=org_a)
@@ -627,7 +649,7 @@ async def test_catalog_lists_exclude_other_tenants():
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_oauth2_client_by_client_id_is_not_an_existence_oracle():
+async def test_oauth2_client_by_client_id_is_not_an_existence_oracle() -> None:
     context, *_ = await sync_to_async(_two_org_setup)()
     result = await management_schema.execute(
         'query { oauth2ClientByClientId(clientId: "does-not-exist") { id } }',

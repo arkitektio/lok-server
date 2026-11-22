@@ -9,15 +9,23 @@ approving that app a second time.
 
 import hashlib
 import json
+from collections.abc import Mapping
 from types import SimpleNamespace
+from typing import TYPE_CHECKING, Any, cast
 
 import pytest
+from django.test import Client
 from django.urls import reverse
 from pydantic import ValidationError
 
 from fakts import base_models, models
 from fakts.services.hubs import create_hub_from_manifest
+from karakter.models import Membership
 from tests import factories
+
+if TYPE_CHECKING:
+    from django.test.client import _MonkeyPatchedWSGIResponse as TestResponse
+
 
 DEVICE_CODE_GRANT = "urn:ietf:params:oauth:grant-type:device_code"
 GRANT = "urn:fakts:grant-type:mandate-key"
@@ -32,11 +40,13 @@ ENGINE = {
 PROPOSED = "p" * 43
 
 
-def _hub_manifest(*clients, identifier="enginehub"):
+def _hub_manifest(
+    *clients: dict[str, object], identifier: str = "enginehub"
+) -> dict[str, object]:
     return {"identifier": identifier, "instances": [], "clients": list(clients)}
 
 
-def _engine_request(**overrides):
+def _engine_request(**overrides: object) -> dict[str, object]:
     return {
         "identifier": "engine",
         "manifest": ENGINE,
@@ -45,7 +55,11 @@ def _engine_request(**overrides):
     }
 
 
-def _approve(client, hub_manifest, membership=None):
+def _approve(
+    client: Client,
+    hub_manifest: dict[str, object],
+    membership: Membership | None = None,
+) -> tuple[dict[str, Any], Membership, models.Hub]:
     """Run the whole hub grant: start, accept as an org admin, poll the tokens."""
     from api.management.mutations.hub_device_code import (
         AcceptHubDeviceCodeInput,
@@ -64,13 +78,17 @@ def _approve(client, hub_manifest, membership=None):
     info = SimpleNamespace(
         context=SimpleNamespace(request=SimpleNamespace(user=membership.user))
     )
-    hub = accept_hub_device_code(
-        info,
-        AcceptHubDeviceCodeInput(
-            device_code=str(code.id),
-            code=code.code,
-            organization=str(membership.organization.id),
-            allow_ionscale=False,
+    # The resolver returns the Hub row; strawberry types it as its GraphQL type.
+    hub = cast(
+        models.Hub,
+        accept_hub_device_code(
+            info,
+            AcceptHubDeviceCodeInput(
+                device_code=str(code.id),
+                code=code.code,
+                organization=str(membership.organization.id),
+                allow_ionscale=False,
+            ),
         ),
     )
     response = client.post(
@@ -86,7 +104,7 @@ def _approve(client, hub_manifest, membership=None):
     return response.json(), membership, hub
 
 
-def _login(client, key, manifest):
+def _login(client: Client, key: str, manifest: Mapping[str, object]) -> "TestResponse":
     return client.post(
         reverse("token"),
         data={"grant_type": GRANT, "key": key, "manifest": json.dumps(manifest)},
@@ -98,7 +116,7 @@ def _sha256(key: str) -> str:
     return hashlib.sha256(key.encode()).hexdigest()
 
 
-def _refresh(client, hub_token):
+def _refresh(client: Client, hub_token: dict[str, Any]) -> dict[str, Any]:
     return client.post(
         reverse("token"),
         data={
@@ -111,7 +129,7 @@ def _refresh(client, hub_token):
 
 
 @pytest.mark.django_db
-def test_approving_a_hub_approves_the_clients_it_asked_for(client):
+def test_approving_a_hub_approves_the_clients_it_asked_for(client: Client) -> None:
     hub_token, membership, hub = _approve(client, _hub_manifest(_engine_request()))
 
     request = hub_token["client_requests"]["engine"]
@@ -132,7 +150,7 @@ def test_approving_a_hub_approves_the_clients_it_asked_for(client):
     ]
 
 
-def test_a_hub_must_propose_a_real_secret():
+def test_a_hub_must_propose_a_real_secret() -> None:
     with pytest.raises(ValidationError):
         base_models.ClientRequest(
             identifier="engine", manifest=ENGINE, mandate_key="short"
@@ -142,7 +160,9 @@ def test_a_hub_must_propose_a_real_secret():
 
 
 @pytest.mark.django_db
-def test_the_next_release_of_the_app_logs_in_on_the_same_key_as_the_same_client(client):
+def test_the_next_release_of_the_app_logs_in_on_the_same_key_as_the_same_client(
+    client: Client,
+) -> None:
     _approve(client, _hub_manifest(_engine_request()))
 
     first = _login(client, PROPOSED, ENGINE)
@@ -165,7 +185,9 @@ def test_the_next_release_of_the_app_logs_in_on_the_same_key_as_the_same_client(
         ),
     ],
 )
-def test_the_key_is_only_good_for_the_app_the_hub_asked_for(client, change, fragment):
+def test_the_key_is_only_good_for_the_app_the_hub_asked_for(
+    client: Client, change: dict[str, object], fragment: str
+) -> None:
     _approve(client, _hub_manifest(_engine_request()))
 
     response = _login(client, PROPOSED, {**ENGINE, **change})
@@ -175,7 +197,7 @@ def test_the_key_is_only_good_for_the_app_the_hub_asked_for(client, change, frag
 
 
 @pytest.mark.django_db
-def test_a_pinned_device_must_be_the_one_that_logs_in(client):
+def test_a_pinned_device_must_be_the_one_that_logs_in(client: Client) -> None:
     _approve(
         client,
         _hub_manifest(_engine_request(manifest={**ENGINE, "device_id": "hub-a"})),
@@ -186,7 +208,7 @@ def test_a_pinned_device_must_be_the_one_that_logs_in(client):
 
 
 @pytest.mark.django_db
-def test_approving_again_with_the_same_key_keeps_the_client(client):
+def test_approving_again_with_the_same_key_keeps_the_client(client: Client) -> None:
     _, membership, hub = _approve(client, _hub_manifest(_engine_request()))
     first = _login(client, PROPOSED, ENGINE).json()
 
@@ -197,7 +219,7 @@ def test_approving_again_with_the_same_key_keeps_the_client(client):
 
 
 @pytest.mark.django_db
-def test_approving_again_with_a_new_key_supersedes_the_old_one(client):
+def test_approving_again_with_a_new_key_supersedes_the_old_one(client: Client) -> None:
     _, membership, hub = _approve(client, _hub_manifest(_engine_request()))
     first = _login(client, PROPOSED, ENGINE).json()
     renewed = "r" * 43
@@ -221,7 +243,7 @@ def test_approving_again_with_a_new_key_supersedes_the_old_one(client):
 
 
 @pytest.mark.django_db
-def test_a_client_the_hub_no_longer_asks_for_stops_working(client):
+def test_a_client_the_hub_no_longer_asks_for_stops_working(client: Client) -> None:
     _, membership, hub = _approve(client, _hub_manifest(_engine_request()))
     logged_in = _login(client, PROPOSED, ENGINE).json()
 
@@ -233,7 +255,7 @@ def test_a_client_the_hub_no_longer_asks_for_stops_working(client):
 
 
 @pytest.mark.django_db
-def test_deleting_the_hub_kills_its_clients_keys(client):
+def test_deleting_the_hub_kills_its_clients_keys(client: Client) -> None:
     _, _, hub = _approve(client, _hub_manifest(_engine_request()))
     assert _login(client, PROPOSED, ENGINE).status_code == 200
 
@@ -243,11 +265,13 @@ def test_deleting_the_hub_kills_its_clients_keys(client):
 
 
 @pytest.mark.django_db
-def test_a_preconfigured_hub_grants_its_clients_as_the_organizations_owner(client):
+def test_a_preconfigured_hub_grants_its_clients_as_the_organizations_owner(
+    client: Client,
+) -> None:
     org = factories.make_organization()
     factories.make_membership(user=org.owner, organization=org)
-    manifest = base_models.HubManifest(
-        **_hub_manifest(_engine_request(), identifier="local")
+    manifest = base_models.HubManifest.model_validate(
+        _hub_manifest(_engine_request(), identifier="local")
     )
 
     hub = create_hub_from_manifest(manifest=manifest, organization=org)
@@ -261,7 +285,7 @@ def test_a_preconfigured_hub_grants_its_clients_as_the_organizations_owner(clien
 
 
 @pytest.mark.django_db
-def test_a_revoked_key_is_skipped_but_the_hub_is_still_approved(client):
+def test_a_revoked_key_is_skipped_but_the_hub_is_still_approved(client: Client) -> None:
     from fakts.services.mandates import revoke_mandate
 
     _, membership, hub = _approve(client, _hub_manifest(_engine_request()))
@@ -284,13 +308,15 @@ def test_a_revoked_key_is_skipped_but_the_hub_is_still_approved(client):
 
 
 @pytest.mark.django_db
-def test_setup_gives_an_upgraded_preconfigured_hub_its_mandates_back(client):
+def test_setup_gives_an_upgraded_preconfigured_hub_its_mandates_back(
+    client: Client,
+) -> None:
     """Migrating drops the redeem tokens; the next setup re-applies the preconfigured hub
     (ensureorganizations does on every run) and the engine logs in with the key it has."""
     org = factories.make_organization()
     factories.make_membership(user=org.owner, organization=org)
-    manifest = base_models.HubManifest(
-        **_hub_manifest(_engine_request(), identifier="local")
+    manifest = base_models.HubManifest.model_validate(
+        _hub_manifest(_engine_request(), identifier="local")
     )
     hub = create_hub_from_manifest(manifest=manifest, organization=org)
     models.Mandate.objects.filter(

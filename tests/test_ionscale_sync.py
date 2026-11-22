@@ -13,10 +13,12 @@ from fakts import models as fakts_models
 from ionscale.base_models import DNSConfig, Tailnet
 from ionscale.errors import IonscaleError
 from ionscale.repo import IonscaleRepository
+from ionscale.testing import FakeIonscaleRepository
 from karakter.models import Membership, Organization, User
+from tests.conftest import CommitCallbacks
 
 
-def _info_for(user):
+def _info_for(user: object) -> SimpleNamespace:
     """Minimal Info stand-in carrying a principal, matching ``tests/test_mesh``."""
     return SimpleNamespace(context=SimpleNamespace(request=SimpleNamespace(user=user)))
 
@@ -28,7 +30,7 @@ def _repo() -> IonscaleRepository:
         return IonscaleRepository(server_url="http://ionscale", admin_key="k")
 
 
-def test_set_dns_config_enable_both():
+def test_set_dns_config_enable_both() -> None:
     """MagicDNS + HTTPS on → both flags present."""
     repo = _repo()
     with mock.patch.object(repo, "_run_command", return_value="ok") as run:
@@ -43,7 +45,7 @@ def test_set_dns_config_enable_both():
     ]
 
 
-def test_set_dns_config_disable_by_omission():
+def test_set_dns_config_disable_by_omission() -> None:
     """Disabling = omitting the flag. Relies on set-dns replacing the whole config."""
     repo = _repo()
     with mock.patch.object(repo, "_run_command", return_value="ok") as run:
@@ -51,7 +53,7 @@ def test_set_dns_config_disable_by_omission():
     assert run.call_args.args[0] == ["tailnets", "set-dns", "--tailnet", "tn"]
 
 
-def test_set_dns_config_magic_on_https_off():
+def test_set_dns_config_magic_on_https_off() -> None:
     """MagicDNS on, HTTPS off → only --magic-dns."""
     repo = _repo()
     with mock.patch.object(repo, "_run_command", return_value="ok") as run:
@@ -65,7 +67,7 @@ def test_set_dns_config_magic_on_https_off():
     ]
 
 
-def test_cli_repo_reports_missing_service_token_for_http_only_calls():
+def test_cli_repo_reports_missing_service_token_for_http_only_calls() -> None:
     """The CLI has no equivalent for the org lookup; the error says what to configure."""
     repo = _repo()
     with pytest.raises(IonscaleError) as excinfo:
@@ -74,7 +76,7 @@ def test_cli_repo_reports_missing_service_token_for_http_only_calls():
     assert "service_token" in excinfo.value.message
 
 
-def test_cli_repo_revoke_account_builds_command():
+def test_cli_repo_revoke_account_builds_command() -> None:
     repo = _repo()
     with mock.patch.object(repo, "_run_command", return_value="") as run:
         repo.revoke_account("42", "7")
@@ -92,7 +94,10 @@ def test_cli_repo_revoke_account_builds_command():
 
 
 def _org_with_mesh(
-    slug: str, owner: User, ionscale_repo, commit_callbacks
+    slug: str,
+    owner: User,
+    ionscale_repo: FakeIonscaleRepository,
+    commit_callbacks: CommitCallbacks,
 ) -> tuple[Organization, fakts_models.IonscaleLayer]:
     """An organization whose owner is already a member, with one mesh layer whose
     tailnet exists on the (fake) control plane. Recorded calls are cleared so the
@@ -115,7 +120,9 @@ def _org_with_mesh(
 
 
 @pytest.mark.django_db
-def test_membership_changes_resync_ionscale_layers(ionscale_repo, commit_callbacks):
+def test_membership_changes_resync_ionscale_layers(
+    ionscale_repo: FakeIonscaleRepository, commit_callbacks: CommitCallbacks
+) -> None:
     existing_user = User.objects.create(username="existing-user")
     organization, _ = _org_with_mesh(
         "ionscale-sync-org", existing_user, ionscale_repo, commit_callbacks
@@ -127,6 +134,7 @@ def test_membership_changes_resync_ionscale_layers(ionscale_repo, commit_callbac
 
     assert len(ionscale_repo.updated_policies) == 1
     tailnet, policy = ionscale_repo.updated_policies[-1]
+    assert isinstance(policy, dict)
     assert tailnet == "ionscale-sync-org"
     assert set(policy["subs"]) == {str(existing_user.pk), str(new_user.pk)}
 
@@ -137,12 +145,15 @@ def test_membership_changes_resync_ionscale_layers(ionscale_repo, commit_callbac
 
     assert len(ionscale_repo.updated_policies) == 1
     tailnet, policy = ionscale_repo.updated_policies[-1]
+    assert isinstance(policy, dict)
     assert tailnet == "ionscale-sync-org"
     assert set(policy["subs"]) == {str(existing_user.pk)}
 
 
 @pytest.mark.django_db
-def test_membership_sync_waits_for_commit(ionscale_repo, commit_callbacks):
+def test_membership_sync_waits_for_commit(
+    ionscale_repo: FakeIonscaleRepository, commit_callbacks: CommitCallbacks
+) -> None:
     """Nothing reaches ionscale from inside the transaction."""
     existing_user = User.objects.create(username="existing-user")
     organization, _ = _org_with_mesh(
@@ -158,7 +169,9 @@ def test_membership_sync_waits_for_commit(ionscale_repo, commit_callbacks):
 
 
 @pytest.mark.django_db
-def test_membership_delete_revokes_access(ionscale_repo, commit_callbacks):
+def test_membership_delete_revokes_access(
+    ionscale_repo: FakeIonscaleRepository, commit_callbacks: CommitCallbacks
+) -> None:
     owner = User.objects.create(username="owner")
     organization, _ = _org_with_mesh(
         "ionscale-revoke-org", owner, ionscale_repo, commit_callbacks
@@ -175,13 +188,16 @@ def test_membership_delete_revokes_access(ionscale_repo, commit_callbacks):
     assert ionscale_repo.revoked_accounts == [(str(member.pk), str(organization.pk))]
     assert len(ionscale_repo.updated_policies) == 1
     _, policy = ionscale_repo.updated_policies[0]
+    assert isinstance(policy, dict)
     assert set(policy["subs"]) == {str(owner.pk)}
 
 
 @pytest.mark.django_db
 def test_membership_delete_survives_control_plane_outage(
-    ionscale_repo, commit_callbacks, caplog
-):
+    ionscale_repo: FakeIonscaleRepository,
+    commit_callbacks: CommitCallbacks,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
     owner = User.objects.create(username="owner")
     organization, _ = _org_with_mesh(
         "ionscale-outage-org", owner, ionscale_repo, commit_callbacks
@@ -207,8 +223,8 @@ def test_membership_delete_survives_control_plane_outage(
 
 @pytest.mark.django_db
 def test_organization_delete_tears_down_tailnet_without_revoking(
-    ionscale_repo, commit_callbacks
-):
+    ionscale_repo: FakeIonscaleRepository, commit_callbacks: CommitCallbacks
+) -> None:
     owner = User.objects.create(username="owner")
     organization, _ = _org_with_mesh(
         "ionscale-doomed-org", owner, ionscale_repo, commit_callbacks
@@ -230,7 +246,9 @@ def test_organization_delete_tears_down_tailnet_without_revoking(
 
 
 @pytest.mark.django_db
-def test_user_delete_revokes_in_every_organization(ionscale_repo, commit_callbacks):
+def test_user_delete_revokes_in_every_organization(
+    ionscale_repo: FakeIonscaleRepository, commit_callbacks: CommitCallbacks
+) -> None:
     owner_a = User.objects.create(username="owner-a")
     owner_b = User.objects.create(username="owner-b")
     org_a, _ = _org_with_mesh(
@@ -262,7 +280,9 @@ def test_user_delete_revokes_in_every_organization(ionscale_repo, commit_callbac
 
 
 @pytest.mark.django_db
-def test_deactivating_user_revokes_everywhere(ionscale_repo, commit_callbacks):
+def test_deactivating_user_revokes_everywhere(
+    ionscale_repo: FakeIonscaleRepository, commit_callbacks: CommitCallbacks
+) -> None:
     owner = User.objects.create(username="owner")
     organization, _ = _org_with_mesh(
         "ionscale-deactivate-org", owner, ionscale_repo, commit_callbacks
@@ -284,7 +304,9 @@ def test_deactivating_user_revokes_everywhere(ionscale_repo, commit_callbacks):
 
 
 @pytest.mark.django_db
-def test_create_ionscale_layer_syncs_existing_members(ionscale_repo, commit_callbacks):
+def test_create_ionscale_layer_syncs_existing_members(
+    ionscale_repo: FakeIonscaleRepository, commit_callbacks: CommitCallbacks
+) -> None:
     first_user = User.objects.create(username="first-user")
     second_user = User.objects.create(username="second-user")
     with commit_callbacks():
@@ -321,7 +343,7 @@ AUTH_KEYS_LIST_OUTPUT = (
 )
 
 
-def test_create_auth_key_passes_expiry_in_seconds():
+def test_create_auth_key_passes_expiry_in_seconds() -> None:
     repo = _repo()
     out = "\nGenerated new auth key\nBe sure to copy your new key below. It won't be shown in full again.\n\n  a1b2c3d4e5f6_secret\n"
     with mock.patch.object(repo, "_run_command", return_value=out) as run:
@@ -333,7 +355,7 @@ def test_create_auth_key_passes_expiry_in_seconds():
     assert args[args.index("--expiry") + 1] == "900s"
 
 
-def test_delete_auth_key_resolves_the_id_by_key_prefix():
+def test_delete_auth_key_resolves_the_id_by_key_prefix() -> None:
     repo = _repo()
     with mock.patch.object(
         repo, "_run_command", side_effect=[AUTH_KEYS_LIST_OUTPUT, "Auth key deleted."]
@@ -348,7 +370,7 @@ def test_delete_auth_key_resolves_the_id_by_key_prefix():
     ]
 
 
-def test_delete_auth_key_of_an_unknown_key_is_a_noop():
+def test_delete_auth_key_of_an_unknown_key_is_a_noop() -> None:
     repo = _repo()
     with mock.patch.object(
         repo, "_run_command", return_value=AUTH_KEYS_LIST_OUTPUT
@@ -357,7 +379,7 @@ def test_delete_auth_key_of_an_unknown_key_is_a_noop():
     assert run.call_count == 1
 
 
-def test_delete_machine():
+def test_delete_machine() -> None:
     repo = _repo()
     with mock.patch.object(
         repo, "_run_command", return_value="Machine deleted."
@@ -371,7 +393,7 @@ def test_delete_machine():
     ]
 
 
-def test_machine_list_reads_connected_as_live():
+def test_machine_list_reads_connected_as_live() -> None:
     """`machines list` prints LAST_SEEN "Connected" for live nodes."""
     out = (
         "ID                  TAILNET  NAME    IPv4          IPv6     AUTHORIZED  EPHEMERAL  VERSION  LAST_SEEN  TAGS  \n"
@@ -383,8 +405,8 @@ def test_machine_list_reads_connected_as_live():
 
 @pytest.mark.django_db
 def test_scoped_members_cannot_log_devices_in_until_they_are_full_members(
-    ionscale_repo, commit_callbacks
-):
+    ionscale_repo: FakeIonscaleRepository, commit_callbacks: CommitCallbacks
+) -> None:
     """A guest of some collaborations is on the tailnet through their apps'
     sidecars alone (which reach only the hub); their own devices stay out of
     `autogroup:member` until they become a full member."""

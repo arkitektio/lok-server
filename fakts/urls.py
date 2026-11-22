@@ -1,3 +1,4 @@
+from django.http import HttpRequest, HttpResponse
 from django.urls import re_path
 
 from . import views
@@ -5,7 +6,7 @@ from . import views
 app_name = "fakts"
 
 
-def index(request):
+def index(request: HttpRequest) -> HttpResponse:
     # Render that in the index template
     raise NotImplementedError("This view is not implemented yet.")
 

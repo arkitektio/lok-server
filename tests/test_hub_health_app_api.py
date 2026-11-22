@@ -7,8 +7,10 @@ An app reads the health of the hub it was approved into via
 
 import pytest
 from asgiref.sync import sync_to_async
+from kante.context import HttpContext
 
 from fakts.base_models import HubHealthReport
+from fakts.models import Hub, ServiceInstance
 from fakts.services.hubs import report_hub_health
 from lok_server.schema import schema
 from tests import factories
@@ -20,7 +22,7 @@ HEALTH = """
 """
 
 
-def _setup(report: bool = True):
+def _setup(report: bool = True) -> tuple[HttpContext, Hub, ServiceInstance]:
     membership = factories.make_membership()
     hub = factories.make_hub(organization=membership.organization)
     instance = factories.make_service_instance(hub=hub)
@@ -47,7 +49,7 @@ def _setup(report: bool = True):
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_app_reads_its_hubs_last_reported_health():
+async def test_app_reads_its_hubs_last_reported_health() -> None:
     context, hub, instance = await sync_to_async(_setup)()
 
     result = await schema.execute(
@@ -69,7 +71,7 @@ async def test_app_reads_its_hubs_last_reported_health():
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_hub_by_id_and_list_are_org_scoped():
+async def test_hub_by_id_and_list_are_org_scoped() -> None:
     context, hub, _ = await sync_to_async(_setup)()
     foreign = await sync_to_async(factories.make_hub)()
 
@@ -95,7 +97,7 @@ async def test_hub_by_id_and_list_are_org_scoped():
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_hub_that_never_reported():
+async def test_hub_that_never_reported() -> None:
     context, _, _ = await sync_to_async(_setup)(report=False)
 
     result = await schema.execute(

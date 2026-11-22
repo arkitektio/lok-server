@@ -18,13 +18,21 @@ import base64
 import hashlib
 import json
 import secrets as _secrets
+from typing import TYPE_CHECKING, Any
 
 import pytest
+from django.test import Client
 from django.urls import reverse
 from django.utils import timezone
+from pytest_django.fixtures import SettingsWrapper
 
 from authapp.models import AuthorizationCode
+from fakts import models as fakts_models
+from karakter.models import Membership
 from tests import factories
+
+if TYPE_CHECKING:
+    from django.test.client import _MonkeyPatchedWSGIResponse as TestResponse
 
 REDIRECT_URI = "https://rp.example/cb"
 VERIFIER = "a-very-long-code-verifier-string-for-pkce-testing-1234567890"
@@ -44,7 +52,7 @@ def _decode_jwt_payload(token: str) -> dict:
     return json.loads(base64.urlsafe_b64decode(payload_b64))
 
 
-def _exchange(client, scope: str):
+def _exchange(client: Client, scope: str) -> tuple[Membership, dict[str, Any]]:
     """Run a code exchange for `scope` and return (membership, token response body)."""
     membership = factories.make_membership()
     membership.user.email = "real@example.com"
@@ -84,7 +92,7 @@ def _exchange(client, scope: str):
 
 
 @pytest.mark.django_db(transaction=True)
-def test_userinfo_serves_a_token_scoped_only_openid(client):
+def test_userinfo_serves_a_token_scoped_only_openid(client: Client) -> None:
     """§5.3.1: `openid` alone is enough to reach UserInfo.
 
     The endpoint used to be gated on `profile`, so a relying party asking for
@@ -108,7 +116,7 @@ def test_userinfo_serves_a_token_scoped_only_openid(client):
 
 
 @pytest.mark.django_db(transaction=True)
-def test_userinfo_claims_follow_the_granted_scope(client):
+def test_userinfo_claims_follow_the_granted_scope(client: Client) -> None:
     """§5.4: `profile` buys the name claims, `email` buys the address."""
     membership, body = _exchange(client, "openid email")
 
@@ -134,7 +142,7 @@ def test_userinfo_claims_follow_the_granted_scope(client):
 
 
 @pytest.mark.django_db(transaction=True)
-def test_id_token_claims_follow_the_granted_scope(client):
+def test_id_token_claims_follow_the_granted_scope(client: Client) -> None:
     """The id_token is filtered by the same helper — authlib does not filter it.
 
     `OpenIDCode` copies whatever `generate_user_info` returns straight into the
@@ -156,7 +164,7 @@ def test_id_token_claims_follow_the_granted_scope(client):
 
 
 @pytest.mark.django_db(transaction=True)
-def test_id_token_and_userinfo_sub_agree_over_the_wire(client):
+def test_id_token_and_userinfo_sub_agree_over_the_wire(client: Client) -> None:
     """§5.3.2: the two `sub` values must match for the same client."""
     _membership, body = _exchange(client, "openid profile email")
 
@@ -171,7 +179,7 @@ def test_id_token_and_userinfo_sub_agree_over_the_wire(client):
 
 
 @pytest.mark.django_db(transaction=True)
-def test_userinfo_does_not_emit_the_literal_scope_placeholder(client):
+def test_userinfo_does_not_emit_the_literal_scope_placeholder(client: Client) -> None:
     """Regression: the response carried `"scope": "scope"` — a literal string."""
     _membership, body = _exchange(client, "openid profile email")
 
@@ -185,7 +193,7 @@ def test_userinfo_does_not_emit_the_literal_scope_placeholder(client):
 
 
 @pytest.mark.django_db(transaction=True)
-def test_org_and_roles_are_still_emitted_unconditionally(client):
+def test_org_and_roles_are_still_emitted_unconditionally(client: Client) -> None:
     """lok's own claims are not scope-gated: authentikate and every resource
     server already read them, and no client requests a scope for them."""
     membership, body = _exchange(client, "openid")
@@ -203,7 +211,7 @@ def test_org_and_roles_are_still_emitted_unconditionally(client):
 # --- §3.1.2.1: nonce is optional unless the client opts in ----------------
 
 
-def _authorize(client, rp, **extra):
+def _authorize(client: Client, rp: fakts_models.Client, **extra: Any) -> "TestResponse":
     params = {
         "response_type": "code",
         "client_id": rp.client_id,
@@ -219,7 +227,7 @@ def _authorize(client, rp, **extra):
 
 
 @pytest.mark.django_db
-def test_code_flow_without_a_nonce_succeeds_by_default(client):
+def test_code_flow_without_a_nonce_succeeds_by_default(client: Client) -> None:
     """§3.1.2.1 makes `nonce` OPTIONAL for the code flow.
 
     lok required it server-wide, and no discovery field can advertise such a
@@ -240,7 +248,7 @@ def test_code_flow_without_a_nonce_succeeds_by_default(client):
 
 
 @pytest.mark.django_db
-def test_a_client_can_opt_in_to_requiring_a_nonce(client):
+def test_a_client_can_opt_in_to_requiring_a_nonce(client: Client) -> None:
     """The stricter rule survives, but per-client and agreed out of band."""
     from urllib.parse import parse_qs, urlparse
 
@@ -266,7 +274,7 @@ def test_a_client_can_opt_in_to_requiring_a_nonce(client):
 
 
 @pytest.mark.django_db
-def test_a_replayed_nonce_is_still_rejected(client):
+def test_a_replayed_nonce_is_still_rejected(client: Client) -> None:
     """The UsedNonce replay defence is unaffected by the relaxation."""
     from urllib.parse import parse_qs, urlparse
 
@@ -291,7 +299,7 @@ def test_a_replayed_nonce_is_still_rejected(client):
 
 
 @pytest.mark.django_db
-def test_ensureopenid_plumbs_scope_and_require_nonce(settings):
+def test_ensureopenid_plumbs_scope_and_require_nonce(settings: SettingsWrapper) -> None:
     from django.core.management import call_command
 
     from fakts.models import Client as OAuth2Client
@@ -312,7 +320,7 @@ def test_ensureopenid_plumbs_scope_and_require_nonce(settings):
     assert rp.require_nonce is True
 
 
-def test_config_rejects_a_scope_lok_does_not_advertise():
+def test_config_rejects_a_scope_lok_does_not_advertise() -> None:
     from lok_server.configuration import OpenIDAppSettings
 
     base = dict(

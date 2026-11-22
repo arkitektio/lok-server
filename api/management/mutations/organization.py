@@ -128,11 +128,11 @@ def update_organization(
 
     try:
         organization.save()
-    except IntegrityError:
+    except IntegrityError as exc:
         # Closes the check->save race on the slug: another org grabbed it in between.
         raise GraphQLError(
             f"The handle '{organization.slug}' is already taken. Try '{slugs.suggest_slug(organization.slug)}'."
-        )
+        ) from exc
 
     # sync_mine: also copy the new default hue onto the owner's own membership, so
     # the owner's personal colour matches the org default they just set. Snapshots
@@ -197,11 +197,11 @@ def create_organization(
             brand_chroma=input.brand_chroma,
             owner=info.context.request.user,
         )
-    except IntegrityError:
+    except IntegrityError as exc:
         # Closes the check->create race: another org grabbed the slug in between.
         raise GraphQLError(
             f"The handle '{candidate}' is already taken. Try '{slugs.suggest_slug(candidate)}'."
-        )
+        ) from exc
     logger.info(
         f"Created Organization: {organization.id} with name: {organization.name}"
     )
@@ -253,8 +253,10 @@ def change_organization_owner(
 
     try:
         new_owner = models.User.objects.get(id=input.new_owner)
-    except (models.User.DoesNotExist, ValueError, TypeError):
-        raise GraphQLError("The new owner must be a member of the organization.")
+    except (models.User.DoesNotExist, ValueError, TypeError) as exc:
+        raise GraphQLError(
+            "The new owner must be a member of the organization."
+        ) from exc
     if not organization.memberships.filter(
         user=new_owner, collaboration_grants__isnull=True
     ).exists():

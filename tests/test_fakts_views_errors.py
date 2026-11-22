@@ -16,9 +16,11 @@ the legacy ``message`` key are kept for back-compat.
 import json
 import time
 from datetime import timedelta
+from typing import TYPE_CHECKING, Any, Never
 
 import pytest
 from django.conf import settings
+from django.test import Client
 from django.urls import reverse
 from django.utils import timezone
 from joserfc import jwt
@@ -28,16 +30,19 @@ from fakts import models
 from fakts.services import device_codes
 from tests import factories
 
+if TYPE_CHECKING:
+    from django.test.client import _MonkeyPatchedWSGIResponse as TestResponse
+
 DEVICE_CODE_GRANT = "urn:ietf:params:oauth:grant-type:device_code"
 
 
-def _post(client, name, payload, **kw):
+def _post(client: Client, name: str, payload: object, **kw: Any) -> "TestResponse":
     return client.post(
         reverse(name), data=json.dumps(payload), content_type="application/json", **kw
     )
 
 
-def _manifest(version="1.0.0", **extra):
+def _manifest(version: str = "1.0.0", **extra: object) -> dict[str, object]:
     return {
         "identifier": "com.example.errors",
         "version": version,
@@ -47,9 +52,11 @@ def _manifest(version="1.0.0", **extra):
     }
 
 
-def _bearer_headers(fakts_client, exp_offset=60, **claim_overrides):
+def _bearer_headers(
+    fakts_client: models.Client, exp_offset: int = 60, **claim_overrides: object
+) -> dict[str, str]:
     key = RSAKey.import_key(settings.PRIVATE_KEY)
-    claims = {
+    claims: dict[str, object] = {
         "client_id": fakts_client.client_id,
         "exp": int(time.time()) + exp_offset,
         "iss": settings.OIDC_ISSUER,
@@ -66,7 +73,7 @@ def _bearer_headers(fakts_client, exp_offset=60, **claim_overrides):
 
 
 @pytest.mark.django_db
-def test_start_malformed_json_returns_error(client):
+def test_start_malformed_json_returns_error(client: Client) -> None:
     # Body is not valid JSON -> json.loads raises -> malformed envelope (key "error").
     resp = client.post(
         reverse("app_authorization"), data="{not json", content_type="application/json"
@@ -79,7 +86,7 @@ def test_start_malformed_json_returns_error(client):
 
 
 @pytest.mark.django_db
-def test_start_invalid_body_returns_validation_details(client):
+def test_start_invalid_body_returns_validation_details(client: Client) -> None:
     # Valid JSON but not a valid DeviceCodeStartRequest (manifest missing) ->
     # 400 invalid_request with pydantic's error details.
     resp = client.post(
@@ -95,7 +102,7 @@ def test_start_invalid_body_returns_validation_details(client):
 
 
 @pytest.mark.django_db
-def test_get_on_post_only_view_returns_405(client):
+def test_get_on_post_only_view_returns_405(client: Client) -> None:
     resp = client.get(reverse("app_authorization"))
     assert resp.status_code == 405
 
@@ -106,7 +113,7 @@ def test_get_on_post_only_view_returns_405(client):
 
 
 @pytest.mark.django_db
-def test_expired_code_yields_expired_token_at_token_endpoint(client):
+def test_expired_code_yields_expired_token_at_token_endpoint(client: Client) -> None:
     device_code = factories.make_device_code(
         expires_at=timezone.now() - timedelta(seconds=1)
     )
@@ -125,7 +132,7 @@ def test_expired_code_yields_expired_token_at_token_endpoint(client):
 
 
 @pytest.mark.django_db
-def test_purge_reaps_expired_unapproved_codes_and_their_clients(client):
+def test_purge_reaps_expired_unapproved_codes_and_their_clients(client: Client) -> None:
 
     device_code = factories.make_device_code(
         expires_at=timezone.now() - timedelta(seconds=1)
@@ -145,7 +152,7 @@ def test_purge_reaps_expired_unapproved_codes_and_their_clients(client):
 
 
 @pytest.mark.django_db
-def test_hub_authorization_registers_a_public_client(client):
+def test_hub_authorization_registers_a_public_client(client: Client) -> None:
     body = _post(
         client,
         "hub_authorization",
@@ -165,8 +172,10 @@ def test_hub_authorization_registers_a_public_client(client):
 
 
 @pytest.mark.django_db
-def test_start_logo_download_failure_returns_error(client, monkeypatch):
-    def _boom(*args, **kwargs):
+def test_start_logo_download_failure_returns_error(
+    client: Client, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def _boom(*args: object, **kwargs: object) -> Never:
         raise RuntimeError("network down")
 
     # download_logo is module-level in device_codes; the view turns the resulting
@@ -192,7 +201,7 @@ def test_start_logo_download_failure_returns_error(client, monkeypatch):
 
 
 @pytest.mark.django_db
-def test_claim_hub_unknown_token_errors(client):
+def test_claim_hub_unknown_token_errors(client: Client) -> None:
     # An unknown hub token is an ``invalid_grant`` (400), distinct from the
     # generic ``server_error`` (500) "Error creating configuration" fallthrough.
     resp = _post(client, "fakts:hubclaim", {"token": "missing"})
@@ -211,13 +220,13 @@ def test_claim_hub_unknown_token_errors(client):
 
 
 @pytest.mark.django_db
-def test_report_without_bearer_token_is_401(client):
+def test_report_without_bearer_token_is_401(client: Client) -> None:
     resp = _post(client, "fakts:report", {"functional": False, "alias_reports": {}})
     assert resp.status_code == 401
 
 
 @pytest.mark.django_db
-def test_report_with_expired_bearer_token_is_401(client):
+def test_report_with_expired_bearer_token_is_401(client: Client) -> None:
     fakts_client = factories.make_client()
     resp = _post(
         client,
@@ -229,7 +238,7 @@ def test_report_with_expired_bearer_token_is_401(client):
 
 
 @pytest.mark.django_db
-def test_report_with_unknown_client_id_is_401(client):
+def test_report_with_unknown_client_id_is_401(client: Client) -> None:
     fakts_client = factories.make_client()
     headers = _bearer_headers(fakts_client)
     fakts_client.delete()  # cascades onto the fakts client
@@ -244,7 +253,7 @@ def test_report_with_unknown_client_id_is_401(client):
 
 
 @pytest.mark.django_db
-def test_report_updates_functional_flag(client):
+def test_report_updates_functional_flag(client: Client) -> None:
     fakts_client = factories.make_client()  # model default functional=True
     assert fakts_client.functional is True
 

@@ -7,8 +7,10 @@ refresh, so that lookup is cached briefly.
 """
 
 import logging
+from collections.abc import Iterable
 
 from django.core.cache import cache
+from django.db.models import QuerySet
 
 from fakts import models
 
@@ -44,12 +46,12 @@ def resolve_hub_mesh_host(hub: models.Hub) -> str | None:
     return host
 
 
-def forget_hub_mesh_hosts(hub_pks) -> None:
+def forget_hub_mesh_hosts(hub_pks: Iterable[int]) -> None:
     """Drop the cached lookups of these hubs, e.g. after their tailnet was replaced."""
     cache.delete_many([_cache_key(pk) for pk in hub_pks])
 
 
-def _cache_key(hub_pk) -> str:
+def _cache_key(hub_pk: int) -> str:
     return f"hub-mesh-host:{hub_pk}"
 
 
@@ -91,7 +93,9 @@ BACKER_GRACE_SECONDS = 60 * 60
 it backs its sidecar for this long before a live session is required."""
 
 
-def _clients_with_session(clients, grace_seconds: int):
+def _clients_with_session(
+    clients: QuerySet[models.Client], grace_seconds: int
+) -> QuerySet[models.Client]:
     import time
     from datetime import timedelta
 
@@ -126,7 +130,7 @@ def _clients_with_session(clients, grace_seconds: int):
     return clients.filter((Q(mandate__isnull=True) & session) | Q(mandate__in=mandated))
 
 
-def live_clients(clients):
+def live_clients(clients: QuerySet[models.Client]) -> QuerySet[models.Client]:
     """Narrow a ``Client`` queryset to clients with a live session: a non-revoked
     refresh chain within its sliding and absolute lifetimes, or a client created
     so recently that it has not polled for its first token yet.
@@ -135,7 +139,7 @@ def live_clients(clients):
     return _clients_with_session(clients, 0)
 
 
-def retained_clients(clients):
+def retained_clients(clients: QuerySet[models.Client]) -> QuerySet[models.Client]:
     """Like ``live_clients``, but a session that merely *expired* still counts for
     ``MESH_SIDECAR_GRACE_SECONDS``. A revoked session never does.
 
@@ -149,7 +153,9 @@ def retained_clients(clients):
     )
 
 
-def enrollment_clients(membership_id, app_id, device_id):
+def enrollment_clients(
+    membership_id: int, app_id: int, device_id: int | None
+) -> QuerySet[models.Client]:
     """The app clients an ``AppMeshEnrollment`` stands for (bound, any hub)."""
     return models.Client.objects.filter(
         membership_id=membership_id,
@@ -158,11 +164,13 @@ def enrollment_clients(membership_id, app_id, device_id):
     )
 
 
-def enrollment_is_live(membership_id, app_id, device_id) -> bool:
+def enrollment_is_live(membership_id: int, app_id: int, device_id: int | None) -> bool:
     return live_clients(enrollment_clients(membership_id, app_id, device_id)).exists()
 
 
-def enrollment_is_retained(membership_id, app_id, device_id) -> bool:
+def enrollment_is_retained(
+    membership_id: int, app_id: int, device_id: int | None
+) -> bool:
     return retained_clients(
         enrollment_clients(membership_id, app_id, device_id)
     ).exists()
@@ -180,7 +188,7 @@ def hub_identity_is_retained(hub: models.Hub) -> bool:
     return retained_clients(models.Client.objects.filter(pk=hub.client_id)).exists()
 
 
-def reap_enrollment(membership_id, app_id, device_id) -> bool:
+def reap_enrollment(membership_id: int, app_id: int, device_id: int | None) -> bool:
     """Delete the enrollment if no client backs it any more (none live, none
     expired within the grace). Its pre_delete revokes the key and nodes. Returns
     whether it was reaped."""
@@ -220,7 +228,11 @@ def reap_hub_sidecar(hub: models.Hub) -> bool:
 
 
 def schedule_client_reap(
-    *, membership_id=None, app_id=None, device_id=None, hub_id=None
+    *,
+    membership_id: int | None = None,
+    app_id: int | None = None,
+    device_id: int | None = None,
+    hub_id: int | None = None,
 ) -> None:
     """After commit, reap the sidecar a (deleted or revoked) client backed.
 
@@ -243,7 +255,7 @@ def schedule_client_reap(
     transaction.on_commit(_run)
 
 
-def schedule_reap_for_clients(clients) -> None:
+def schedule_reap_for_clients(clients: QuerySet[models.Client]) -> None:
     """Schedule reaps for every sidecar the given clients back (after a revocation).
 
     The ACL is re-applied either way: a sidecar that survives on a sibling client

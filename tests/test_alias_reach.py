@@ -1,13 +1,15 @@
 """An alias's reach: one word for where its address works, derived from what is stored, and
 written as the kind and scope it stands for — so the previous release reads the same rows."""
 
+from typing import Any
+
 import pytest
 
 from fakts import base_models
-from fakts.services.alias_reach import REACHES, legacy_of, reach_of
+from fakts.services.alias_reach import REACHES, Reach, legacy_of, reach_of
 
 
-def staged(**fields) -> base_models.StagingAlias:
+def staged(**fields: Any) -> base_models.StagingAlias:
     return base_models.StagingAlias(id="a", port=80, **fields)
 
 
@@ -26,14 +28,18 @@ def staged(**fields) -> base_models.StagingAlias:
         ("mesh", "ionscale", None, "mesh"),
     ],
 )
-def test_reach_is_read_off_what_older_hubs_send(kind, scope, host, reach):
+def test_reach_is_read_off_what_older_hubs_send(
+    kind: str, scope: str, host: str | None, reach: Reach
+) -> None:
     assert reach_of(kind, scope, host) == reach
     assert staged(kind=kind, scope=scope, host=host).effective_reach == reach
 
 
 @pytest.mark.parametrize("reach", REACHES)
 @pytest.mark.parametrize("host", ["127.0.0.1", "gateway", None])
-def test_a_said_reach_is_stored_as_what_it_reads_back_as(reach, host):
+def test_a_said_reach_is_stored_as_what_it_reads_back_as(
+    reach: Reach, host: str | None
+) -> None:
     if host is None and reach != "mesh":
         pytest.skip("only a mesh alias may leave its host to the coordination server")
     if reach == "loopback" and host != "127.0.0.1":
@@ -50,22 +56,22 @@ def test_a_said_reach_is_stored_as_what_it_reads_back_as(reach, host):
     )
 
 
-def test_a_mesh_alias_without_a_host_is_the_placeholder_lok_fills_in():
+def test_a_mesh_alias_without_a_host_is_the_placeholder_lok_fills_in() -> None:
     alias = staged(reach="mesh")
     assert alias.kind == "mesh" and alias.host is None
 
 
-def test_loopback_must_be_this_machine():
+def test_loopback_must_be_this_machine() -> None:
     with pytest.raises(ValueError, match="not this machine"):
         staged(reach="loopback", host="lab.local")
 
 
-def test_an_internal_alias_cannot_be_checked_by_lok():
+def test_an_internal_alias_cannot_be_checked_by_lok() -> None:
     with pytest.raises(ValueError, match="internal"):
         staged(reach="internal", host="gateway", lok_checks=True)
 
 
-def test_lok_checks_is_publics_new_name():
+def test_lok_checks_is_publics_new_name() -> None:
     assert (
         staged(reach="public", host="lab.example.org", lok_checks=True).public is True
     )
@@ -77,7 +83,7 @@ def test_lok_checks_is_publics_new_name():
     )
 
 
-def test_an_older_hubs_alias_validates_the_same_twice():
+def test_an_older_hubs_alias_validates_the_same_twice() -> None:
     alias = staged(host="example.com", public=True)
     again = base_models.StagingAlias.model_validate(alias.model_dump())
     assert (again.kind, again.public, again.reach) == ("absolute", True, None)
@@ -94,7 +100,9 @@ def test_an_older_hubs_alias_validates_the_same_twice():
         (dict(host="lab.example.org", scope="public"), "public", "absolute"),
     ],
 )
-def test_apps_are_told_the_reach_and_the_kind_older_ones_read(alias, reach, kind):
+def test_apps_are_told_the_reach_and_the_kind_older_ones_read(
+    alias: dict[str, Any], reach: Reach, kind: str
+) -> None:
     from fakts import models
     from fakts.services import hubs
     from tests import factories

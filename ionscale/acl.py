@@ -32,8 +32,13 @@ hand-edited ACL is overwritten.
 """
 
 import logging
+from collections.abc import Iterable
+from typing import TYPE_CHECKING
 
 from django.db import connection, transaction
+
+if TYPE_CHECKING:
+    from karakter.models import Organization
 
 logger = logging.getLogger(__name__)
 
@@ -49,16 +54,16 @@ CAP_RELAY = "tailscale.com/cap/relay"
 CAP_RELAY_TARGET = "tailscale.com/cap/relay-target"
 
 
-def mesh_tag(organization_id) -> str:
+def mesh_tag(organization_id: int) -> str:
     return f"tag:mesh-{organization_id}"
 
 
-def relay_tag(organization_id) -> str:
+def relay_tag(organization_id: int) -> str:
     """The tag of the organization's peer relays (see the module docs)."""
     return f"{RELAY_TAG_PREFIX}{organization_id}"
 
 
-def build_acl_policy(organization) -> dict:
+def build_acl_policy(organization: "Organization | int") -> dict:
     """The ACL policy of ``organization``'s mesh, from the current database state."""
     from fakts import models
     from fakts.services.mesh import live_clients
@@ -132,7 +137,7 @@ def build_acl_policy(organization) -> dict:
     }
 
 
-def apply_acl_policy(organization_id) -> bool:
+def apply_acl_policy(organization_id: int) -> bool:
     """Write the organization's ACL policy to its mesh. Never raises."""
     from .manager import get_org_mesh, ionscale_configured
     from .repo import get_ionscale_repo
@@ -155,7 +160,7 @@ def apply_acl_policy(organization_id) -> bool:
     return True
 
 
-def schedule_acl_apply(organization_id) -> None:
+def schedule_acl_apply(organization_id: int | None) -> None:
     """After commit, rewrite the organization's ACL policy (once per transaction)."""
     from .manager import ionscale_configured
 
@@ -179,5 +184,5 @@ def schedule_acl_apply(organization_id) -> None:
     transaction.on_commit(_run)
 
 
-def reserved_tags(tags) -> list[str]:
+def reserved_tags(tags: Iterable[str] | None) -> list[str]:
     return [t for t in tags or [] if t.startswith(RESERVED_TAG_PREFIXES)]

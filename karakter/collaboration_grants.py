@@ -36,18 +36,23 @@ the signals below rather than left to callers:
 from __future__ import annotations
 
 import contextvars
+import datetime
 import re
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
+from typing import TYPE_CHECKING, Any
 
 from django.core.exceptions import ValidationError
 from django.db import transaction
-from django.db.models import Q, QuerySet
+from django.db.models import Model, Q, QuerySet
 from django.db.models.signals import m2m_changed, post_delete, post_save
 from django.dispatch import receiver
 from django.utils import timezone
 
 from karakter import models
+
+if TYPE_CHECKING:
+    from kante.context import User as Principal
 
 MAX_COLLABORATIONS_PER_INVITE = 50
 # Tokens list every live grant; past this the token grows unreasonably, and a
@@ -93,7 +98,7 @@ class CollaborationRef:
 _FORMAT = "{instance, collaboration, roles}, e.g. {instance: 7, collaboration: '12', roles: ['editor']}"
 
 
-def parse_collaboration(raw) -> CollaborationRef:
+def parse_collaboration(raw: object) -> CollaborationRef:
     """``{"instance": "7", "collaboration": "12", "roles": ["editor"]}`` → ``CollaborationRef``. Raises ``ValidationError``.
 
     Only the form is checked here; whether the instance and the roles belong to
@@ -145,7 +150,7 @@ def _merge(raw: Iterable) -> dict[tuple[str, str], CollaborationRef]:
     return refs
 
 
-def _check_instances(instances: set[str], organization) -> None:
+def _check_instances(instances: set[str], organization: models.Organization) -> None:
     from fakts.models import ServiceInstance
 
     known = {
@@ -161,7 +166,9 @@ def _check_instances(instances: set[str], organization) -> None:
         )
 
 
-def normalize_collaborations(raw: list | None, organization=None) -> list[dict]:
+def normalize_collaborations(
+    raw: list | None, organization: models.Organization | None = None
+) -> list[dict]:
     """Validate an invite's collaborations and return them in canonical form, deduplicated.
 
     With ``organization`` each collaboration's instance must run on one of its
@@ -197,7 +204,7 @@ def is_scoped(membership: models.Membership) -> bool:
     return membership.collaboration_grants.exists()
 
 
-def full_member_q(prefix: str, user) -> Q:
+def full_member_q(prefix: str, user: models.User | Principal) -> Q:
     """Rows whose organization (reached via ``prefix``) ``user`` is a *full* member of.
 
     Both conditions sit in one ``Q`` so Django puts them on the same joined
@@ -208,7 +215,9 @@ def full_member_q(prefix: str, user) -> Q:
     return Q(**{f"{path}__user": user, f"{path}__collaboration_grants__isnull": True})
 
 
-def is_full_member(user, organization) -> bool:
+def is_full_member(
+    user: models.User | Principal | None, organization: models.Organization | None
+) -> bool:
     if organization is None or user is None:
         return False
     return organization.memberships.filter(
@@ -295,9 +304,9 @@ def grant_collaborations(
     membership: models.Membership,
     entries: list,
     *,
-    invite=None,
-    granted_by=None,
-    expires_at=None,
+    invite: models.Invite | None = None,
+    granted_by: models.User | None = None,
+    expires_at: datetime.datetime | None = None,
     mesh: bool = False,
 ) -> bool:
     """Add grants to a scoped (or new, role-less) membership. Returns whether anything changed.
@@ -391,12 +400,17 @@ def revoke_invite_grants(invite: models.Invite) -> int:
     return len(grants)
 
 
-def _origin_model(origin):
+def _origin_model(origin: Model | QuerySet | None) -> type:
     return origin.model if isinstance(origin, QuerySet) else type(origin)
 
 
 @receiver(post_delete, sender=models.CollaborationGrant)
-def _drop_membership_without_grants(sender, instance, origin=None, **kwargs):
+def _drop_membership_without_grants(
+    sender: type[models.CollaborationGrant],
+    instance: models.CollaborationGrant,
+    origin: Model | QuerySet | None = None,
+    **kwargs: object,
+) -> None:
     """A scoped membership never outlives its last grant (else it would be a full member).
 
     Not when the grant goes because its membership, organization or user is
@@ -419,7 +433,12 @@ def _drop_membership_without_grants(sender, instance, origin=None, **kwargs):
 
 @receiver(post_save, sender=models.CollaborationGrant)
 @receiver(post_delete, sender=models.CollaborationGrant)
-def _reapply_acl_on_grant_change(sender, instance, origin=None, **kwargs):
+def _reapply_acl_on_grant_change(
+    sender: type[models.CollaborationGrant],
+    instance: models.CollaborationGrant,
+    origin: Model | QuerySet | None = None,
+    **kwargs: object,
+) -> None:
     """A guest's app sidecar reaches the hubs of their mesh grants (``ionscale.acl``): rewrite it when they change.
 
     A grant that merely expires changes nothing here; ``reconcile_meshes --sidecars``
@@ -438,7 +457,13 @@ def _reapply_acl_on_grant_change(sender, instance, origin=None, **kwargs):
 
 
 @receiver(m2m_changed, sender=models.Membership.roles.through)
-def _no_roles_for_scoped_members(sender, instance, action, reverse, **kwargs):
+def _no_roles_for_scoped_members(
+    sender: type[Model],
+    instance: models.Membership | models.Role,
+    action: str,
+    reverse: bool,
+    **kwargs: Any,
+) -> None:
     if action != "pre_add":
         return
     memberships = (

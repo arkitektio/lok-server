@@ -10,6 +10,7 @@ access token ages out on its own, matching the deployment's pure-JWT
 verification model.
 """
 
+from authlib.oauth2.rfc6749 import OAuth2Request
 from authlib.oauth2.rfc7009 import RevocationEndpoint
 
 from .models import OAuth2Token
@@ -21,7 +22,9 @@ class MyRevocationEndpoint(RevocationEndpoint):
     # only ever be revoked by the client it was issued to (check_client).
     CLIENT_AUTH_METHODS = ["client_secret_basic", "client_secret_post", "none"]
 
-    def query_token(self, token_string, token_type_hint):
+    def query_token(
+        self, token_string: str | None, token_type_hint: str | None
+    ) -> OAuth2Token | None:
         if not token_string:
             return None
         if token_type_hint == "access_token":
@@ -34,7 +37,7 @@ class MyRevocationEndpoint(RevocationEndpoint):
             or OAuth2Token.objects.filter(access_token=token_string).first()
         )
 
-    def revoke_token(self, token, request):
+    def revoke_token(self, token: OAuth2Token, request: OAuth2Request) -> None:
         token.revoked = True
         token.save(update_fields=["revoked"])
         # A client that revokes its own session also gives up its mesh sidecar.

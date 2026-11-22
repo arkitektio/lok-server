@@ -8,7 +8,8 @@ from kante.types import Info
 
 from fakts import models, types
 from karakter.authz import get_user
-from karakter.datalayer import get_current_datalayer
+from karakter.datalayer import Datalayer, get_current_datalayer
+from karakter.models import User
 
 # A presigned POST grants write access to exactly one key, so the key must not be
 # attacker-chosen. `MEDIA_BUCKET` is served publicly by the gateway, so an
@@ -46,7 +47,7 @@ def resolve_content_type(key: str, content_type: str | None) -> str:
     return resolved
 
 
-def scoped_key(user, content_type: str) -> str:
+def scoped_key(user: User, content_type: str) -> str:
     """A fresh object key under the calling user's namespace.
 
     The client's filename is not used at all, so it cannot escape the prefix.
@@ -59,7 +60,11 @@ def scoped_key(user, content_type: str) -> str:
 
 
 def presign_media_upload(
-    user, datalayer, datalayer_name: str, key: str, content_type: str | None = None
+    user: User,
+    datalayer: Datalayer,
+    datalayer_name: str,
+    key: str,
+    content_type: str | None = None,
 ) -> types.PresignedPostCredentials:
     """Mint a bounded presigned POST for one new media object owned by `user`."""
     content_type = resolve_content_type(key, content_type)

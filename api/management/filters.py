@@ -1,6 +1,6 @@
 import strawberry
 import strawberry_django
-from django.db.models import Exists, F, OuterRef, Q
+from django.db.models import Exists, F, OuterRef, Q, QuerySet
 from kante.types import Info
 
 from fakts import enums as fakts_enums
@@ -29,7 +29,12 @@ class ManagementKommunityPartnerFilter:
         return Q(**{f"{prefix}auto_configure": value})
 
     @strawberry_django.filter_field
-    def has_preconfigured_hub(self, value: bool, queryset, prefix: str):
+    def has_preconfigured_hub(
+        self,
+        value: bool,
+        queryset: QuerySet[fakts_models.KommunityPartner],
+        prefix: str,
+    ) -> tuple[QuerySet[fakts_models.KommunityPartner], Q]:
         if value:
             return (
                 queryset.exclude(preconfigured_hub__isnull=True).exclude(
@@ -44,7 +49,13 @@ class ManagementKommunityPartnerFilter:
         )
 
     @strawberry_django.filter_field
-    def applicable_for_me(self, info: Info, value: bool, queryset, prefix: str):
+    def applicable_for_me(
+        self,
+        info: Info,
+        value: bool,
+        queryset: QuerySet[fakts_models.KommunityPartner],
+        prefix: str,
+    ) -> tuple[QuerySet[fakts_models.KommunityPartner], Q]:
         """Filter partners that apply to the current user based on their filter_config."""
         user = info.context.request.user
         if not user.is_authenticated:

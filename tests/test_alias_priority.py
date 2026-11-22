@@ -27,7 +27,9 @@ def _rendered(
 
 
 @pytest.mark.django_db
-def test_aliases_come_in_the_owners_order_and_keep_it_across_a_reauthorization():
+def test_aliases_come_in_the_owners_order_and_keep_it_across_a_reauthorization() -> (
+    None
+):
     instance = factories.make_service_instance()
     stage = {
         "public": base_models.StagingAlias(
@@ -76,7 +78,7 @@ def test_aliases_come_in_the_owners_order_and_keep_it_across_a_reauthorization()
 
 
 @pytest.mark.django_db
-def test_the_most_specific_rule_for_a_client_wins():
+def test_the_most_specific_rule_for_a_client_wins() -> None:
     organization = factories.make_organization()
     membership = factories.make_membership(organization=organization)
     role = karakter_models.Role.objects.create(

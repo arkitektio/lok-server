@@ -7,6 +7,7 @@ uid as ``hub``), and the key a guest's ``collabs`` lists its collaborations unde
 
 import pytest
 from django.conf import settings
+from django.test import Client
 
 from authapp.token_generators import MyJWTBearerTokenGenerator
 from fakts import models
@@ -16,13 +17,15 @@ from tests.test_instance_keys import _enroll, _instance
 
 
 @pytest.fixture
-def admin():
+def admin() -> karakter_models.Membership:
     org = factories.make_organization()
     return factories.make_membership(user=org.owner, organization=org)
 
 
 @pytest.mark.django_db
-def test_each_instance_claim_is_keyed_by_the_name_the_hub_gave_it(client, admin):
+def test_each_instance_claim_is_keyed_by_the_name_the_hub_gave_it(
+    client: Client, admin: karakter_models.Membership
+) -> None:
     hub, token = _enroll(
         client, admin, [_instance("mikro", None), _instance("rekuest", None)]
     )
@@ -39,7 +42,9 @@ def test_each_instance_claim_is_keyed_by_the_name_the_hub_gave_it(client, admin)
 
 
 @pytest.mark.django_db
-def test_the_claimed_id_is_the_audience_a_token_for_the_instance_carries(client, admin):
+def test_the_claimed_id_is_the_audience_a_token_for_the_instance_carries(
+    client: Client, admin: karakter_models.Membership
+) -> None:
     hub, token = _enroll(client, admin, [_instance("mikro", None)])
     (claim,) = token["instances"].values()
 
@@ -63,7 +68,9 @@ def _versioned(name: str, version: str) -> dict:
 
 
 @pytest.mark.django_db
-def test_authorized_again_by_another_admin_the_instance_and_its_id_stay(client, admin):
+def test_authorized_again_by_another_admin_the_instance_and_its_id_stay(
+    client: Client, admin: karakter_models.Membership
+) -> None:
     hub, token = _enroll(client, admin, [_instance("mikro", None)])
     (claim,) = token["instances"].values()
 
@@ -82,7 +89,9 @@ def test_authorized_again_by_another_admin_the_instance_and_its_id_stay(client, 
 
 
 @pytest.mark.django_db
-def test_a_new_release_is_the_same_instance(client, admin):
+def test_a_new_release_is_the_same_instance(
+    client: Client, admin: karakter_models.Membership
+) -> None:
     hub, token = _enroll(client, admin, [_versioned("mikro", "1.0.0")])
     (claim,) = token["instances"].values()
 

@@ -1,4 +1,5 @@
 import datetime
+from typing import Any
 
 from django.conf import settings
 from django.core.management.base import BaseCommand, CommandError
@@ -9,11 +10,13 @@ from cvd.securitytxt import render_security_txt
 class Command(BaseCommand):
     help = "Print the unsigned /.well-known/security.txt body from the `security:` config, for signing offline."
 
-    def handle(self, *args, **options):
+    def handle(self, *args: Any, **options: Any) -> None:
         sec = settings.SECURITY_DISCLOSURE
         if sec is None:
             raise CommandError("No `security:` block in the config.")
-        days = (sec.expires - datetime.date.today()).days
+        days = (
+            sec.expires - datetime.datetime.now(datetime.UTC).astimezone().date()
+        ).days
         if days <= 0:
             raise CommandError(
                 f"security.expires ({sec.expires}) has passed: set a new date before signing."

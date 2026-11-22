@@ -12,17 +12,22 @@ Setup runs through ``sync_to_async`` (matching ``test_alias_public``) because th
 ORM is not usable from the event loop the async schema executes on.
 """
 
+from typing import TypedDict
+
 import pytest
 from asgiref.sync import sync_to_async
+from kante.context import HttpContext
+from strawberry.types import ExecutionResult
 
 from api.management.authz import HUB_ADMIN_REQUIRED
 from api.management.schema import schema as management_schema
 from fakts import models as fakts_models
+from karakter.models import Invite, Membership, Organization, User
 from tests import factories
 from tests.conftest import build_auth_context
 
 
-def _two_org_setup():
+def _two_org_setup() -> tuple[HttpContext, Organization, Organization, User, User]:
     """Two unrelated tenants plus an authenticated context for the attacker's org."""
     attacker_membership = factories.make_membership()
     request_client = factories.make_client(membership=attacker_membership)
@@ -36,7 +41,7 @@ def _two_org_setup():
     return context, org_a, org_b, attacker, victim
 
 
-def _assert_denied(result):
+def _assert_denied(result: ExecutionResult) -> None:
     assert result.errors, f"expected a denial, got data: {result.data}"
     message = result.errors[0].message
     assert "not authorized" in message or "Authentication required" in message, message
@@ -44,34 +49,34 @@ def _assert_denied(result):
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_cannot_read_other_orgs_organization():
+async def test_cannot_read_other_orgs_organization() -> None:
     context, _org_a, org_b, _attacker, _victim = await sync_to_async(_two_org_setup)()
 
     result = await management_schema.execute(
         "query ($id: ID!) { organization(id: $id) { id slug } }",
         context_value=context,
-        variable_values={"id": str(org_b.id)},
+        variable_values={"id": str(org_b.pk)},
     )
     _assert_denied(result)
 
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_cannot_read_other_orgs_hub():
+async def test_cannot_read_other_orgs_hub() -> None:
     context, _org_a, org_b, _attacker, _victim = await sync_to_async(_two_org_setup)()
     hub = await sync_to_async(factories.make_hub)(organization=org_b)
 
     result = await management_schema.execute(
         "query ($id: ID!) { hub(id: $id) { id name } }",
         context_value=context,
-        variable_values={"id": str(hub.id)},
+        variable_values={"id": str(hub.pk)},
     )
     _assert_denied(result)
 
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_can_read_own_orgs_hub():
+async def test_can_read_own_orgs_hub() -> None:
     """The scoping must not be so tight that legitimate access breaks."""
     context, org_a, _org_b, _attacker, _victim = await sync_to_async(_two_org_setup)()
     hub = await sync_to_async(factories.make_hub)(organization=org_a)
@@ -79,34 +84,34 @@ async def test_can_read_own_orgs_hub():
     result = await management_schema.execute(
         "query ($id: ID!) { hub(id: $id) { id name } }",
         context_value=context,
-        variable_values={"id": str(hub.id)},
+        variable_values={"id": str(hub.pk)},
     )
     assert not result.errors, result.errors
-    assert result.data["hub"]["id"] == str(hub.id)
+    assert result.data["hub"]["id"] == str(hub.pk)
 
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_cannot_take_over_another_organization():
+async def test_cannot_take_over_another_organization() -> None:
     """``changeOrganizationOwner`` was the full-takeover mutation."""
     context, _org_a, org_b, attacker, victim = await sync_to_async(_two_org_setup)()
 
     result = await management_schema.execute(
         "mutation ($org: ID!, $new: ID!) { changeOrganizationOwner(input: {organization: $org, newOwner: $new}) { id } }",
         context_value=context,
-        variable_values={"org": str(org_b.id), "new": str(attacker.id)},
+        variable_values={"org": str(org_b.pk), "new": str(attacker.pk)},
     )
     assert result.errors, f"takeover succeeded: {result.data}"
 
     owner_id = await sync_to_async(
-        lambda: fakts_models.Organization.objects.get(id=org_b.id).owner_id
+        lambda: fakts_models.Organization.objects.get(id=org_b.pk).owner_id
     )()
-    assert owner_id == victim.id
+    assert owner_id == victim.pk
 
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_cannot_delete_another_orgs_device():
+async def test_cannot_delete_another_orgs_device() -> None:
     context, _org_a, org_b, _attacker, _victim = await sync_to_async(_two_org_setup)()
     device = await sync_to_async(fakts_models.Device.objects.create)(
         organization=org_b, node_id="victim-node", name="victim"
@@ -115,22 +120,22 @@ async def test_cannot_delete_another_orgs_device():
     result = await management_schema.execute(
         "mutation ($id: ID!) { deleteDevice(input: {id: $id}) }",
         context_value=context,
-        variable_values={"id": str(device.id)},
+        variable_values={"id": str(device.pk)},
     )
     _assert_denied(result)
 
     still_there = await sync_to_async(
-        fakts_models.Device.objects.filter(id=device.id).exists
+        fakts_models.Device.objects.filter(id=device.pk).exists
     )()
     assert still_there
 
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_cannot_hijack_another_orgs_alias():
+async def test_cannot_hijack_another_orgs_alias() -> None:
     """Aliases are routing entries: repointing one hijacks that service's traffic."""
 
-    def setup():
+    def setup() -> tuple[HttpContext, fakts_models.InstanceAlias]:
         context, _org_a, org_b, _attacker, _victim = _two_org_setup()
         hub = factories.make_hub(organization=org_b)
         instance = factories.make_service_instance(hub=hub)
@@ -148,18 +153,18 @@ async def test_cannot_hijack_another_orgs_alias():
         }
         """,
         context_value=context,
-        variable_values={"id": str(alias.id)},
+        variable_values={"id": str(alias.pk)},
     )
     _assert_denied(result)
 
     host = await sync_to_async(
-        lambda: fakts_models.InstanceAlias.objects.get(id=alias.id).host
+        lambda: fakts_models.InstanceAlias.objects.get(id=alias.pk).host
     )()
     assert host == "victim.example"
 
 
 @pytest.mark.django_db(transaction=True)
-def test_upload_key_is_namespaced_to_the_caller():
+def test_upload_key_is_namespaced_to_the_caller() -> None:
     """An attacker-chosen upload key must not address another tenant's object."""
     from api.management.mutations.upload import (
         RequestMediaUploadInput,
@@ -178,7 +183,7 @@ def test_upload_key_is_namespaced_to_the_caller():
         creds = request_media_upload(
             info, RequestMediaUploadInput(key=key, datalayer="default")
         )
-        assert creds.key.startswith(f"users/{attacker.id}/"), creds.key
+        assert creds.key.startswith(f"users/{attacker.pk}/"), creds.key
         assert (
             ".." not in creds.key
             and "victim" not in creds.key
@@ -186,7 +191,7 @@ def test_upload_key_is_namespaced_to_the_caller():
         )
 
 
-def _invite_leak_setup():
+def _invite_leak_setup() -> tuple[HttpContext, HttpContext, Organization, Invite]:
     """An org with a pending admin invite, plus a plain (non-admin) member of it.
 
     The member is deliberately given no roles: they are the least-privileged
@@ -221,7 +226,7 @@ INVITES_QUERY = (
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_plain_member_cannot_read_their_orgs_invite_tokens():
+async def test_plain_member_cannot_read_their_orgs_invite_tokens() -> None:
     """An invite token is a bearer credential.
 
     `ManagementInvite` had no `get_queryset`, so any member — including one with no
@@ -233,7 +238,7 @@ async def test_plain_member_cannot_read_their_orgs_invite_tokens():
     )()
 
     result = await management_schema.execute(
-        INVITES_QUERY, context_value=guest_context, variable_values={"id": str(org.id)}
+        INVITES_QUERY, context_value=guest_context, variable_values={"id": str(org.pk)}
     )
 
     assert not result.errors, result.errors
@@ -242,14 +247,14 @@ async def test_plain_member_cannot_read_their_orgs_invite_tokens():
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_owner_can_still_read_their_orgs_invites():
+async def test_owner_can_still_read_their_orgs_invites() -> None:
     """The scoping must not be so tight that legitimate invite management breaks."""
     _guest_context, owner_context, org, invite = await sync_to_async(
         _invite_leak_setup
     )()
 
     result = await management_schema.execute(
-        INVITES_QUERY, context_value=owner_context, variable_values={"id": str(org.id)}
+        INVITES_QUERY, context_value=owner_context, variable_values={"id": str(org.pk)}
     )
 
     assert not result.errors, result.errors
@@ -257,7 +262,19 @@ async def test_owner_can_still_read_their_orgs_invites():
     assert tokens == [str(invite.token)]
 
 
-def _org_with_admin_and_member():
+class OrgRoles(TypedDict):
+    """An org with an owner, an admin and a plain member: each one's context and membership."""
+
+    org: Organization
+    owner: HttpContext
+    admin: HttpContext
+    member: HttpContext
+    owner_membership: Membership
+    admin_membership: Membership
+    member_membership: Membership
+
+
+def _org_with_admin_and_member() -> OrgRoles:
     """An org with an owner, an admin, and a plain member — each with a context."""
     from karakter.models import Role
 
@@ -273,7 +290,7 @@ def _org_with_admin_and_member():
     member_membership = factories.make_membership(organization=org)
     member_membership.roles.clear()
 
-    def ctx(membership):
+    def ctx(membership: Membership) -> HttpContext:
         client = factories.make_client(membership=membership)
         return build_auth_context(membership.user, org, client)
 
@@ -291,15 +308,15 @@ def _org_with_admin_and_member():
 DELETE_MEMBERSHIP = "mutation ($id: ID!) { deleteMembership(input: {id: $id}) }"
 
 
-async def _delete(context, membership):
+async def _delete(context: HttpContext, membership: Membership) -> ExecutionResult:
     return await management_schema.execute(
         DELETE_MEMBERSHIP,
         context_value=context,
-        variable_values={"id": str(membership.id)},
+        variable_values={"id": str(membership.pk)},
     )
 
 
-async def _exists(membership):
+async def _exists(membership: Membership) -> bool:
     from karakter.models import Membership
 
     return await sync_to_async(Membership.objects.filter(pk=membership.pk).exists)()
@@ -307,7 +324,7 @@ async def _exists(membership):
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_admin_can_remove_a_member():
+async def test_admin_can_remove_a_member() -> None:
     """Previously self-only, so an organization had no way to eject anyone."""
     s = await sync_to_async(_org_with_admin_and_member)()
 
@@ -319,7 +336,7 @@ async def test_admin_can_remove_a_member():
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_owner_can_remove_a_member():
+async def test_owner_can_remove_a_member() -> None:
     s = await sync_to_async(_org_with_admin_and_member)()
 
     result = await _delete(s["owner"], s["member_membership"])
@@ -330,7 +347,7 @@ async def test_owner_can_remove_a_member():
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_member_can_still_leave():
+async def test_member_can_still_leave() -> None:
     s = await sync_to_async(_org_with_admin_and_member)()
 
     result = await _delete(s["member"], s["member_membership"])
@@ -341,7 +358,7 @@ async def test_member_can_still_leave():
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_plain_member_cannot_remove_someone_else():
+async def test_plain_member_cannot_remove_someone_else() -> None:
     s = await sync_to_async(_org_with_admin_and_member)()
 
     result = await _delete(s["member"], s["admin_membership"])
@@ -355,7 +372,7 @@ async def test_plain_member_cannot_remove_someone_else():
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_admin_cannot_remove_the_owner():
+async def test_admin_cannot_remove_the_owner() -> None:
     """Ejecting the owner would leave the org owned by a non-member, and is a step
     toward taking it over."""
     s = await sync_to_async(_org_with_admin_and_member)()
@@ -375,29 +392,33 @@ async def test_admin_cannot_remove_the_owner():
 ACCEPT_HUB = "mutation ($input: AcceptHubDeviceCodeInput!) { acceptHubDeviceCode(input: $input) { id name } }"
 
 
-def _staged_hub_code(identifier: str):
+def _staged_hub_code(identifier: str) -> fakts_models.DeviceCode:
     return factories.make_device_code(
         kind="hub",
         staging_manifest={"identifier": identifier, "instances": [], "clients": []},
     )
 
 
-async def _accept(context, device_code, organization):
+async def _accept(
+    context: HttpContext,
+    device_code: fakts_models.DeviceCode,
+    organization: Organization,
+) -> ExecutionResult:
     return await management_schema.execute(
         ACCEPT_HUB,
         context_value=context,
         variable_values={
             "input": {
-                "deviceCode": str(device_code.id),
+                "deviceCode": str(device_code.pk),
                 "code": device_code.code,
-                "organization": str(organization.id),
+                "organization": str(organization.pk),
                 "allowIonscale": False,
             }
         },
     )
 
 
-async def _hub_count(organization, identifier):
+async def _hub_count(organization: Organization, identifier: str) -> int:
     return await sync_to_async(
         lambda: fakts_models.Hub.objects.filter(
             organization=organization, identifier=identifier
@@ -407,7 +428,7 @@ async def _hub_count(organization, identifier):
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_plain_member_cannot_add_a_hub():
+async def test_plain_member_cannot_add_a_hub() -> None:
     """A hub provisions instances, roles, scopes and clients into the tenant, so a
     plain member is told to ask an admin rather than doing it themselves."""
     s = await sync_to_async(_org_with_admin_and_member)()
@@ -422,7 +443,7 @@ async def test_plain_member_cannot_add_a_hub():
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_admin_can_add_a_hub():
+async def test_admin_can_add_a_hub() -> None:
     s = await sync_to_async(_org_with_admin_and_member)()
     device_code = await sync_to_async(_staged_hub_code)("admin-hub")
 
@@ -434,7 +455,7 @@ async def test_admin_can_add_a_hub():
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_owner_can_add_a_hub():
+async def test_owner_can_add_a_hub() -> None:
     s = await sync_to_async(_org_with_admin_and_member)()
     device_code = await sync_to_async(_staged_hub_code)("owner-hub")
 
@@ -446,7 +467,7 @@ async def test_owner_can_add_a_hub():
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_non_member_adding_a_hub_gets_the_uniform_denial():
+async def test_non_member_adding_a_hub_gets_the_uniform_denial() -> None:
     """The friendly "ask an admin" sentence must not double as an existence
     oracle: someone outside the tenant still only learns DENIED."""
     context, _org_a, org_b, _attacker, _victim = await sync_to_async(_two_org_setup)()
@@ -461,14 +482,14 @@ async def test_non_member_adding_a_hub_gets_the_uniform_denial():
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_am_i_admin_reflects_the_same_bar():
+async def test_am_i_admin_reflects_the_same_bar() -> None:
     s = await sync_to_async(_org_with_admin_and_member)()
 
-    async def am_i_admin(context):
+    async def am_i_admin(context: HttpContext) -> object:
         result = await management_schema.execute(
             "query ($id: ID!) { organization(id: $id) { amIAdmin amIOwner } }",
             context_value=context,
-            variable_values={"id": str(s["org"].id)},
+            variable_values={"id": str(s["org"].pk)},
         )
         assert not result.errors, result.errors
         return result.data["organization"]

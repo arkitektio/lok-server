@@ -1,4 +1,6 @@
+from django import forms
 from django.contrib import admin, messages
+from django.http import HttpRequest
 
 from .models import VulnerabilityReport
 
@@ -50,7 +52,13 @@ class VulnerabilityReportAdmin(admin.ModelAdmin):
     def anonymous(self, obj: VulnerabilityReport) -> bool:
         return obj.is_anonymous
 
-    def save_model(self, request, obj, form, change):
+    def save_model(
+        self,
+        request: HttpRequest,
+        obj: VulnerabilityReport,
+        form: forms.ModelForm,
+        change: bool,
+    ) -> None:
         wanted = obj.status
         if change:
             obj.status = VulnerabilityReport.objects.values_list(

@@ -19,8 +19,12 @@ learns about committed state.
 """
 
 import logging
+from typing import TYPE_CHECKING
 
 from django.db import transaction
+
+if TYPE_CHECKING:
+    from fakts.models import AppMeshEnrollment, Hub
 
 logger = logging.getLogger(__name__)
 
@@ -31,7 +35,7 @@ def _configured() -> bool:
     return ionscale_configured()
 
 
-def revoke_member(user_pk, organization_pk: object | None = None) -> None:
+def revoke_member(user_pk: int, organization_pk: object | None = None) -> None:
     """Revoke an identity's mesh access in one organization (or, with
     ``organization_pk=None``, in every tailnet). Never raises."""
     if not _configured():
@@ -72,7 +76,9 @@ def revoke_member(user_pk, organization_pk: object | None = None) -> None:
             revoke_enrollment_nodes(*target)
 
 
-def _enrollment_target(enrollment) -> tuple[str, str, str | None] | None:
+def _enrollment_target(
+    enrollment: "AppMeshEnrollment | Hub",
+) -> tuple[str, str, str | None] | None:
     """(tailnet, tag, live key) of a mesh enrollment, or None without a mesh.
 
     An enrollment is an ``AppMeshEnrollment`` (``tag``) or a ``Hub``
@@ -110,7 +116,7 @@ def revoke_enrollment_nodes(tailnet: str, tag: str, key_value: str | None) -> No
         )
 
 
-def resync_organization(organization_pk) -> None:
+def resync_organization(organization_pk: int) -> None:
     """Push the organization's current member list to each of its meshes.
     Never raises."""
     if not _configured():
@@ -153,7 +159,7 @@ def teardown_tailnet(tailnet_name: str) -> None:
         )
 
 
-def provision_organization_mesh(organization_pk) -> None:
+def provision_organization_mesh(organization_pk: int) -> None:
     """Give an organization its mesh if it has none yet. Never raises.
 
     Every organization gets a mesh by default, however it came to be (signup,
@@ -181,20 +187,20 @@ def provision_organization_mesh(organization_pk) -> None:
         )
 
 
-def schedule_mesh_provisioning(organization_pk) -> None:
+def schedule_mesh_provisioning(organization_pk: int) -> None:
     """After commit, so ionscale only ever learns about an organization that exists."""
     if not _configured():
         return
     transaction.on_commit(lambda: provision_organization_mesh(organization_pk))
 
 
-def schedule_resync(organization_pk) -> None:
+def schedule_resync(organization_pk: int) -> None:
     if not _configured():
         return
     transaction.on_commit(lambda: resync_organization(organization_pk))
 
 
-def schedule_member_removal(user_pk, organization_pk) -> None:
+def schedule_member_removal(user_pk: int, organization_pk: int) -> None:
     """After commit: revoke the user's access, then rewrite ``subs``. Skipped when
     the organization itself is gone — its tailnet is torn down as a whole."""
     if not _configured():
@@ -211,14 +217,14 @@ def schedule_member_removal(user_pk, organization_pk) -> None:
     transaction.on_commit(_run)
 
 
-def schedule_user_revocation(user_pk) -> None:
+def schedule_user_revocation(user_pk: int) -> None:
     """After commit: revoke the user everywhere (deactivation)."""
     if not _configured():
         return
     transaction.on_commit(lambda: revoke_member(user_pk, None))
 
 
-def schedule_enrollment_revocation(enrollment) -> None:
+def schedule_enrollment_revocation(enrollment: "AppMeshEnrollment | Hub") -> None:
     """After commit: remove a deleted app enrollment's (or hub's) nodes and key. The target
     is captured now — by commit time the row (and its organization) may be gone."""
     if not _configured():

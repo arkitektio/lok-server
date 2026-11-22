@@ -6,15 +6,18 @@ authorized again without it becomes one again; a new certificate replaces the ol
 
 import datetime
 import ipaddress
+from typing import cast
 
 import pytest
 from cryptography import x509
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import ec
 from cryptography.x509.oid import NameOID
+from django.test import Client
 
-from fakts import base_models
+from fakts import base_models, models
 from fakts.services.hub_tls import validate_tls_certificate
+from karakter.models import Membership
 from tests import factories
 from tests.test_instance_keys import _enroll, _instance
 
@@ -66,7 +69,12 @@ def _context() -> base_models.LinkingContext:
     )
 
 
-def _enroll_tls(client, admin, certificate, uid="0192f3c4-1111-7000-8000-000000000001"):
+def _enroll_tls(
+    client: Client,
+    admin: Membership,
+    certificate: str | None,
+    uid: str = "0192f3c4-1111-7000-8000-000000000001",
+) -> models.Hub:
     """`_enroll` with a hub-level `tls_certificate` (the manifest field sits next to `instances`)."""
     import json
     from types import SimpleNamespace
@@ -97,13 +105,17 @@ def _enroll_tls(client, admin, certificate, uid="0192f3c4-1111-7000-8000-0000000
     info = SimpleNamespace(
         context=SimpleNamespace(request=SimpleNamespace(user=admin.user))
     )
-    hub = accept_hub_device_code(
-        info,
-        AcceptHubDeviceCodeInput(
-            device_code=str(code.id),
-            code=code.code,
-            organization=str(admin.organization.id),
-            allow_ionscale=False,
+    # The resolver returns the Hub row; strawberry types it as its GraphQL type.
+    hub = cast(
+        models.Hub,
+        accept_hub_device_code(
+            info,
+            AcceptHubDeviceCodeInput(
+                device_code=str(code.id),
+                code=code.code,
+                organization=str(admin.organization.id),
+                allow_ionscale=False,
+            ),
         ),
     )
     assert _poll(client, body["device_code"], body["client_id"]).status_code == 200
@@ -111,13 +123,15 @@ def _enroll_tls(client, admin, certificate, uid="0192f3c4-1111-7000-8000-0000000
 
 
 @pytest.fixture
-def admin():
+def admin() -> Membership:
     org = factories.make_organization()
     return factories.make_membership(user=org.owner, organization=org)
 
 
 @pytest.mark.django_db
-def test_a_registered_certificate_is_what_apps_verify_the_instances_by(client, admin):
+def test_a_registered_certificate_is_what_apps_verify_the_instances_by(
+    client: Client, admin: Membership
+) -> None:
     certificate = _certificate()
     hub = _enroll_tls(client, admin, certificate)
 
@@ -127,14 +141,18 @@ def test_a_registered_certificate_is_what_apps_verify_the_instances_by(client, a
 
 
 @pytest.mark.django_db
-def test_a_hub_without_a_certificate_stays_plain_http(client, admin):
+def test_a_hub_without_a_certificate_stays_plain_http(
+    client: Client, admin: Membership
+) -> None:
     hub, _ = _enroll(client, admin, [_instance("mikro", None)])
     assert hub.tls_certificate is None
     assert hub.instances.get().render(_context()).tls is None
 
 
 @pytest.mark.django_db
-def test_reauthorizing_replaces_or_drops_the_certificate(client, admin):
+def test_reauthorizing_replaces_or_drops_the_certificate(
+    client: Client, admin: Membership
+) -> None:
     first, second = _certificate(), _certificate()
     _enroll_tls(client, admin, first)
     hub = _enroll_tls(client, admin, second)
@@ -157,7 +175,7 @@ def test_reauthorizing_replaces_or_drops_the_certificate(client, admin):
     ],
 )
 def test_a_certificate_that_is_not_one_server_certificate_is_refused(
-    certificate, match
-):
+    certificate: str, match: str
+) -> None:
     with pytest.raises(ValueError, match=match):
         validate_tls_certificate(certificate)

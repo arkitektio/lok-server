@@ -2,8 +2,10 @@
 each admin role to the organization's owner and admins, each default role to every full member."""
 
 import pytest
+from pytest_django.fixtures import DjangoCaptureOnCommitCallbacks
 
 from fakts import base_models
+from fakts.models import Hub, ServiceInstance
 from fakts.services import hubs
 from karakter import models
 from karakter.roles import ADMIN
@@ -29,7 +31,11 @@ ROLES = [
 ]
 
 
-def _register(organization, scopes=SCOPES, roles=ROLES):
+def _register(
+    organization: models.Organization,
+    scopes: list[base_models.Scope] = SCOPES,
+    roles: list[base_models.Role] = ROLES,
+) -> Hub:
     manifest = base_models.HubManifest(
         identifier="com.example.hub",
         instances=[
@@ -47,16 +53,16 @@ def _register(organization, scopes=SCOPES, roles=ROLES):
     return hubs.create_hub_from_manifest(manifest, organization)
 
 
-def _roles(membership) -> set[str]:
+def _roles(membership: models.Membership) -> set[str]:
     return set(membership.roles.values_list("identifier", flat=True))
 
 
-def _admin_role(organization):
+def _admin_role(organization: models.Organization) -> models.Role:
     return models.Role.objects.get(identifier=ADMIN, organization=organization)
 
 
 @pytest.mark.django_db
-def test_the_flags_and_descriptions_are_registered_as_declared():
+def test_the_flags_and_descriptions_are_registered_as_declared() -> None:
     organization = factories.make_organization()
     _register(organization)
     assert models.Scope.objects.get(
@@ -82,7 +88,7 @@ def test_the_flags_and_descriptions_are_registered_as_declared():
 
 
 @pytest.mark.django_db
-def test_what_a_service_stops_declaring_goes_but_lok_keeps_its_own():
+def test_what_a_service_stops_declaring_goes_but_lok_keeps_its_own() -> None:
     organization = factories.make_organization()
     _register(organization)
     _register(organization, scopes=[SCOPES[0], SCOPES[2]], roles=ROLES[:2])
@@ -101,7 +107,7 @@ def test_what_a_service_stops_declaring_goes_but_lok_keeps_its_own():
 
 
 @pytest.mark.django_db
-def test_a_scope_an_app_holds_stays_until_it_lets_go():
+def test_a_scope_an_app_holds_stays_until_it_lets_go() -> None:
     organization = factories.make_organization()
     _register(organization)
     client = factories.make_client(
@@ -119,7 +125,7 @@ def test_a_scope_an_app_holds_stays_until_it_lets_go():
 
 
 @pytest.mark.django_db
-def test_lok_makes_only_admin_and_guest():
+def test_lok_makes_only_admin_and_guest() -> None:
     organization = factories.make_organization()
     assert set(organization.roles.values_list("identifier", flat=True)) == {
         ADMIN,
@@ -129,8 +135,8 @@ def test_lok_makes_only_admin_and_guest():
 
 @pytest.mark.django_db
 def test_the_owner_and_the_admins_hold_every_admin_role_and_members_the_default_one(
-    django_capture_on_commit_callbacks,
-):
+    django_capture_on_commit_callbacks: DjangoCaptureOnCommitCallbacks,
+) -> None:
     organization = factories.make_organization()
     with django_capture_on_commit_callbacks(execute=True):
         admin = factories.make_membership(organization=organization)
@@ -148,8 +154,8 @@ def test_the_owner_and_the_admins_hold_every_admin_role_and_members_the_default_
 
 @pytest.mark.django_db
 def test_a_new_member_gets_the_default_role_and_a_guest_none(
-    django_capture_on_commit_callbacks,
-):
+    django_capture_on_commit_callbacks: DjangoCaptureOnCommitCallbacks,
+) -> None:
     organization = factories.make_organization()
     _register(organization)
     with django_capture_on_commit_callbacks(execute=True):
@@ -167,7 +173,7 @@ def test_a_new_member_gets_the_default_role_and_a_guest_none(
     assert _roles(guest) == set()
 
 
-def _instance(organization):
+def _instance(organization: models.Organization) -> ServiceInstance:
     from fakts import models as fakts_models
 
     return fakts_models.ServiceInstance.objects.get(
@@ -177,8 +183,8 @@ def _instance(organization):
 
 @pytest.mark.django_db
 def test_promotion_gives_the_admin_roles_and_demotion_takes_back_only_what_lok_gave(
-    django_capture_on_commit_callbacks,
-):
+    django_capture_on_commit_callbacks: DjangoCaptureOnCommitCallbacks,
+) -> None:
     organization = factories.make_organization()
     _register(organization)
     with django_capture_on_commit_callbacks(execute=True):
@@ -199,7 +205,9 @@ def test_promotion_gives_the_admin_roles_and_demotion_takes_back_only_what_lok_g
 
 
 @pytest.mark.django_db
-def test_a_default_role_an_admin_took_stays_taken(django_capture_on_commit_callbacks):
+def test_a_default_role_an_admin_took_stays_taken(
+    django_capture_on_commit_callbacks: DjangoCaptureOnCommitCallbacks,
+) -> None:
     organization = factories.make_organization()
     _register(organization)
     with django_capture_on_commit_callbacks(execute=True):
@@ -218,7 +226,9 @@ def test_a_default_role_an_admin_took_stays_taken(django_capture_on_commit_callb
 
 
 @pytest.mark.django_db
-def test_a_new_owner_holds_every_admin_role(django_capture_on_commit_callbacks):
+def test_a_new_owner_holds_every_admin_role(
+    django_capture_on_commit_callbacks: DjangoCaptureOnCommitCallbacks,
+) -> None:
     organization = factories.make_organization()
     _register(organization)
     with django_capture_on_commit_callbacks(execute=True):
@@ -228,7 +238,7 @@ def test_a_new_owner_holds_every_admin_role(django_capture_on_commit_callbacks):
     assert "mikro_admin" in _roles(heir)
 
 
-def test_a_pin_never_has_to_name_the_oidc_scopes():
+def test_a_pin_never_has_to_name_the_oidc_scopes() -> None:
     pin = base_models.MandatePin(identifier="plugin_engine", scopes=["kabinet_read"])
     manifest = base_models.Manifest(
         identifier="plugin_engine", version="1.0.0", scopes=["openid", "kabinet_read"]
@@ -244,7 +254,7 @@ def test_a_pin_never_has_to_name_the_oidc_scopes():
         )
 
 
-def test_a_requirement_is_the_service_whatever_key_it_is_listed_under():
+def test_a_requirement_is_the_service_whatever_key_it_is_listed_under() -> None:
     """Orkestrator lists the object store as `datalayer`, the Python clients as `s3`: one service."""
     issuer = base_models.MandatePin(
         requirements=[{"key": "datalayer", "service": "live.arkitekt.s3"}]

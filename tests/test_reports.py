@@ -9,16 +9,20 @@ triage field, the member-vs-owner/admin permission asymmetry, and that pruning
 keeps the last healthy report even outside the retention window.
 """
 
+from typing import TypedDict
+
 import pytest
 from asgiref.sync import sync_to_async
 from django.test import override_settings
 from django.utils import timezone
+from kante.context import HttpContext
 
 from api.management.authz import DENIED
 from api.management.schema import schema as management_schema
 from fakts import base_models
 from fakts import models as fakts_models
 from fakts.services import clients as client_services
+from karakter.models import Membership
 from tests import factories
 from tests.conftest import build_auth_context
 from tests.test_management_tenant_isolation import _org_with_admin_and_member
@@ -34,16 +38,37 @@ REQUEST = (
 )
 
 
-def _setup():
-    s = _org_with_admin_and_member()
-    client = factories.make_client(membership=s["member_membership"], functional=False)
+class ReportSetup(TypedDict):
+    """The org's contexts and memberships, the member's client and its two reports."""
+
+    owner: HttpContext
+    admin: HttpContext
+    member: HttpContext
+    member_membership: Membership
+    client: fakts_models.Client
+    older: fakts_models.Report
+    latest: fakts_models.Report
+
+
+def _setup() -> ReportSetup:
+    roles = _org_with_admin_and_member()
+    client = factories.make_client(
+        membership=roles["member_membership"], functional=False
+    )
     older = fakts_models.Report.objects.create(client=client, functional=False)
     latest = fakts_models.Report.objects.create(client=client, functional=False)
-    s.update(client=client, older=older, latest=latest)
-    return s
+    return ReportSetup(
+        owner=roles["owner"],
+        admin=roles["admin"],
+        member=roles["member"],
+        member_membership=roles["member_membership"],
+        client=client,
+        older=older,
+        latest=latest,
+    )
 
 
-async def _flag(client):
+async def _flag(client: fakts_models.Client) -> bool:
     return await sync_to_async(
         lambda: fakts_models.Client.objects.get(pk=client.pk).latest_report_resolved
     )()
@@ -51,7 +76,9 @@ async def _flag(client):
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_resolving_the_latest_report_takes_the_client_off_the_action_list():
+async def test_resolving_the_latest_report_takes_the_client_off_the_action_list() -> (
+    None
+):
     s = await sync_to_async(_setup)()
 
     result = await management_schema.execute(
@@ -71,7 +98,7 @@ async def test_resolving_the_latest_report_takes_the_client_off_the_action_list(
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_resolving_an_older_report_does_not_flip_the_flag():
+async def test_resolving_an_older_report_does_not_flip_the_flag() -> None:
     s = await sync_to_async(_setup)()
 
     result = await management_schema.execute(
@@ -87,7 +114,7 @@ async def test_resolving_an_older_report_does_not_flip_the_flag():
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_resolving_never_rewrites_what_the_client_reported():
+async def test_resolving_never_rewrites_what_the_client_reported() -> None:
     s = await sync_to_async(_setup)()
 
     await management_schema.execute(
@@ -104,7 +131,7 @@ async def test_resolving_never_rewrites_what_the_client_reported():
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_unresolve_clears_every_triage_field_and_reopens():
+async def test_unresolve_clears_every_triage_field_and_reopens() -> None:
     s = await sync_to_async(_setup)()
     await management_schema.execute(
         RESOLVE,
@@ -126,7 +153,7 @@ async def test_unresolve_clears_every_triage_field_and_reopens():
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_non_member_gets_the_uniform_denial():
+async def test_non_member_gets_the_uniform_denial() -> None:
     s = await sync_to_async(_setup)()
     outsider = await sync_to_async(factories.make_membership)()
     context = await sync_to_async(
@@ -152,7 +179,7 @@ async def test_non_member_gets_the_uniform_denial():
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_member_may_triage_but_not_request_a_report():
+async def test_member_may_triage_but_not_request_a_report() -> None:
     """Triage takes the plain-member bar; asking a running deployment to re-report
     is an operator action and takes the owner/admin bar."""
     s = await sync_to_async(_setup)()
@@ -177,14 +204,14 @@ async def test_member_may_triage_but_not_request_a_report():
 # --------------------------------------------------------------------------- #
 
 
-def _report(client, functional):
+def _report(client: fakts_models.Client, functional: bool) -> fakts_models.Client:
     return client_services.report_client(
         client, base_models.ReportRequest(functional=functional)
     )
 
 
 @pytest.mark.django_db
-def test_a_fresh_report_reopens_triage_and_clears_the_pending_request():
+def test_a_fresh_report_reopens_triage_and_clears_the_pending_request() -> None:
     client = factories.make_client()
     fakts_models.Report.objects.create(client=client, functional=False).resolve(
         client.user, "triaged"
@@ -204,7 +231,7 @@ def test_a_fresh_report_reopens_triage_and_clears_the_pending_request():
 
 
 @pytest.mark.django_db
-def test_healthy_report_moves_the_last_healthy_pointer():
+def test_healthy_report_moves_the_last_healthy_pointer() -> None:
     client = factories.make_client()
 
     _report(client, functional=True)
@@ -219,7 +246,7 @@ def test_healthy_report_moves_the_last_healthy_pointer():
 
 @pytest.mark.django_db
 @override_settings(CLIENT_REPORT_RETENTION=2)
-def test_pruning_keeps_the_last_healthy_report_outside_the_window():
+def test_pruning_keeps_the_last_healthy_report_outside_the_window() -> None:
     client = factories.make_client()
 
     _report(client, functional=True)

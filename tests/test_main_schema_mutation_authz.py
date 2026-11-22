@@ -11,14 +11,17 @@ error cannot be used as an existence oracle.
 
 import pytest
 from asgiref.sync import sync_to_async
+from kante.context import HttpContext
+from strawberry.types import ExecutionResult
 
-from karakter.models import Profile, SystemMessage
+from fakts.models import Device
+from karakter.models import Membership, Profile, SystemMessage
 from lok_server.schema import schema
 from tests import factories
 from tests.conftest import build_auth_context
 
 
-def _two_principals():
+def _two_principals() -> tuple[HttpContext, Membership, HttpContext, Membership]:
     """Two authenticated principals in unrelated organizations."""
     mine = factories.make_membership()
     my_client = factories.make_client(membership=mine)
@@ -30,7 +33,7 @@ def _two_principals():
     return my_context, mine, their_context, theirs
 
 
-def _assert_denied(result):
+def _assert_denied(result: ExecutionResult) -> None:
     assert result.errors, f"expected a denial, got data: {result.data}"
     assert "not authorized" in result.errors[0].message, result.errors[0].message
 
@@ -56,10 +59,10 @@ UPDATE_PROFILE = """
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_cannot_rename_another_tenants_device():
+async def test_cannot_rename_another_tenants_device() -> None:
     my_context, _mine, _their_context, theirs = await sync_to_async(_two_principals)()
 
-    def _their_device():
+    def _their_device() -> Device:
         from fakts.models import Device
 
         return Device.objects.create(
@@ -81,7 +84,7 @@ async def test_cannot_rename_another_tenants_device():
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_cannot_acknowledge_another_users_message():
+async def test_cannot_acknowledge_another_users_message() -> None:
     my_context, _mine, _their_context, theirs = await sync_to_async(_two_principals)()
 
     message = await sync_to_async(SystemMessage.objects.create)(
@@ -101,10 +104,10 @@ async def test_cannot_acknowledge_another_users_message():
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_cannot_overwrite_another_users_profile():
+async def test_cannot_overwrite_another_users_profile() -> None:
     my_context, _mine, _their_context, theirs = await sync_to_async(_two_principals)()
 
-    def _their_profile():
+    def _their_profile() -> Profile:
         profile, _ = Profile.objects.get_or_create(
             user=theirs.user, defaults={"name": "theirs"}
         )
@@ -129,7 +132,7 @@ async def test_cannot_overwrite_another_users_profile():
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_upload_key_is_namespaced_under_the_caller():
+async def test_upload_key_is_namespaced_under_the_caller() -> None:
     """A presigned POST grants write to exactly one key, so it must not be
     attacker-chosen — `MEDIA_BUCKET` is served publicly by the gateway."""
     import re

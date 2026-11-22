@@ -14,9 +14,10 @@ still has to be prevented in the resolvers themselves.
 """
 
 import inspect
+from collections.abc import Callable
 
 from asgiref.sync import sync_to_async
-from graphql import GraphQLError
+from graphql import GraphQLError, GraphQLResolveInfo
 from strawberry.extensions import SchemaExtension
 
 # GraphQL field names (camelCase) that may be resolved without authentication.
@@ -27,7 +28,7 @@ from strawberry.extensions import SchemaExtension
 PUBLIC_ROOT_FIELDS = frozenset({"inviteByCode", "linkPreview"})
 
 
-def _request_from_context(context: object):
+def _request_from_context(context: object) -> object:
     """Return the Django request from a strawberry context (object or dict)."""
     request = getattr(context, "request", None)
     if request is None and isinstance(context, dict):
@@ -59,7 +60,14 @@ def _is_authenticated(request: object) -> bool:
 class RequireAuthenticationExtension(SchemaExtension):
     """Reject anonymous access to every root field outside the allow-list."""
 
-    async def resolve(self, _next, root, info, *args, **kwargs):
+    async def resolve(
+        self,
+        _next: Callable[..., object],
+        root: object,
+        info: GraphQLResolveInfo,
+        *args: object,
+        **kwargs: object,
+    ) -> object:
         # `info.path.prev is None` identifies a top-level query/mutation field.
         # Introspection meta-fields (`__schema`, `__type`, `__typename`) are left
         # alone so schema tooling keeps working.

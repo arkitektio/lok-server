@@ -5,6 +5,8 @@ organization holds them built in, and ``lok_all`` stands for all of them."""
 import pytest
 from asgiref.sync import sync_to_async
 from authentikate.strawberry.directives import Auth
+from kante.context import HttpContext
+from strawberry.types import ExecutionResult
 
 from karakter import models
 from karakter.scopes import LOK_SCOPES
@@ -15,7 +17,7 @@ from tests.conftest import build_auth_context
 KEYS = {scope.key for scope in LOK_SCOPES}
 
 
-def test_every_root_field_asks_for_one_of_loks_scopes():
+def test_every_root_field_asks_for_one_of_loks_scopes() -> None:
     core = main_schema._schema
     gaps = []
     for root in (core.query_type, core.mutation_type, core.subscription_type):
@@ -35,7 +37,7 @@ def test_every_root_field_asks_for_one_of_loks_scopes():
 
 
 @pytest.mark.django_db
-def test_every_organization_holds_loks_scopes_built_in():
+def test_every_organization_holds_loks_scopes_built_in() -> None:
     organization = factories.make_organization()
     held = {
         scope.identifier: scope
@@ -48,7 +50,7 @@ def test_every_organization_holds_loks_scopes_built_in():
     assert [key for key, scope in held.items() if scope.is_all_scope] == ["lok_all"]
 
 
-def _member(scope: str):
+def _member(scope: str) -> HttpContext:
     organization = factories.make_organization()
     membership = factories.make_membership(
         user=organization.owner, organization=organization
@@ -67,13 +69,13 @@ ACKNOWLEDGE = (
 )
 
 
-def _reason(result) -> str | None:
+def _reason(result: ExecutionResult) -> str | None:
     return result.errors[0].extensions.get("reason") if result.errors else None
 
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_an_app_granted_reads_reads_and_writes_nothing():
+async def test_an_app_granted_reads_reads_and_writes_nothing() -> None:
     context = await sync_to_async(_member)("openid lok_read")
     assert (await main_schema.execute(ME, context_value=context)).errors is None
     refused = await main_schema.execute(ACKNOWLEDGE, context_value=context)
@@ -82,7 +84,7 @@ async def test_an_app_granted_reads_reads_and_writes_nothing():
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_an_app_without_loks_scopes_reads_nothing():
+async def test_an_app_without_loks_scopes_reads_nothing() -> None:
     context = await sync_to_async(_member)("openid profile email")
     assert (
         _reason(await main_schema.execute(ME, context_value=context))
@@ -92,7 +94,7 @@ async def test_an_app_without_loks_scopes_reads_nothing():
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_the_all_scope_passes_every_check():
+async def test_the_all_scope_passes_every_check() -> None:
     context = await sync_to_async(_member)("openid lok_all")
     result = await main_schema.execute(ACKNOWLEDGE, context_value=context)
     # Past the scope gate: what refuses it now is the resolver (no such message), not a scope.

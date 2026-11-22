@@ -15,7 +15,7 @@ __all__ = ["membership_requests"]
 
 
 async def membership_requests(
-    self, info: Info
+    self: object, info: Info
 ) -> AsyncGenerator[types.MembershipRequestEvent, None]:
     """An event whenever someone asks to join the active organization, or a request is answered.
 

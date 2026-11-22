@@ -8,8 +8,11 @@ names its organization) and `updateMembershipColors` (main, which acts on the
 organization the token is scoped to).
 """
 
+from typing import Any
+
 import pytest
 from asgiref.sync import sync_to_async
+from kante.context import HttpContext
 
 from api.management.schema import schema as management_schema
 from karakter.models import Membership
@@ -28,7 +31,7 @@ query {
 """
 
 
-async def _scoped_membership(context) -> Membership:
+async def _scoped_membership(context: HttpContext) -> Membership:
     """The membership the request is scoped to.
 
     The fixture user also owns a signup org, so `me` returns more than one
@@ -42,8 +45,8 @@ async def _scoped_membership(context) -> Membership:
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
 async def test_main_schema_exposes_membership_and_organization_brand(
-    db, authenticated_context
-):
+    db: None, authenticated_context: HttpContext
+) -> None:
     membership = await _scoped_membership(authenticated_context)
     membership.brand_hue, membership.brand_chroma = 210.0, 0.14
     await sync_to_async(membership.save)()
@@ -62,7 +65,9 @@ async def test_main_schema_exposes_membership_and_organization_brand(
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_unset_membership_brand_reads_as_null(db, authenticated_context):
+async def test_unset_membership_brand_reads_as_null(
+    db: None, authenticated_context: HttpContext
+) -> None:
     """Null is meaningful: it is what tells a client to fall back to the org
     default rather than to paint 0."""
     membership = await _scoped_membership(authenticated_context)
@@ -85,8 +90,8 @@ mutation ($input: SetMembershipBrandHueInput!) {
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
 async def test_setting_one_brand_field_leaves_the_other_alone(
-    db, authenticated_context
-):
+    db: None, authenticated_context: HttpContext
+) -> None:
     """The reason the input uses UNSET rather than a null default.
 
     `brandHue` and `brandChroma` share one mutation, so if an omitted field read
@@ -95,7 +100,7 @@ async def test_setting_one_brand_field_leaves_the_other_alone(
     """
     organization = authenticated_context.request.organization
 
-    async def _set(**fields):
+    async def _set(**fields: object) -> dict[str, Any]:
         result = await management_schema.execute(
             SET_BRAND,
             context_value=authenticated_context,
@@ -124,14 +129,16 @@ mutation ($input: UpdateMembershipColorsInput!) {
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_main_schema_updates_the_callers_own_colors(db, authenticated_context):
+async def test_main_schema_updates_the_callers_own_colors(
+    db: None, authenticated_context: HttpContext
+) -> None:
     """The main-schema write path, with the same UNSET semantics as its twin.
 
     A client holding only a main-schema token has no organization argument to
     pass — the row it writes is the one its token already names.
     """
 
-    async def _set(**fields):
+    async def _set(**fields: object) -> dict[str, Any]:
         result = await main_schema.execute(
             UPDATE_COLORS,
             context_value=authenticated_context,
@@ -157,14 +164,14 @@ async def test_main_schema_updates_the_callers_own_colors(db, authenticated_cont
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
 async def test_main_schema_colors_touch_only_the_callers_membership(
-    db, authenticated_context
-):
+    db: None, authenticated_context: HttpContext
+) -> None:
     """The row is looked up by `(caller, active organization)`, so one member's
     colours can never land on another tenant's — or another member's — row."""
     from tests import factories
     from tests.conftest import build_auth_context
 
-    def _other_principal():
+    def _other_principal() -> tuple[HttpContext, Membership]:
         other = factories.make_membership()
         return build_auth_context(
             other.user, other.organization, factories.make_client(membership=other)

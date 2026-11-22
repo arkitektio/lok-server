@@ -10,10 +10,12 @@ whichever directory happened to be collected first.
 
 import os
 import time
+from collections.abc import Iterator
 
 import boto3
 import psycopg
 import pytest
+from botocore.client import BaseClient
 from dokker import PortNotFoundError, testing
 
 # --- the real backing services -------------------------------------------------
@@ -34,7 +36,7 @@ S3_SECRET_KEY = "lok_secret_key"
 S3_BUCKET = "media"
 
 
-def _s3_client(port: int):
+def _s3_client(port: int) -> BaseClient:
     return boto3.client(
         "s3",
         endpoint_url=f"http://localhost:{port}",
@@ -45,7 +47,7 @@ def _s3_client(port: int):
 
 
 @pytest.fixture(scope="session")
-def backend_stack():
+def backend_stack() -> Iterator[tuple[int, int]]:
     """Bring up the stack and yield ``(db_port, s3_port)`` as docker assigned them.
 
     Neither is pinned: dokker isolates runs by minting a unique compose project,
@@ -131,7 +133,7 @@ def _wait_for_bucket(port: int, deadline: float) -> None:
 
 
 @pytest.fixture(scope="session")
-def django_db_modify_db_settings(backend_stack):
+def django_db_modify_db_settings(backend_stack: tuple[int, int]) -> Iterator[None]:
     """Point Django at the postgres port the stack came up on.
 
     pytest-django calls this before creating the test database, which is the only
@@ -146,7 +148,7 @@ def django_db_modify_db_settings(backend_stack):
 
 
 @pytest.fixture(scope="session", autouse=True)
-def s3_endpoint(backend_stack):
+def s3_endpoint(backend_stack: tuple[int, int]) -> Iterator[str]:
     """Point the datalayer at the object store's mapped port.
 
     Autouse because the presigned-URL code strips this prefix out of its own
@@ -160,7 +162,7 @@ def s3_endpoint(backend_stack):
 
 
 @pytest.fixture
-def s3_client(backend_stack, s3_endpoint):
+def s3_client(backend_stack: tuple[int, int], s3_endpoint: str) -> BaseClient:
     """boto3 client for the real object store, as the provisioned scoped user."""
     _, s3_port = backend_stack
     return _s3_client(s3_port)

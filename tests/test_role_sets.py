@@ -5,8 +5,13 @@ would have been invisible. These pin the bar, that foreign role ids are dropped,
 the duplicate-name rules, and that deleting a set never touches the roles.
 """
 
+from collections.abc import Sequence
+from typing import TypedDict
+
 import pytest
 from asgiref.sync import sync_to_async
+from kante.context import HttpContext
+from strawberry.types import ExecutionResult
 
 from api.management.schema import schema as management_schema
 from karakter import models
@@ -31,14 +36,33 @@ mutation ($id: ID!, $name: String, $roles: [ID!]) {
 DELETE = "mutation ($id: ID!) { deleteRoleSet(input: { id: $id }) }"
 
 
-def _setup():
+class Setup(TypedDict):
+    org: models.Organization
+    owner: HttpContext
+    admin: HttpContext
+    member: HttpContext
+    editor: models.Role
+    viewer: models.Role
+
+
+def _setup() -> Setup:
     s = _org_with_admin_and_member()
-    s["editor"] = create_role(s["org"], "editor")
-    s["viewer"] = create_role(s["org"], "viewer")
-    return s
+    return {
+        "org": s["org"],
+        "owner": s["owner"],
+        "admin": s["admin"],
+        "member": s["member"],
+        "editor": create_role(s["org"], "editor"),
+        "viewer": create_role(s["org"], "viewer"),
+    }
 
 
-async def _create(context, org, name, roles=None):
+async def _create(
+    context: HttpContext,
+    org: models.Organization,
+    name: str,
+    roles: list[str] | None = None,
+) -> ExecutionResult:
     return await management_schema.execute(
         CREATE,
         context_value=context,
@@ -46,7 +70,9 @@ async def _create(context, org, name, roles=None):
     )
 
 
-def _make_set(org, name, roles=()):
+def _make_set(
+    org: models.Organization, name: str, roles: Sequence[models.Role] = ()
+) -> models.RoleSet:
     role_set = models.RoleSet.objects.create(name=name, organization=org)
     role_set.roles.set(roles)
     return role_set
@@ -54,7 +80,7 @@ def _make_set(org, name, roles=()):
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_owner_can_create_a_role_set_with_roles():
+async def test_owner_can_create_a_role_set_with_roles() -> None:
     s = await sync_to_async(_setup)()
 
     result = await _create(s["owner"], s["org"], "editors", [str(s["editor"].id)])
@@ -68,7 +94,7 @@ async def test_owner_can_create_a_role_set_with_roles():
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_admin_is_not_enough_to_manage_role_sets():
+async def test_admin_is_not_enough_to_manage_role_sets() -> None:
     """Admins may do almost everything else; role sets are deliberately owner-only."""
     s = await sync_to_async(_setup)()
 
@@ -83,7 +109,7 @@ async def test_admin_is_not_enough_to_manage_role_sets():
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_plain_member_is_rejected_too():
+async def test_plain_member_is_rejected_too() -> None:
     s = await sync_to_async(_setup)()
 
     result = await _create(s["member"], s["org"], "editors")
@@ -94,7 +120,7 @@ async def test_plain_member_is_rejected_too():
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_foreign_role_ids_are_ignored():
+async def test_foreign_role_ids_are_ignored() -> None:
     s = await sync_to_async(_setup)()
     foreign = await sync_to_async(
         lambda: create_role(factories.make_organization(), "editor")
@@ -108,7 +134,7 @@ async def test_foreign_role_ids_are_ignored():
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_duplicate_name_is_refused():
+async def test_duplicate_name_is_refused() -> None:
     s = await sync_to_async(_setup)()
     await sync_to_async(_make_set)(s["org"], "editors")
 
@@ -120,7 +146,7 @@ async def test_duplicate_name_is_refused():
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_update_allows_renaming_to_own_name_and_replaces_roles():
+async def test_update_allows_renaming_to_own_name_and_replaces_roles() -> None:
     s = await sync_to_async(_setup)()
     role_set = await sync_to_async(_make_set)(s["org"], "editors", [s["editor"]])
 
@@ -143,7 +169,7 @@ async def test_update_allows_renaming_to_own_name_and_replaces_roles():
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_update_refuses_renaming_onto_another_set():
+async def test_update_refuses_renaming_onto_another_set() -> None:
     s = await sync_to_async(_setup)()
     await sync_to_async(_make_set)(s["org"], "editors")
     other = await sync_to_async(_make_set)(s["org"], "viewers")
@@ -160,7 +186,7 @@ async def test_update_refuses_renaming_onto_another_set():
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_admin_cannot_update_or_delete():
+async def test_admin_cannot_update_or_delete() -> None:
     s = await sync_to_async(_setup)()
     role_set = await sync_to_async(_make_set)(s["org"], "editors", [s["editor"]])
 
@@ -182,7 +208,7 @@ async def test_admin_cannot_update_or_delete():
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_delete_keeps_the_underlying_roles():
+async def test_delete_keeps_the_underlying_roles() -> None:
     s = await sync_to_async(_setup)()
     role_set = await sync_to_async(_make_set)(s["org"], "editors", [s["editor"]])
 

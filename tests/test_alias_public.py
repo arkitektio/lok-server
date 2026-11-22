@@ -11,6 +11,7 @@ keep working unchanged.
 
 import pytest
 from asgiref.sync import sync_to_async
+from kante.context import HttpContext
 from pydantic import ValidationError
 
 from api.management.schema import schema as management_schema
@@ -24,25 +25,25 @@ from tests.conftest import build_auth_context
 # --------------------------------------------------------------------------- #
 
 
-def test_staging_alias_defaults_public_false():
+def test_staging_alias_defaults_public_false() -> None:
     """A StagingAlias payload that omits ``public`` still parses (default False)."""
     alias = base_models.StagingAlias(id="a1", host="example.com")
     assert alias.public is False
 
 
-def test_staging_alias_accepts_public_true():
+def test_staging_alias_accepts_public_true() -> None:
     alias = base_models.StagingAlias(id="a1", host="example.com", public=True)
     assert alias.public is True
 
 
-def test_alias_defaults_public_false():
+def test_alias_defaults_public_false() -> None:
     """The resolved Alias sent to the client defaults ``public`` to False."""
     alias = base_models.Alias(id="a1", host="example.com", challenge="ht")
     assert alias.public is False
 
 
 @pytest.mark.django_db
-def test_instance_alias_model_defaults_public_false():
+def test_instance_alias_model_defaults_public_false() -> None:
     instance = factories.make_service_instance()
     alias = models.InstanceAlias.objects.create(instance=instance, host="example.com")
     alias.refresh_from_db()
@@ -71,7 +72,7 @@ def _linking_context() -> base_models.LinkingContext:
 
 
 @pytest.mark.django_db
-def test_to_url_propagates_public_for_absolute_alias():
+def test_to_url_propagates_public_for_absolute_alias() -> None:
     instance = factories.make_service_instance()
     alias = models.InstanceAlias.objects.create(
         instance=instance, host="example.com", kind="absolute", public=True
@@ -81,7 +82,7 @@ def test_to_url_propagates_public_for_absolute_alias():
 
 
 @pytest.mark.django_db
-def test_to_url_defaults_public_false():
+def test_to_url_defaults_public_false() -> None:
     instance = factories.make_service_instance()
     alias = models.InstanceAlias.objects.create(
         instance=instance, host="example.com", kind="absolute"
@@ -115,7 +116,7 @@ def _hub_manifest(*, public: bool) -> base_models.HubManifest:
 
 
 @pytest.mark.django_db
-def test_create_hub_persists_public_true():
+def test_create_hub_persists_public_true() -> None:
     organization = factories.make_organization()
     hubs.create_hub_from_manifest(_hub_manifest(public=True), organization)
 
@@ -124,7 +125,7 @@ def test_create_hub_persists_public_true():
 
 
 @pytest.mark.django_db
-def test_create_hub_defaults_public_false():
+def test_create_hub_defaults_public_false() -> None:
     organization = factories.make_organization()
     hubs.create_hub_from_manifest(_hub_manifest(public=False), organization)
 
@@ -137,13 +138,13 @@ def test_create_hub_defaults_public_false():
 # --------------------------------------------------------------------------- #
 
 
-def test_public_field_exposed_on_management_graphql_types():
+def test_public_field_exposed_on_management_graphql_types() -> None:
     # ManagementInstanceAlias and the pydantic StagingAlias both carry `public`.
     sdl = str(management_schema)
     assert sdl.count("public: Boolean!") >= 2, sdl
 
 
-def test_public_field_exposed_on_fakts_alias_type():
+def test_public_field_exposed_on_fakts_alias_type() -> None:
     from lok_server.schema import schema as lok_schema
 
     assert "public: Boolean!" in str(lok_schema)
@@ -174,7 +175,7 @@ DELETE_ALIAS = """
 """
 
 
-def _mutation_setup():
+def _mutation_setup() -> tuple[HttpContext, models.ServiceInstance]:
     """Sync setup: an authenticated user/org plus a service instance to alias.
 
     The instance is created inside the caller's own organization: alias mutations
@@ -200,7 +201,7 @@ def _mutation_setup():
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_create_alias_mutation_creates_alias_with_public():
+async def test_create_alias_mutation_creates_alias_with_public() -> None:
     context, instance = await sync_to_async(_mutation_setup)()
 
     result = await management_schema.execute(
@@ -230,7 +231,7 @@ async def test_create_alias_mutation_creates_alias_with_public():
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_create_alias_mutation_defaults_public_false():
+async def test_create_alias_mutation_defaults_public_false() -> None:
     context, instance = await sync_to_async(_mutation_setup)()
 
     result = await management_schema.execute(
@@ -252,7 +253,7 @@ async def test_create_alias_mutation_defaults_public_false():
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_update_alias_mutation_updates_public():
+async def test_update_alias_mutation_updates_public() -> None:
     context, instance = await sync_to_async(_mutation_setup)()
     alias = await sync_to_async(models.InstanceAlias.objects.create)(
         instance=instance, host="old.example.com", kind="absolute", public=False
@@ -280,7 +281,7 @@ async def test_update_alias_mutation_updates_public():
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_update_alias_mutation_leaves_public_untouched_when_omitted():
+async def test_update_alias_mutation_leaves_public_untouched_when_omitted() -> None:
     context, instance = await sync_to_async(_mutation_setup)()
     alias = await sync_to_async(models.InstanceAlias.objects.create)(
         instance=instance, host="old.example.com", kind="absolute", public=True
@@ -306,7 +307,7 @@ async def test_update_alias_mutation_leaves_public_untouched_when_omitted():
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_delete_alias_mutation_removes_alias():
+async def test_delete_alias_mutation_removes_alias() -> None:
     context, instance = await sync_to_async(_mutation_setup)()
     alias = await sync_to_async(models.InstanceAlias.objects.create)(
         instance=instance, host="gone.example.com", kind="absolute"
@@ -331,7 +332,7 @@ async def test_delete_alias_mutation_removes_alias():
 # --------------------------------------------------------------------------- #
 
 
-def test_alias_defaults_kind_absolute():
+def test_alias_defaults_kind_absolute() -> None:
     """Callers that never mention ``kind`` (e.g. the self alias) stay absolute."""
     alias = base_models.Alias(id="a1", host="example.com", challenge="ht")
     assert alias.kind == "absolute"
@@ -339,7 +340,7 @@ def test_alias_defaults_kind_absolute():
 
 @pytest.mark.django_db
 @pytest.mark.parametrize("kind", ["absolute", "docker"])
-def test_to_url_propagates_kind(kind):
+def test_to_url_propagates_kind(kind: str) -> None:
     instance = factories.make_service_instance()
     alias = models.InstanceAlias.objects.create(
         instance=instance, host="example.com", kind=kind
@@ -354,7 +355,7 @@ def test_to_url_propagates_kind(kind):
 
 
 @pytest.mark.django_db
-def test_instance_alias_model_defaults_kind_absolute():
+def test_instance_alias_model_defaults_kind_absolute() -> None:
     instance = factories.make_service_instance()
     alias = models.InstanceAlias.objects.create(instance=instance, host="example.com")
     alias.refresh_from_db()
@@ -362,14 +363,14 @@ def test_instance_alias_model_defaults_kind_absolute():
 
 
 @pytest.mark.parametrize("kind", ["relative", "satellite"])
-def test_staging_alias_refuses_an_unknown_kind(kind):
+def test_staging_alias_refuses_an_unknown_kind(kind: str) -> None:
     with pytest.raises(ValidationError, match="unknown kind"):
         base_models.StagingAlias(id="a", kind=kind, host="example.com")
 
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_create_alias_mutation_refuses_a_relative_alias():
+async def test_create_alias_mutation_refuses_a_relative_alias() -> None:
     context, instance = await sync_to_async(_mutation_setup)()
 
     result = await management_schema.execute(
@@ -394,7 +395,7 @@ async def test_create_alias_mutation_refuses_a_relative_alias():
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_update_alias_mutation_refuses_a_relative_alias():
+async def test_update_alias_mutation_refuses_a_relative_alias() -> None:
     context, instance = await sync_to_async(_mutation_setup)()
     alias = await sync_to_async(models.InstanceAlias.objects.create)(
         instance=instance, host="example.com", kind="absolute"
@@ -424,7 +425,7 @@ async def test_update_alias_mutation_refuses_a_relative_alias():
 # --------------------------------------------------------------------------- #
 
 
-def test_docker_staging_alias_needs_a_host():
+def test_docker_staging_alias_needs_a_host() -> None:
     with pytest.raises(ValidationError):
         base_models.StagingAlias(id="d", kind="docker")
     assert (
@@ -433,7 +434,7 @@ def test_docker_staging_alias_needs_a_host():
     )
 
 
-def test_docker_staging_alias_cannot_be_public():
+def test_docker_staging_alias_cannot_be_public() -> None:
     """The coordination server is outside the docker network: it could never
     health-check the alias, which is all ``public`` is for."""
     with pytest.raises(ValidationError):
@@ -441,7 +442,7 @@ def test_docker_staging_alias_cannot_be_public():
 
 
 @pytest.mark.django_db
-def test_docker_alias_renders_its_stored_address_not_the_request_host():
+def test_docker_alias_renders_its_stored_address_not_the_request_host() -> None:
     instance = factories.make_service_instance()
     alias = models.InstanceAlias.objects.create(
         instance=instance,
@@ -463,7 +464,7 @@ def test_docker_alias_renders_its_stored_address_not_the_request_host():
 
 
 @pytest.mark.django_db
-def test_docker_alias_is_rendered_next_to_the_others():
+def test_docker_alias_is_rendered_next_to_the_others() -> None:
     """No audience filtering: every client of the instance gets the docker alias."""
     instance = factories.make_service_instance()
     models.InstanceAlias.objects.create(
@@ -478,7 +479,7 @@ def test_docker_alias_is_rendered_next_to_the_others():
 
 
 @pytest.mark.django_db
-def test_create_hub_persists_docker_alias():
+def test_create_hub_persists_docker_alias() -> None:
     manifest = base_models.HubManifest(
         identifier="com.example.comp",
         instances=[
@@ -514,7 +515,7 @@ def test_create_hub_persists_docker_alias():
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_create_alias_mutation_creates_docker_alias():
+async def test_create_alias_mutation_creates_docker_alias() -> None:
     context, instance = await sync_to_async(_mutation_setup)()
 
     result = await management_schema.execute(
@@ -537,7 +538,7 @@ async def test_create_alias_mutation_creates_docker_alias():
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_create_alias_mutation_rejects_public_docker_alias():
+async def test_create_alias_mutation_rejects_public_docker_alias() -> None:
     context, instance = await sync_to_async(_mutation_setup)()
 
     result = await management_schema.execute(
@@ -563,7 +564,9 @@ async def test_create_alias_mutation_rejects_public_docker_alias():
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_update_alias_mutation_rejects_turning_a_public_alias_into_docker():
+async def test_update_alias_mutation_rejects_turning_a_public_alias_into_docker() -> (
+    None
+):
     context, instance = await sync_to_async(_mutation_setup)()
     alias = await sync_to_async(models.InstanceAlias.objects.create)(
         instance=instance, host="example.com", kind="absolute", public=True

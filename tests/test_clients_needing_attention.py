@@ -8,9 +8,11 @@ non-functional because it asks for something nobody deployed is ordinary.
 
 import pytest
 from asgiref.sync import sync_to_async
+from kante.context import HttpContext
 
 from api.management.schema import schema as management_schema
 from fakts import models
+from karakter.models import Organization
 from tests import factories
 from tests.conftest import build_auth_context
 
@@ -19,7 +21,7 @@ CLIENTS = """
 """
 
 
-def _setup():
+def _setup() -> tuple[Organization, dict[str, models.Client], HttpContext]:
     organization = factories.make_organization()
     owner = factories.make_membership(
         user=organization.owner, organization=organization
@@ -27,7 +29,9 @@ def _setup():
     hub = factories.make_hub(organization=organization)
     instance = factories.make_service_instance(hub=hub)
 
-    def client(functional, mapped, reports):
+    def client(
+        functional: bool, mapped: list[str], reports: dict[str, bool]
+    ) -> models.Client:
         c = factories.make_client(membership=owner)
         c.functional = functional
         c.save(update_fields=["functional"])
@@ -55,7 +59,7 @@ def _setup():
     return organization, clients, context
 
 
-async def _ids(context, filters):
+async def _ids(context: HttpContext, filters: dict[str, object]) -> set[str]:
     result = await management_schema.execute(
         CLIENTS, variable_values={"filters": filters}, context_value=context
     )
@@ -65,7 +69,7 @@ async def _ids(context, filters):
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_only_a_granted_and_unreachable_service_needs_attention():
+async def test_only_a_granted_and_unreachable_service_needs_attention() -> None:
     organization, clients, context = await sync_to_async(_setup)()
     scope = {"organization": str(organization.id)}
 
@@ -85,7 +89,7 @@ async def test_only_a_granted_and_unreachable_service_needs_attention():
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_a_triaged_client_leaves_the_action_list():
+async def test_a_triaged_client_leaves_the_action_list() -> None:
     organization, clients, context = await sync_to_async(_setup)()
     filters = {
         "organization": str(organization.id),

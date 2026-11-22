@@ -9,12 +9,15 @@ and re-authorizing with a new key rotates it.
 import base64
 import json
 from types import SimpleNamespace
+from typing import Any
 
 import pytest
+from django.test import Client
 from django.urls import reverse
 from joserfc.jwk import OKPKey
 
 from fakts import models
+from karakter.models import Membership
 from tests import factories
 from tests.test_fakts_flows import _poll
 
@@ -31,7 +34,13 @@ def _instance(name: str, key: OKPKey | None) -> dict:
     return {"identifier": name, "manifest": manifest, "aliases": []}
 
 
-def _enroll(client, organization_membership, instances, identifier="keyhub", uid=None):
+def _enroll(
+    client: Client,
+    organization_membership: Membership,
+    instances: list[dict[str, object]],
+    identifier: str = "keyhub",
+    uid: str | None = None,
+) -> tuple[models.Hub, dict[str, Any]]:
     """Start, accept (as an org admin) and poll a hub device code; the token response."""
     from api.management.mutations.hub_device_code import (
         AcceptHubDeviceCodeInput,
@@ -69,17 +78,21 @@ def _enroll(client, organization_membership, instances, identifier="keyhub", uid
     )
     token = _poll(client, body["device_code"], body["client_id"])
     assert token.status_code == 200, token.content
+    # The resolver hands back the model row (strawberry-django types wrap rows).
+    assert isinstance(hub, models.Hub)
     return hub, token.json()
 
 
 @pytest.fixture
-def admin():
+def admin() -> Membership:
     org = factories.make_organization()
     return factories.make_membership(user=org.owner, organization=org)
 
 
 @pytest.mark.django_db
-def test_the_manifest_keys_are_what_apps_check_an_instance_by(client, admin):
+def test_the_manifest_keys_are_what_apps_check_an_instance_by(
+    client: Client, admin: Membership
+) -> None:
     """A hub's services trust each other through the hub's own bundle: lok keeps each public key
     only to hand it to apps, which check an alias by it (``challenge_key``)."""
     mikro = OKPKey.generate_key("Ed25519")
@@ -97,7 +110,9 @@ def test_the_manifest_keys_are_what_apps_check_an_instance_by(client, admin):
 
 
 @pytest.mark.django_db
-def test_reauthorizing_with_a_new_key_rotates_it(client, admin):
+def test_reauthorizing_with_a_new_key_rotates_it(
+    client: Client, admin: Membership
+) -> None:
     first, second = OKPKey.generate_key("Ed25519"), OKPKey.generate_key("Ed25519")
     hub, _ = _enroll(client, admin, [_instance("mikro", first)])
     hub_again, _ = _enroll(client, admin, [_instance("mikro", second)])
@@ -106,7 +121,7 @@ def test_reauthorizing_with_a_new_key_rotates_it(client, admin):
 
 
 @pytest.mark.django_db
-def test_a_malformed_key_is_refused(client, admin):
+def test_a_malformed_key_is_refused(client: Client, admin: Membership) -> None:
     with pytest.raises(ValueError, match="32-byte"):
         _enroll(
             client,
@@ -125,7 +140,7 @@ def test_a_malformed_key_is_refused(client, admin):
         )
 
 
-def test_lok_publishes_no_trust_bundle():
+def test_lok_publishes_no_trust_bundle() -> None:
     from django.urls import NoReverseMatch
 
     with pytest.raises(NoReverseMatch):
@@ -134,8 +149,8 @@ def test_lok_publishes_no_trust_bundle():
 
 @pytest.mark.django_db
 def test_authorized_again_under_its_uid_a_hub_is_replaced_by_what_it_says_now(
-    client, admin
-):
+    client: Client, admin: Membership
+) -> None:
     """The hub names itself: the same uid is the same hub, with the services it names now."""
     uid = "0192f3c4-7a2b-7c1d-9e8f-1a2b3c4d5e6f"
     hub, _ = _enroll(
@@ -154,7 +169,9 @@ def test_authorized_again_under_its_uid_a_hub_is_replaced_by_what_it_says_now(
 
 
 @pytest.mark.django_db
-def test_two_organizations_may_each_hold_the_same_hub(client, admin):
+def test_two_organizations_may_each_hold_the_same_hub(
+    client: Client, admin: Membership
+) -> None:
     """A kommunity partner's one deployment, authorized in two organizations: one uid, the same names."""
     uid = "0192f3c4-0000-7000-8000-000000000001"
     other_org = factories.make_organization()
@@ -172,7 +189,7 @@ def test_two_organizations_may_each_hold_the_same_hub(client, admin):
 
 
 @pytest.mark.django_db
-def test_a_hubs_new_service_is_named(client, admin):
+def test_a_hubs_new_service_is_named(client: Client, admin: Membership) -> None:
     """A service is shown by its name (kontrol groups an app's scopes under it): a hub made by
     device code names it by its identifier, as hubs.py does, rather than leaving it blank."""
     hub, _ = _enroll(client, admin, [_instance("mikro", None)])

@@ -1,3 +1,5 @@
+from collections.abc import Iterable
+
 import kante
 import strawberry
 from django.db import transaction
@@ -184,7 +186,7 @@ def replace_ionscale_layer(
     except Exception as exc:
         raise GraphQLError(
             f"Could not replace the mesh: {exc}. Retrying the replace is safe."
-        )
+        ) from exc
 
 
 @kante.input
@@ -262,7 +264,7 @@ def delete_ionscale_auth_key(
     try:
         get_ionscale_repo().delete_auth_key(key.layer.tailnet_name, key.key)
     except Exception as exc:
-        raise GraphQLError(f"Could not revoke the auth key: {exc}")
+        raise GraphQLError(f"Could not revoke the auth key: {exc}") from exc
     key.delete()
     return input.id
 
@@ -299,7 +301,7 @@ def delete_machine(info: Info, input: DeleteMachineInput) -> strawberry.ID:
             None,
         )
     except Exception as exc:
-        raise GraphQLError(f"Could not reach the mesh: {exc}")
+        raise GraphQLError(f"Could not reach the mesh: {exc}") from exc
     if machine is None:
         raise GraphQLError(DENIED)
     if reserved_tags(machine.tags):
@@ -310,7 +312,7 @@ def delete_machine(info: Info, input: DeleteMachineInput) -> strawberry.ID:
     try:
         repo.delete_machine(machine.id)
     except Exception as exc:
-        raise GraphQLError(f"Could not remove the machine: {exc}")
+        raise GraphQLError(f"Could not remove the machine: {exc}") from exc
     return input.machine_id
 
 
@@ -339,7 +341,7 @@ def enable_tailnet_lock(info: Info, input: TailnetLockInput) -> types.Management
     try:
         get_ionscale_repo().enable_tailnet_lock(layer.tailnet_name)
     except Exception as exc:
-        raise GraphQLError(f"Could not enable tailnet lock: {exc}")
+        raise GraphQLError(f"Could not enable tailnet lock: {exc}") from exc
 
     return layer
 
@@ -359,12 +361,12 @@ def disable_tailnet_lock(info: Info, input: TailnetLockInput) -> types.Managemen
     try:
         get_ionscale_repo().disable_tailnet_lock(layer.tailnet_name)
     except Exception as exc:
-        raise GraphQLError(f"Could not disable tailnet lock: {exc}")
+        raise GraphQLError(f"Could not disable tailnet lock: {exc}") from exc
 
     return layer
 
 
-def _reject_reserved_tags(tags) -> None:
+def _reject_reserved_tags(tags: Iterable[str] | None) -> None:
     """`tag:app-*` / `tag:hub-*` mark app and hub sidecars; only lok mints them."""
     reserved = reserved_tags(tags)
     if reserved:

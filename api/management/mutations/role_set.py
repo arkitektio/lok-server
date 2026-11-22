@@ -1,6 +1,7 @@
 import kante
 import strawberry
 from django.db import IntegrityError
+from django.db.models import QuerySet
 from graphql import GraphQLError
 from kante import Info
 
@@ -25,7 +26,7 @@ def _assert_owner(info: Info, organization: models.Organization) -> None:
 
 def _roles_for_org(
     role_ids: list[strawberry.ID] | None, organization: models.Organization
-):
+) -> QuerySet[models.Role]:
     """Resolve role IDs to Role objects, scoped to the organization (ignores foreign ids)."""
     if not role_ids:
         return models.Role.objects.none()
@@ -47,10 +48,10 @@ def create_role_set(info: Info, input: CreateRoleSetInput) -> types.ManagementRo
         role_set = models.RoleSet.objects.create(
             name=input.name, organization=organization
         )
-    except IntegrityError:
+    except IntegrityError as exc:
         raise GraphQLError(
             f"A role set named '{input.name}' already exists in this organization."
-        )
+        ) from exc
     role_set.roles.set(_roles_for_org(input.roles, organization))
     return role_set
 
@@ -83,10 +84,10 @@ def update_role_set(info: Info, input: UpdateRoleSetInput) -> types.ManagementRo
         role_set.name = input.name
         try:
             role_set.save()
-        except IntegrityError:
+        except IntegrityError as exc:
             raise GraphQLError(
                 f"A role set named '{input.name}' already exists in this organization."
-            )
+            ) from exc
     if input.roles is not None:
         role_set.roles.set(_roles_for_org(input.roles, role_set.organization))
     return role_set

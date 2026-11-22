@@ -14,7 +14,7 @@ authentication.
 
 from django.conf import settings
 from django.core.cache import cache
-from django.http import JsonResponse
+from django.http import HttpRequest, JsonResponse
 
 # Requests per window per client IP. Generous by design: a polling device makes
 # ~12 token requests/min, but many devices can share a NAT.
@@ -25,7 +25,7 @@ TOKEN_LIMIT_PER_MINUTE = getattr(settings, "OAUTH_TOKEN_THROTTLE_PER_MINUTE", 24
 WINDOW_SECONDS = 60
 
 
-def _client_ip(request) -> str:
+def _client_ip(request: HttpRequest) -> str:
     """The address to bucket this request under.
 
     This used to take the **leftmost** X-Forwarded-For entry, which is entirely
@@ -54,7 +54,7 @@ def _client_ip(request) -> str:
     return parts[-depth]
 
 
-def is_throttled(request, bucket: str, limit: int) -> bool:
+def is_throttled(request: HttpRequest, bucket: str, limit: int) -> bool:
     key = f"oauth-throttle:{bucket}:{_client_ip(request)}"
     try:
         if cache.add(key, 1, timeout=WINDOW_SECONDS):

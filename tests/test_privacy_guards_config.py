@@ -6,13 +6,13 @@ so the SPA can gate integrated widgets (Google One Tap) without losing anything.
 """
 
 import pytest
-from django.test import override_settings
+from django.test import Client, override_settings
 
 BROWSER = "/lok/_allauth/browser/v1"
 
 
 @pytest.mark.django_db
-def test_config_advertises_privacy_guards_default(client):
+def test_config_advertises_privacy_guards_default(client: Client) -> None:
     """Default deployment reports the opt-in policy alongside allauth's blocks."""
     data = client.get(f"{BROWSER}/config").json()["data"]
     assert data["privacy_guards"] == "opt-in"
@@ -23,7 +23,7 @@ def test_config_advertises_privacy_guards_default(client):
 
 @pytest.mark.django_db
 @override_settings(PRIVACY_GUARDS="strict")
-def test_config_reflects_strict_policy(client):
+def test_config_reflects_strict_policy(client: Client) -> None:
     """Setting the policy is reflected verbatim on the wire."""
     data = client.get(f"{BROWSER}/config").json()["data"]
     assert data["privacy_guards"] == "strict"
@@ -31,6 +31,6 @@ def test_config_reflects_strict_policy(client):
 
 @pytest.mark.django_db
 @override_settings(PRIVACY_GUARDS="disabled")
-def test_config_reflects_disabled_policy(client):
+def test_config_reflects_disabled_policy(client: Client) -> None:
     data = client.get(f"{BROWSER}/config").json()["data"]
     assert data["privacy_guards"] == "disabled"

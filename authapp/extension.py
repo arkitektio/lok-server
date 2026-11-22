@@ -62,13 +62,13 @@ def read_org_claim(token: JWTToken) -> str:
     return str(org)
 
 
-async def expand_user_from_token(token: str):
+async def expand_user_from_token(token: str) -> None:
     """Expand the user from the token"""
     # Implement your logic to expand the user from the token
     pass
 
 
-async def _is_hub_identity(client) -> bool:
+async def _is_hub_identity(client: Client | None) -> bool:
     """Whether ``client`` is a hub's own identity (``Hub.client``)."""
     if client is None:
         return False

@@ -6,6 +6,8 @@ looks exactly like one that does not exist, and the sharer is only named when
 they opted in, the organization did too, and they really are a member of it.
 """
 
+from typing import Any
+
 import pytest
 from asgiref.sync import sync_to_async
 from django.contrib.auth.models import AnonymousUser
@@ -28,7 +30,7 @@ PREVIEW = """
 EMPTY = {"linkPreview": {"organization": None, "inviter": None}}
 
 
-def _anonymous():
+def _anonymous() -> HttpContext:
     request = UniversalRequest(_extensions={})
     request.set_user(AnonymousUser())
     return HttpContext(
@@ -36,7 +38,9 @@ def _anonymous():
     )
 
 
-def _setup(org_public: bool, user_public: bool):
+def _setup(
+    org_public: bool, user_public: bool
+) -> tuple[models.Organization, models.User, models.User]:
     """An organization with a member who shares a link, and an outsider."""
     organization = factories.make_organization(description="We image things.")
     organization.public_link_preview = org_public
@@ -54,7 +58,7 @@ def _setup(org_public: bool, user_public: bool):
     return organization, sharer.user, outsider.user
 
 
-async def _preview(organization, user=None):
+async def _preview(organization: str, user: int | str | None = None) -> dict[str, Any]:
     result = await management_schema.execute(
         PREVIEW,
         variable_values={
@@ -64,12 +68,13 @@ async def _preview(organization, user=None):
         context_value=_anonymous(),
     )
     assert not result.errors, result.errors
+    assert result.data is not None
     return result.data
 
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_nothing_is_shown_by_default():
+async def test_nothing_is_shown_by_default() -> None:
     organization, sharer, _ = await sync_to_async(_setup)(
         org_public=False, user_public=False
     )
@@ -79,7 +84,9 @@ async def test_nothing_is_shown_by_default():
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_a_public_organization_and_sharer_are_shown_to_an_anonymous_visitor():
+async def test_a_public_organization_and_sharer_are_shown_to_an_anonymous_visitor() -> (
+    None
+):
     organization, sharer, _ = await sync_to_async(_setup)(
         org_public=True, user_public=True
     )
@@ -98,7 +105,7 @@ async def test_a_public_organization_and_sharer_are_shown_to_an_anonymous_visito
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_a_private_sharer_is_not_named_even_in_a_public_organization():
+async def test_a_private_sharer_is_not_named_even_in_a_public_organization() -> None:
     organization, sharer, _ = await sync_to_async(_setup)(
         org_public=True, user_public=False
     )
@@ -110,7 +117,7 @@ async def test_a_private_sharer_is_not_named_even_in_a_public_organization():
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_a_public_sharer_is_not_named_for_a_private_organization():
+async def test_a_public_sharer_is_not_named_for_a_private_organization() -> None:
     """Naming them would reveal that they belong to an organization that chose
     not to be seen."""
     organization, sharer, _ = await sync_to_async(_setup)(
@@ -122,7 +129,7 @@ async def test_a_public_sharer_is_not_named_for_a_private_organization():
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_a_link_cannot_claim_a_public_user_who_is_not_a_member():
+async def test_a_link_cannot_claim_a_public_user_who_is_not_a_member() -> None:
     organization, _, outsider = await sync_to_async(_setup)(
         org_public=True, user_public=True
     )
@@ -135,7 +142,7 @@ async def test_a_link_cannot_claim_a_public_user_who_is_not_a_member():
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
 @pytest.mark.parametrize("user", ["not-a-number", "999999999", "-1", ""])
-async def test_unknown_handles_and_junk_user_ids_answer_empty(user):
+async def test_unknown_handles_and_junk_user_ids_answer_empty(user: str) -> None:
     organization, _, _ = await sync_to_async(_setup)(org_public=True, user_public=True)
 
     assert await _preview("no-such-org", user) == EMPTY
@@ -151,8 +158,10 @@ async def test_unknown_handles_and_junk_user_ids_answer_empty(user):
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_the_owner_opts_the_organization_in_and_a_user_opts_themselves_in():
-    def setup():
+async def test_the_owner_opts_the_organization_in_and_a_user_opts_themselves_in() -> (
+    None
+):
+    def setup() -> tuple[models.Organization, models.Profile, HttpContext]:
         organization = factories.make_organization()
         owner = factories.make_membership(
             user=organization.owner, organization=organization

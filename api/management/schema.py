@@ -194,8 +194,10 @@ class Query:
         user = info.context.request.user
         try:
             manifest = device_code_obj.manifest_as_model
-        except Exception:
-            raise GraphQLError("The staged manifest of this device code is malformed.")
+        except Exception as exc:
+            raise GraphQLError(
+                "The staged manifest of this device code is malformed."
+            ) from exc
         errors: list[str] = []
 
         mappings: list[types.PotentialMapping] = []

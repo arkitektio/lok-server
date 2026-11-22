@@ -6,38 +6,42 @@ Covers the user-directory scoping, device-code entropy/lifetime/single-use, the
 
 import datetime
 import pathlib
+from typing import Any
 
 import pytest
 from asgiref.sync import sync_to_async
 from django.utils import timezone
+from kante.context import HttpContext
 
+from api.management.types import ManagementDeviceCode
 from fakts.services.device_codes import MAX_DEVICE_CODE_LIFETIME_SECONDS, _expires_at
 from fakts.services.tokens import create_challenge_code, create_device_code
+from karakter.models import Invite, Membership
 from karakter.views import safe_redirect_target
 from tests import factories
 
 
 class TestDeviceCodeEntropy:
-    def test_alphabet_is_wider_than_hex(self):
+    def test_alphabet_is_wider_than_hex(self) -> None:
         """The old implementation kept the last char of a uuid4 string — a hex
         digit — eight times: 16**8, not the 122 bits per uuid4 it looked like."""
         seen = {ch for _ in range(400) for ch in create_device_code()}
         assert len(seen) > 16, f"alphabet is only {len(seen)} symbols wide"
 
-    def test_codes_are_long_enough_and_unique(self):
+    def test_codes_are_long_enough_and_unique(self) -> None:
         codes = [create_device_code() for _ in range(2000)]
         assert len({len(c) for c in codes}) == 1
         assert len(codes[0]) >= 10
         # ~2**48 of space: 2000 draws should not collide.
         assert len(set(codes)) == len(codes)
 
-    def test_codes_avoid_visually_ambiguous_symbols(self):
+    def test_codes_avoid_visually_ambiguous_symbols(self) -> None:
         """It is transcribed by a human off one screen into another device."""
         joined = "".join(create_device_code() for _ in range(200))
         for ambiguous in ("0", "O", "1", "I", "L", "U", "V"):
             assert ambiguous not in joined
 
-    def test_challenge_code_is_a_full_entropy_secret(self):
+    def test_challenge_code_is_a_full_entropy_secret(self) -> None:
         """Never shown to a human, so it is not constrained by transcription."""
         code = create_challenge_code()
         assert len(code) >= 40
@@ -45,44 +49,44 @@ class TestDeviceCodeEntropy:
 
 
 class TestDeviceCodeLifetime:
-    def test_caller_supplied_lifetime_is_clamped(self):
+    def test_caller_supplied_lifetime_is_clamped(self) -> None:
         """`expiration_time_seconds` arrives in an unauthenticated request body."""
         deadline = _expires_at(60 * 60 * 24 * 365)
         assert deadline <= timezone.now() + datetime.timedelta(
             seconds=MAX_DEVICE_CODE_LIFETIME_SECONDS + 5
         )
 
-    def test_reasonable_lifetime_is_preserved(self):
+    def test_reasonable_lifetime_is_preserved(self) -> None:
         deadline = _expires_at(300)
         assert deadline > timezone.now() + datetime.timedelta(seconds=290)
 
-    def test_nonsense_lifetime_does_not_produce_a_past_deadline(self):
+    def test_nonsense_lifetime_does_not_produce_a_past_deadline(self) -> None:
         assert _expires_at(0) > timezone.now()
         assert _expires_at(-1) > timezone.now()
 
 
 class TestOpenRedirect:
-    def test_relative_paths_are_allowed(self):
+    def test_relative_paths_are_allowed(self) -> None:
         assert safe_redirect_target("/organizations") == "/organizations"
 
-    def test_absolute_foreign_urls_are_refused(self):
+    def test_absolute_foreign_urls_are_refused(self) -> None:
         assert (
             safe_redirect_target("https://evil.tld/phish") != "https://evil.tld/phish"
         )
 
-    def test_protocol_relative_urls_are_refused(self):
+    def test_protocol_relative_urls_are_refused(self) -> None:
         """`//evil.tld` has an empty scheme but a real netloc — the classic bypass
         for a check that only looks at the scheme."""
         assert safe_redirect_target("//evil.tld/phish") != "//evil.tld/phish"
 
-    def test_empty_falls_back(self):
+    def test_empty_falls_back(self) -> None:
         assert safe_redirect_target(None)
         assert safe_redirect_target("")
 
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_decline_requires_the_code_when_supplied():
+async def test_decline_requires_the_code_when_supplied() -> None:
     """A caller who presents a *wrong* code is refused even with a valid id."""
     from types import SimpleNamespace
 
@@ -94,7 +98,7 @@ async def test_decline_requires_the_code_when_supplied():
 
     device_code = await sync_to_async(factories.make_device_code)()
 
-    def _decline(code):
+    def _decline(code: str) -> ManagementDeviceCode:
         return decline_device_code(
             SimpleNamespace(
                 context=SimpleNamespace(request=SimpleNamespace(user=None))
@@ -117,13 +121,13 @@ async def test_decline_requires_the_code_when_supplied():
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_friends_only_returns_users_sharing_an_organization():
+async def test_friends_only_returns_users_sharing_an_organization() -> None:
     """`friends` was `User.objects.all()` — every email in the deployment to
     anyone who registered an account."""
     from api.management.schema import schema
     from tests.conftest import build_auth_context
 
-    def _setup():
+    def _setup() -> tuple[HttpContext, Membership, Membership, Membership]:
         mine = factories.make_membership()
         stranger = factories.make_membership()
         colleague = factories.make_membership(organization=mine.organization)
@@ -154,7 +158,7 @@ class TestCommittedKeyMaterialGuard:
     a key anyone can read out of the repository."""
 
     @staticmethod
-    def _repo_config():
+    def _repo_config() -> dict[str, Any]:
         """The historically-committed config, read out of git history.
 
         `config.yaml` is no longer tracked, so this reads the last revision that
@@ -188,7 +192,7 @@ class TestCommittedKeyMaterialGuard:
 
         pytest.skip("config.yaml is not readable from this history (shallow clone?)")
 
-    def test_config_yaml_is_not_tracked(self):
+    def test_config_yaml_is_not_tracked(self) -> None:
         """It was listed in .gitignore but tracked anyway, so it shipped in the
         image as the *default* config source."""
         import subprocess
@@ -199,10 +203,10 @@ class TestCommittedKeyMaterialGuard:
         )
         assert tracked.returncode != 0, "config.yaml is tracked in git again"
 
-    def test_config_yaml_is_excluded_from_the_image(self):
+    def test_config_yaml_is_excluded_from_the_image(self) -> None:
         assert "config.yaml" in pathlib.Path(".dockerignore").read_text().split()
 
-    def test_production_boot_refuses_the_committed_keys(self):
+    def test_production_boot_refuses_the_committed_keys(self) -> None:
         from lok_server.configuration import Settings
 
         cfg = self._repo_config()
@@ -212,7 +216,7 @@ class TestCommittedKeyMaterialGuard:
             Settings(**cfg)
         assert "committed" in str(excinfo.value).lower()
 
-    def test_debug_does_not_bypass_the_guard(self):
+    def test_debug_does_not_bypass_the_guard(self) -> None:
         """`debug` used to short-circuit the guard — and the shipped config.yaml
         set `debug: true`, so the guard never fired on the one configuration it
         exists to catch. Opting out is now explicit.
@@ -226,7 +230,9 @@ class TestCommittedKeyMaterialGuard:
             Settings(**cfg)
         assert "committed" in str(excinfo.value).lower()
 
-    def test_explicit_opt_out_allows_the_committed_keys(self, monkeypatch):
+    def test_explicit_opt_out_allows_the_committed_keys(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         """The escape hatch still exists, but you have to say so deliberately."""
         from lok_server.configuration import Settings
 
@@ -236,7 +242,7 @@ class TestCommittedKeyMaterialGuard:
 
         Settings(**cfg)
 
-    def test_fresh_keys_pass_in_production(self):
+    def test_fresh_keys_pass_in_production(self) -> None:
         from lok_server.configuration import Settings
 
         cfg = self._repo_config()
@@ -251,7 +257,7 @@ class TestCommittedKeyMaterialGuard:
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_invite_by_code_still_resolves_for_an_anonymous_visitor():
+async def test_invite_by_code_still_resolves_for_an_anonymous_visitor() -> None:
     """`inviteByCode` is the only entry in `PUBLIC_ROOT_FIELDS` and powers the
     real `/invite/:code` page. `ManagementUser` just gained a `get_queryset` that
     dereferences `request.user`; if `createdBy` resolution ran it, the public
@@ -264,9 +270,8 @@ async def test_invite_by_code_still_resolves_for_an_anonymous_visitor():
     from kante.context import HttpContext, TemporalResponse, UniversalRequest
 
     from api.management.schema import schema
-    from karakter.models import Invite
 
-    def _public_invite():
+    def _public_invite() -> Invite:
         membership = factories.make_membership()
         org = membership.organization
         return Invite.objects.create(created_by=org.owner, created_for=org, public=True)
@@ -290,7 +295,7 @@ async def test_invite_by_code_still_resolves_for_an_anonymous_visitor():
 
 
 @pytest.mark.django_db(transaction=True)
-def test_a_granted_device_code_is_single_use():
+def test_a_granted_device_code_is_single_use() -> None:
     """Burning the code on grant is visible to devices: a second poll of the
     token endpoint no longer returns tokens. Pin what it does return."""
     from django.test import Client as DjangoClient
@@ -330,7 +335,7 @@ def test_a_granted_device_code_is_single_use():
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_anonymous_invite_preview_does_not_leak_the_inviter_email():
+async def test_anonymous_invite_preview_does_not_leak_the_inviter_email() -> None:
     """`inviteByCode` is public and `createdBy` is an FK traversal, which does not
     run `ManagementUser.get_queryset` — so the email needed its own gate. The
     kontrol invite page renders `username` and the avatar, never the email."""
@@ -338,9 +343,8 @@ async def test_anonymous_invite_preview_does_not_leak_the_inviter_email():
     from kante.context import HttpContext, TemporalResponse, UniversalRequest
 
     from api.management.schema import schema
-    from karakter.models import Invite
 
-    def _mk():
+    def _mk() -> Invite:
         membership = factories.make_membership()
         org = membership.organization
         org.owner.email = "inviter@secret.example"

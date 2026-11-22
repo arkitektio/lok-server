@@ -9,7 +9,7 @@ and `oidc_issuer` becomes what it is in a token: a name.
 """
 
 import pytest
-from django.test import override_settings
+from django.test import Client, RequestFactory, override_settings
 
 WELL_KNOWN = "/lok/.well-known/fakts"
 
@@ -23,7 +23,7 @@ FOLLOWING = override_settings(
 
 
 @pytest.mark.django_db
-def test_off_by_default_the_request_host_changes_nothing(client):
+def test_off_by_default_the_request_host_changes_nothing(client: Client) -> None:
     here = client.get(WELL_KNOWN, HTTP_HOST="localhost:7190").json()
     there = client.get(WELL_KNOWN, HTTP_HOST="gateway").json()
     assert here == there
@@ -32,7 +32,7 @@ def test_off_by_default_the_request_host_changes_nothing(client):
 
 @pytest.mark.django_db
 @FOLLOWING
-def test_endpoints_are_advertised_at_the_address_that_was_asked(client):
+def test_endpoints_are_advertised_at_the_address_that_was_asked(client: Client) -> None:
     here = client.get(WELL_KNOWN, HTTP_HOST="localhost:7190").json()
     assert here["token_endpoint"] == "http://localhost:7190/lok/o/token/"
     assert (
@@ -52,7 +52,7 @@ def test_endpoints_are_advertised_at_the_address_that_was_asked(client):
 
 @pytest.mark.django_db
 @FOLLOWING
-def test_the_issuer_stays_the_configured_name(client):
+def test_the_issuer_stays_the_configured_name(client: Client) -> None:
     """The `iss` every service matches by string equality must not move with the
     address — a token got at one address has to be good at all of them."""
     for host in ("localhost:7190", "gateway", "192.168.1.5:7190"):
@@ -66,7 +66,7 @@ def test_the_issuer_stays_the_configured_name(client):
 
 @pytest.mark.django_db
 @FOLLOWING
-def test_the_jwks_url_follows_too(rf):
+def test_the_jwks_url_follows_too(rf: RequestFactory) -> None:
     from fakts.services.rendering import _jwks_url
 
     request = rf.get(WELL_KNOWN, HTTP_HOST="gateway")

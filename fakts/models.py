@@ -16,7 +16,7 @@ from django.utils import timezone
 from django_choices_field import TextChoicesField
 
 from fakts import base_models, enums, errors, fields
-from karakter.models import MediaStore, Organization
+from karakter.models import MediaStore, Membership, Organization, User
 
 
 def generate_client_id() -> str:
@@ -89,7 +89,7 @@ class KommunityPartner(models.Model):
         default=dict,
     )
 
-    def __str__(self):
+    def __str__(self) -> str:
         return f"{self.identifier}"
 
     @property
@@ -98,7 +98,7 @@ class KommunityPartner(models.Model):
             return None
         return base_models.HubManifest(**self.preconfigured_hub)
 
-    def applies_to_user(self, user) -> bool:
+    def applies_to_user(self, user: User) -> bool:
         """
         Check if this partner's filter conditions apply to the given user.
 
@@ -170,7 +170,7 @@ class Layer(models.Model):
         help_text="The kind of layer",
     )
 
-    def __str__(self):
+    def __str__(self) -> str:
         return f"{self.identifier}"
 
 
@@ -183,7 +183,7 @@ class IonscaleLayer(Layer):
     magic_dns_enabled = models.BooleanField(default=True)
     https_enabled = models.BooleanField(default=True)
 
-    def __str__(self):
+    def __str__(self) -> str:
         return f"Ionscale Layer: {self.identifier} ({self.tailnet_name})"
 
 
@@ -208,7 +208,7 @@ class IonscaleAuthKey(models.Model):
     ephemeral = models.BooleanField(default=False)
     tags = models.JSONField(default=list)
 
-    def __str__(self):
+    def __str__(self) -> str:
         return f"Auth Key for {self.layer.tailnet_name} ({self.created_at})"
 
 
@@ -234,7 +234,7 @@ class Service(models.Model):
             )
         ]
 
-    def __str__(self):
+    def __str__(self) -> str:
         return f"{self.identifier}"
 
     def validate_instance(self, instance: dict[str, Any]) -> list[str]:
@@ -261,7 +261,7 @@ class ServiceRelease(models.Model):
             )
         ]
 
-    def __str__(self):
+    def __str__(self) -> str:
         return f"{self.service}:{self.version}"
 
 
@@ -334,10 +334,10 @@ class ServiceInstance(models.Model):
         max_length=1000, help_text="The token of the instance, used for authentication."
     )
 
-    def __str__(self):
+    def __str__(self) -> str:
         return f"{self.release}:{self.instance_id}"
 
-    def save(self, *args, **kwargs) -> None:
+    def save(self, *args: Any, **kwargs: Any) -> None:
         """Save the instance, with its release's service: a new release of the same service is the same instance."""
         self.service = self.release.service
         if (
@@ -387,7 +387,7 @@ class ServiceInstance(models.Model):
             except AssertionError as e:
                 raise errors.InstanceAliasNotFound(
                     f"Error rendering alias {alias}: {str(e)}"
-                )
+                ) from e
         urls = [url for _, _, url in sorted(ranked, key=lambda entry: entry[:2])]
 
         challenge_key = (
@@ -944,7 +944,7 @@ class Hub(models.Model):
         return offline_at is not None and timezone.now() <= offline_at
 
     @property
-    def last_verified_at(self):
+    def last_verified_at(self) -> datetime.datetime | None:
         """When lok last proved one of the hub's public aliases up and authentic (a signed probe)."""
         return InstanceAlias.objects.filter(instance__hub=self, public=True).aggregate(
             latest=models.Max("last_verified_at")
@@ -962,7 +962,7 @@ class Hub(models.Model):
         interval = getattr(settings, "HUB_PROBE_INTERVAL", 60)
         return (timezone.now() - latest).total_seconds() <= 3 * interval
 
-    def __str__(self):
+    def __str__(self) -> str:
         return f"{self.name} ({self.organization})"
 
 
@@ -1136,7 +1136,7 @@ class MeshDeviceCode(models.Model):
     expires_at = models.DateTimeField()
     denied = models.BooleanField(default=False)
 
-    def __str__(self):
+    def __str__(self) -> str:
         return f"MeshDeviceCode {self.code} ({self.requested_machine_name})"
 
 
@@ -1194,7 +1194,7 @@ class AppMeshEnrollment(models.Model):
     def tag(self) -> str:
         return f"tag:app-{self.pk}"
 
-    def __str__(self):
+    def __str__(self) -> str:
         return f"AppMeshEnrollment {self.app_id}/{self.membership_id}/{self.device_id}"
 
 
@@ -1217,7 +1217,7 @@ class App(models.Model):
             )
         ]
 
-    def __str__(self):
+    def __str__(self) -> str:
         return f"{self.identifier}"
 
 
@@ -1242,7 +1242,7 @@ class Release(models.Model):
             )
         ]
 
-    def __str__(self):
+    def __str__(self) -> str:
         return f"{self.app}:{self.version}"
 
 
@@ -1254,7 +1254,7 @@ class DeviceGroup(models.Model):
         related_name="device_groups",
     )
 
-    def __str__(self):
+    def __str__(self) -> str:
         return f"{self.name} ({self.organization})"
 
 
@@ -1458,7 +1458,9 @@ class Client(models.Model, ClientMixin):
         return self.client_id
 
     @classmethod
-    def for_token_client_id(cls, token_client_id: str, queryset=None) -> "Client":
+    def for_token_client_id(
+        cls, token_client_id: str, queryset: "models.QuerySet[Client] | None" = None
+    ) -> "Client":
         """The client a token's ``client_id`` claim names: by its own id, or by the
         identity it had under any release it has run. Raises ``DoesNotExist``."""
         clients = cls.objects.all() if queryset is None else queryset
@@ -1506,11 +1508,11 @@ class Client(models.Model, ClientMixin):
         return self.report_requested_at is not None
 
     @property
-    def user(self):
+    def user(self) -> User | None:
         """The acting user, derived from the membership (there is no user FK)."""
         return self.membership.user if self.membership_id else None
 
-    def resolve_membership(self):
+    def resolve_membership(self) -> Membership:
         """The membership every issued token is scoped to. No fallback hops —
         an unbound client simply cannot get a token."""
         if self.membership_id:
@@ -1520,19 +1522,19 @@ class Client(models.Model, ClientMixin):
         )
 
     @property
-    def user_id(self):
+    def user_id(self) -> int:
         """authlib's save_token stores this as the token's subject (a Membership pk)."""
         return self.resolve_membership().id
 
     # --- authlib ClientMixin ----------------------------------------------
 
-    def get_client_id(self):
+    def get_client_id(self) -> str:
         return self.client_id
 
-    def get_default_redirect_uri(self):
+    def get_default_redirect_uri(self) -> str | None:
         return self.redirect_uris.split()[0] if self.redirect_uris.split() else None
 
-    def get_allowed_scope(self, scope):
+    def get_allowed_scope(self, scope: str | None) -> str:
         """Narrow a requested scope to what this client is registered for.
 
         An omitted scope resolves to the client's *own* registered scope rather
@@ -1552,7 +1554,7 @@ class Client(models.Model, ClientMixin):
         allowed = set(self.scope.split())
         return " ".join([s for s in scope.split() if s in allowed])
 
-    def check_redirect_uri(self, redirect_uri):
+    def check_redirect_uri(self, redirect_uri: str | None) -> bool:
         """Exact-match against the registered, space-joined list. A substring
         test would match a registered URI appearing anywhere in an attacker's
         URL (e.g. as a query parameter)."""
@@ -1560,14 +1562,14 @@ class Client(models.Model, ClientMixin):
             return False
         return redirect_uri in self.redirect_uris.split()
 
-    def check_client_secret(self, client_secret):
+    def check_client_secret(self, client_secret: str | None) -> bool:
         """Constant-time comparison — `==` short-circuits at the first
         differing byte and leaks the secret's prefix through timing."""
         if not client_secret:
             return False
         return _secrets.compare_digest(str(self.client_secret), str(client_secret))
 
-    def check_endpoint_auth_method(self, method, endpoint):
+    def check_endpoint_auth_method(self, method: str, endpoint: str) -> bool:
         """`none` is accepted at the token/revocation endpoints only for
         clients explicitly registered public (every fakts client); confidential
         relying parties use the secret methods."""
@@ -1578,11 +1580,11 @@ class Client(models.Model, ClientMixin):
 
         return self.token_endpoint_auth_method == method
 
-    def check_response_type(self, response_type):
+    def check_response_type(self, response_type: str) -> bool:
         allowed = self.response_types.split() or ["code"]
         return response_type in allowed
 
-    def check_grant_type(self, grant_type):
+    def check_grant_type(self, grant_type: str) -> bool:
         return grant_type in self.grant_types.split()
 
 
@@ -1611,7 +1613,7 @@ class ServiceInstanceMapping(models.Model):
             )
         ]
 
-    def __str__(self):
+    def __str__(self) -> str:
         return f"{self.key}:{self.instance}@{self.client}"
 
 
@@ -1636,7 +1638,7 @@ class UsedAlias(models.Model):
         auto_now=True, help_text="When the client last reported this usage."
     )
 
-    def __str__(self):
+    def __str__(self) -> str:
         return f"{self.alias} used in {self.key} at {self.used_at}"
 
 
@@ -1674,7 +1676,7 @@ class Report(models.Model):
     class Meta:
         ordering = ["-created_at", "-id"]
 
-    def __str__(self):
+    def __str__(self) -> str:
         return f"Report for {self.client} at {self.created_at}"
 
     @property
@@ -1687,7 +1689,7 @@ class Report(models.Model):
         latest = self.client.reports.order_by("-created_at", "-id").first()
         return latest is not None and latest.pk == self.pk
 
-    def resolve(self, user, note: str | None = None):
+    def resolve(self, user: User, note: str | None = None) -> None:
         """Acknowledge this report.
 
         Acknowledgement deliberately does NOT touch `client.functional` — the
@@ -1705,7 +1707,7 @@ class Report(models.Model):
         if self.is_latest:
             Client.objects.filter(pk=self.client_id).update(latest_report_resolved=True)
 
-    def unresolve(self):
+    def unresolve(self) -> None:
         """Reopen an acknowledged report."""
         self.resolved_at = None
         self.resolved_by = None
@@ -1758,7 +1760,7 @@ class ClientIdentity(models.Model):
             ),
         ]
 
-    def __str__(self):
+    def __str__(self) -> str:
         return f"{self.client} as {self.token_client_id}"
 
 
@@ -1878,11 +1880,13 @@ class BugReport(models.Model):
             models.Index(fields=["github_repo", "github_issue_number"]),
         ]
 
-    def __str__(self):
+    def __str__(self) -> str:
         return f"Bug report {self.title!r} ({self.created_at})"
 
     @staticmethod
-    def visible_to(queryset, user):
+    def visible_to(
+        queryset: "models.QuerySet[BugReport]", user: User
+    ) -> "models.QuerySet[BugReport]":
         """Narrow ``queryset`` to what ``user`` may read: every report of an
         organization they own or administer, and the ones they filed themselves."""
         from karakter import roles
@@ -1901,7 +1905,7 @@ class TailscaleInspector(models.Model):
         related_name="tailscale_inspectors",
     )
 
-    def __str__(self):
+    def __str__(self) -> str:
         return f"{self.name} ({self.organization})"
 
 
@@ -1914,7 +1918,7 @@ class LinkInspector(models.Model):
     )
     link = models.CharField(max_length=1000)
 
-    def __str__(self):
+    def __str__(self) -> str:
         return f"{self.name} ({self.organization})"
 
 

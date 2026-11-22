@@ -1,4 +1,5 @@
 from datetime import timedelta
+from typing import TYPE_CHECKING
 
 import kante
 import strawberry
@@ -11,6 +12,9 @@ from api.management import types
 from api.management.authz import DENIED, get_or_denied, is_owner, is_owner_or_admin
 from karakter import collaboration_grants, models
 from karakter.invites import InviteError, redeem_invite
+
+if TYPE_CHECKING:
+    from kante.context import Client as Principal
 
 
 @kante.input
@@ -30,7 +34,7 @@ class SharedCollaborationInput:
     )
 
 
-def _calling_client(info: Info | None):
+def _calling_client(info: Info | None) -> "Principal | None":
     if info is None:
         return None
     try:
@@ -39,7 +43,7 @@ def _calling_client(info: Info | None):
         return None
 
 
-def _resolve_instance(instance: str, client) -> str:
+def _resolve_instance(instance: str, client: "Principal | None") -> str:
     """An instance id as given, or the calling app's requirement key for one, as the id it maps to.
 
     An app knows its services by the keys of its manifest (``mikro``), not by lok
@@ -109,7 +113,7 @@ class CreateInviteInput:
     )
 
 
-def _may_share(user, organization) -> bool:
+def _may_share(user: models.User, organization: models.Organization) -> bool:
     """Any full member with a role other than `guest` may grant collaborations of the organization.
 
     They can already reach all of it, and a guest's roles in a collaboration are
@@ -156,7 +160,7 @@ def create_invite(info: Info, input: CreateInviteInput) -> types.ManagementInvit
                 collaboration_entries(input.collaborations, info), organization
             )
         except ValidationError as e:
-            raise GraphQLError(" ".join(e.messages))
+            raise GraphQLError(" ".join(e.messages)) from e
         if input.roles:
             raise GraphQLError(
                 "An invite that grants collaborations grants no roles in the organization."
@@ -225,13 +229,13 @@ def accept_invite(info: Info, input: AcceptInviteInput) -> types.ManagementMembe
     # instead of reporting an invalid token.
     try:
         invite = get_or_denied(models.Invite.objects, token=input.token)
-    except GraphQLError:
-        raise GraphQLError("Invalid invite token")
+    except GraphQLError as exc:
+        raise GraphQLError("Invalid invite token") from exc
 
     try:
         return redeem_invite(invite, info.context.request.user)
     except InviteError as e:
-        raise GraphQLError(str(e))
+        raise GraphQLError(str(e)) from e
 
 
 @kante.input
@@ -249,8 +253,8 @@ def decline_invite(info: Info, input: DeclineInviteInput) -> types.ManagementInv
     """
     try:
         invite = get_or_denied(models.Invite.objects, token=input.token)
-    except GraphQLError:
-        raise GraphQLError("Invalid invite token")
+    except GraphQLError as exc:
+        raise GraphQLError("Invalid invite token") from exc
 
     # Check if invite is still pending
     if invite.status != models.Invite.Status.PENDING:

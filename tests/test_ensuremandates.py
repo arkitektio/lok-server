@@ -5,15 +5,19 @@ config has its key revoked, and a revoked key is never revived.
 """
 
 import json
+from typing import TYPE_CHECKING, Any
 
 import pytest
 from django.core.management import call_command
-from django.test import override_settings
+from django.test import Client, override_settings
 from django.urls import reverse
 
 from fakts import models
 from lok_server.configuration import MandateKeySettings
 from tests import factories
+
+if TYPE_CHECKING:
+    from django.test.client import _MonkeyPatchedWSGIResponse as TestResponse
 
 KEY = "k" * 40
 GRANT = "urn:fakts:grant-type:mandate-key"
@@ -25,7 +29,7 @@ APP = {
 }
 
 
-def _spec(hub, **overrides) -> MandateKeySettings:
+def _spec(hub: models.Hub, **overrides: Any) -> MandateKeySettings:
     return MandateKeySettings(
         name="pytest",
         key=overrides.pop("key", KEY),
@@ -36,16 +40,18 @@ def _spec(hub, **overrides) -> MandateKeySettings:
     )
 
 
-def _run(*specs):
+def _run(*specs: MandateKeySettings) -> None:
     with override_settings(MANDATE_KEYS=list(specs)):
         call_command("ensuremandates")
 
 
-def _snapshot():
+def _snapshot() -> list[dict[str, Any]]:
     return list(models.Mandate.objects.order_by("pk").values())
 
 
-def _login(client, key=KEY, manifest=APP):
+def _login(
+    client: Client, key: str = KEY, manifest: dict[str, object] = APP
+) -> "TestResponse":
     return client.post(
         reverse("token"),
         data={"grant_type": GRANT, "key": key, "manifest": json.dumps(manifest)},
@@ -54,14 +60,16 @@ def _login(client, key=KEY, manifest=APP):
 
 
 @pytest.fixture
-def hub():
+def hub() -> models.Hub:
     hub = factories.make_hub()
     factories.make_membership(user=hub.creator, organization=hub.organization)
     return hub
 
 
 @pytest.mark.django_db
-def test_a_configured_key_logs_an_app_in_and_a_second_run_changes_nothing(client, hub):
+def test_a_configured_key_logs_an_app_in_and_a_second_run_changes_nothing(
+    client: Client, hub: models.Hub
+) -> None:
     _run(_spec(hub))
     first = _snapshot()
     assert _login(client).status_code == 200
@@ -75,7 +83,9 @@ def test_a_configured_key_logs_an_app_in_and_a_second_run_changes_nothing(client
 
 
 @pytest.mark.django_db
-def test_an_entry_dropped_from_the_config_is_revoked_and_stays_revoked(client, hub):
+def test_an_entry_dropped_from_the_config_is_revoked_and_stays_revoked(
+    client: Client, hub: models.Hub
+) -> None:
     _run(_spec(hub))
     _run()
 
@@ -88,7 +98,7 @@ def test_an_entry_dropped_from_the_config_is_revoked_and_stays_revoked(client, h
 
 
 @pytest.mark.django_db
-def test_a_changed_key_supersedes_the_old_one(client, hub):
+def test_a_changed_key_supersedes_the_old_one(client: Client, hub: models.Hub) -> None:
     _run(_spec(hub))
     _run(_spec(hub, key="n" * 40))
 
@@ -101,7 +111,7 @@ def test_a_changed_key_supersedes_the_old_one(client, hub):
 
 
 @pytest.mark.django_db
-def test_changed_settings_are_written_in_place(hub):
+def test_changed_settings_are_written_in_place(hub: models.Hub) -> None:
     _run(_spec(hub))
     mandate = models.Mandate.objects.get()
 

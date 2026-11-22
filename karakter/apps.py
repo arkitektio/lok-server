@@ -5,7 +5,7 @@ class KarakterConfig(AppConfig):
     default_auto_field = "django.db.models.BigAutoField"
     name = "karakter"
 
-    def ready(self):
+    def ready(self) -> None:
         # Registers the signals that keep scoped memberships from turning into full ones
         # (karakter.collaboration_grants), Membership.is_admin recomputed from the
         # roles (karakter.roles), and the service roles lok hands out by itself

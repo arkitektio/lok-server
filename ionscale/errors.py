@@ -10,7 +10,9 @@ class IonscaleError(RuntimeError):
     ``except Exception`` / ``except RuntimeError`` sites keep working.
     """
 
-    def __init__(self, code: str, message: str = "", http_status: int | None = None):
+    def __init__(
+        self, code: str, message: str = "", http_status: int | None = None
+    ) -> None:
         self.code = code
         self.message = message
         self.http_status = http_status

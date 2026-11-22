@@ -8,15 +8,19 @@ aliases resolve to its node's MagicDNS name, and its health callback
 """
 
 import json
+from collections.abc import Iterator
 from datetime import timedelta
 from types import SimpleNamespace
+from typing import TYPE_CHECKING, Any
 
 import pytest
 from django.conf import settings
 from django.core.cache import cache
+from django.test import Client
 from django.urls import reverse
 from django.utils import timezone
 from pydantic import ValidationError
+from pytest_django.fixtures import DjangoCaptureOnCommitCallbacks, SettingsWrapper
 
 from api.management.mutations.hub_device_code import (
     AcceptHubDeviceCodeInput,
@@ -26,14 +30,18 @@ from fakts import base_models, models
 from fakts.services.hubs import APP_MESH_KEY_EXPIRY_SECONDS
 from fakts.services.mesh import resolve_hub_mesh_host
 from ionscale.base_models import Machine
+from ionscale.testing import FakeIonscaleRepository
 from tests import factories
+
+if TYPE_CHECKING:
+    from django.test.client import _MonkeyPatchedWSGIResponse as TestResponse
 
 DEVICE_CODE_GRANT = "urn:ietf:params:oauth:grant-type:device_code"
 SUFFIX = "mesh.example.test"
 
 
 @pytest.fixture(autouse=True)
-def _fresh_cache(settings):
+def _fresh_cache(settings: SettingsWrapper) -> Iterator[None]:
     settings.IONSCALE_MAGIC_DNS_SUFFIX = SUFFIX
     cache.clear()
     yield
@@ -41,7 +49,7 @@ def _fresh_cache(settings):
 
 
 @pytest.fixture
-def mesh_org():
+def mesh_org() -> SimpleNamespace:
     organization = factories.make_organization()
     layer = models.IonscaleLayer.objects.create(
         organization=organization,
@@ -59,8 +67,12 @@ def mesh_org():
 
 
 def _manifest(
-    *, request_auth_key=True, aliases=None, clients=None, identifier="meshhub"
-):
+    *,
+    request_auth_key: bool = True,
+    aliases: list[dict[str, object]] | None = None,
+    clients: list[dict[str, object]] | None = None,
+    identifier: str = "meshhub",
+) -> dict[str, object]:
     return {
         "identifier": identifier,
         "request_auth_key": request_auth_key,
@@ -77,7 +89,13 @@ def _manifest(
     }
 
 
-def _grant(client, mesh_org, *, allow_ionscale=True, **manifest):
+def _grant(
+    client: Client,
+    mesh_org: SimpleNamespace,
+    *,
+    allow_ionscale: bool = True,
+    **manifest: Any,
+) -> tuple[models.Hub, dict[str, Any]]:
     body = client.post(
         reverse("hub_authorization"),
         data=json.dumps({"hub": _manifest(**manifest)}),
@@ -106,11 +124,13 @@ def _grant(client, mesh_org, *, allow_ionscale=True, **manifest):
         secure=True,
     )
     assert resp.status_code == 200, resp.content
+    # The resolver hands back the model row (strawberry-django types wrap rows).
+    assert isinstance(hub, models.Hub)
     hub.refresh_from_db()
     return hub, resp.json()
 
 
-def _refresh(client, token):
+def _refresh(client: Client, token: dict[str, Any]) -> dict[str, Any]:
     return client.post(
         reverse("token"),
         data={
@@ -129,8 +149,8 @@ def _refresh(client, token):
 
 @pytest.mark.django_db
 def test_hub_key_rides_the_initial_token_response_once_in_the_app_shape(
-    client, ionscale_repo, mesh_org
-):
+    client: Client, ionscale_repo: FakeIonscaleRepository, mesh_org: SimpleNamespace
+) -> None:
     hub, token = _grant(client, mesh_org)
 
     assert token["mesh"] == {
@@ -160,8 +180,12 @@ def test_hub_key_rides_the_initial_token_response_once_in_the_app_shape(
     "request_auth_key, allow_ionscale", [(False, True), (True, False)]
 )
 def test_no_hub_key_unless_requested_and_allowed(
-    client, ionscale_repo, mesh_org, request_auth_key, allow_ionscale
-):
+    client: Client,
+    ionscale_repo: FakeIonscaleRepository,
+    mesh_org: SimpleNamespace,
+    request_auth_key: bool,
+    allow_ionscale: bool,
+) -> None:
     hub, token = _grant(
         client,
         mesh_org,
@@ -174,7 +198,9 @@ def test_no_hub_key_unless_requested_and_allowed(
 
 
 @pytest.mark.django_db
-def test_ionscale_failure_still_provisions_the_hub(client, ionscale_repo, mesh_org):
+def test_ionscale_failure_still_provisions_the_hub(
+    client: Client, ionscale_repo: FakeIonscaleRepository, mesh_org: SimpleNamespace
+) -> None:
     from ionscale.errors import IonscaleError
 
     ionscale_repo.fail_with["create_auth_key"] = IonscaleError("unavailable", "down")
@@ -186,8 +212,8 @@ def test_ionscale_failure_still_provisions_the_hub(client, ionscale_repo, mesh_o
 
 @pytest.mark.django_db
 def test_reauthorization_rotates_the_key_and_prunes_without_duplicating(
-    client, ionscale_repo, mesh_org
-):
+    client: Client, ionscale_repo: FakeIonscaleRepository, mesh_org: SimpleNamespace
+) -> None:
     ionscale_repo.unique_auth_keys = True
     hub_client = {
         "identifier": "ui",
@@ -230,8 +256,11 @@ def test_reauthorization_rotates_the_key_and_prunes_without_duplicating(
 
 @pytest.mark.django_db
 def test_deleting_the_hub_removes_its_key_and_nodes(
-    client, ionscale_repo, mesh_org, django_capture_on_commit_callbacks
-):
+    client: Client,
+    ionscale_repo: FakeIonscaleRepository,
+    mesh_org: SimpleNamespace,
+    django_capture_on_commit_callbacks: DjangoCaptureOnCommitCallbacks,
+) -> None:
     hub, token = _grant(client, mesh_org)
     ionscale_repo.machines_by_tailnet[mesh_org.layer.tailnet_name] = [
         Machine(id="100", name="meshhub", tags=[hub.mesh_tag], connected=True),
@@ -253,7 +282,7 @@ def test_deleting_the_hub_removes_its_key_and_nodes(
 # --------------------------------------------------------------------------- #
 
 
-def test_only_mesh_aliases_may_omit_the_host():
+def test_only_mesh_aliases_may_omit_the_host() -> None:
     assert (
         base_models.StagingAlias(id="m", kind="mesh", host="ignored.example").host
         is None
@@ -264,8 +293,8 @@ def test_only_mesh_aliases_may_omit_the_host():
 
 @pytest.mark.django_db
 def test_mesh_alias_resolves_to_the_hub_nodes_magicdns_name(
-    client, ionscale_repo, mesh_org
-):
+    client: Client, ionscale_repo: FakeIonscaleRepository, mesh_org: SimpleNamespace
+) -> None:
     hub, _ = _grant(client, mesh_org)
     ionscale_repo.machines_by_tailnet[mesh_org.layer.tailnet_name] = [
         Machine(
@@ -295,8 +324,8 @@ def test_mesh_alias_resolves_to_the_hub_nodes_magicdns_name(
 
 @pytest.mark.django_db
 def test_mesh_alias_falls_back_to_the_ip_without_magicdns(
-    client, ionscale_repo, mesh_org
-):
+    client: Client, ionscale_repo: FakeIonscaleRepository, mesh_org: SimpleNamespace
+) -> None:
     mesh_org.layer.magic_dns_enabled = False
     mesh_org.layer.save()
     hub, _ = _grant(client, mesh_org)
@@ -314,8 +343,8 @@ def test_mesh_alias_falls_back_to_the_ip_without_magicdns(
 
 @pytest.mark.django_db
 def test_unresolvable_mesh_alias_is_left_out_of_the_instance_claim(
-    client, ionscale_repo, mesh_org
-):
+    client: Client, ionscale_repo: FakeIonscaleRepository, mesh_org: SimpleNamespace
+) -> None:
     hub, _ = _grant(client, mesh_org)
     instance = hub.instances.get()
     public = models.InstanceAlias.objects.create(
@@ -333,7 +362,9 @@ def test_unresolvable_mesh_alias_is_left_out_of_the_instance_claim(
 # --------------------------------------------------------------------------- #
 
 
-def _report(client, access_token, payload):
+def _report(
+    client: Client, access_token: str, payload: dict[str, object]
+) -> "TestResponse":
     return client.post(
         reverse("fakts:hubhealth"),
         data=json.dumps(payload),
@@ -343,7 +374,9 @@ def _report(client, access_token, payload):
 
 
 @pytest.mark.django_db
-def test_health_callback_needs_a_hub_token(client, ionscale_repo, mesh_org):
+def test_health_callback_needs_a_hub_token(
+    client: Client, ionscale_repo: FakeIonscaleRepository, mesh_org: SimpleNamespace
+) -> None:
     assert (
         client.post(
             reverse("fakts:hubhealth"), data="{}", content_type="application/json"
@@ -359,8 +392,11 @@ def test_health_callback_needs_a_hub_token(client, ionscale_repo, mesh_org):
 
 @pytest.mark.django_db
 def test_health_callback_records_liveness_and_trims_history(
-    client, ionscale_repo, mesh_org, settings
-):
+    client: Client,
+    ionscale_repo: FakeIonscaleRepository,
+    mesh_org: SimpleNamespace,
+    settings: SettingsWrapper,
+) -> None:
     settings.HUB_HEALTH_RETENTION = 2
     hub, token = _grant(client, mesh_org)
     instance_key = hub.instances.get().token
@@ -397,8 +433,8 @@ def test_health_callback_records_liveness_and_trims_history(
 
 @pytest.mark.django_db
 def test_reported_mesh_state_drives_mesh_aliases_without_asking_ionscale(
-    client, ionscale_repo, mesh_org
-):
+    client: Client, ionscale_repo: FakeIonscaleRepository, mesh_org: SimpleNamespace
+) -> None:
     hub, token = _grant(client, mesh_org)
     # ionscale would say otherwise; the hub's own report wins while it is online.
     ionscale_repo.machines_by_tailnet[mesh_org.layer.tailnet_name] = [
@@ -425,7 +461,7 @@ def test_reported_mesh_state_drives_mesh_aliases_without_asking_ionscale(
 # --------------------------------------------------------------------------- #
 
 
-def _delete(client, access_token):
+def _delete(client: Client, access_token: str) -> "TestResponse":
     return client.post(
         reverse("fakts:hubdelete"), HTTP_AUTHORIZATION=f"Bearer {access_token}"
     )
@@ -433,8 +469,11 @@ def _delete(client, access_token):
 
 @pytest.mark.django_db
 def test_a_hub_deletes_itself_with_its_own_token(
-    client, ionscale_repo, mesh_org, django_capture_on_commit_callbacks
-):
+    client: Client,
+    ionscale_repo: FakeIonscaleRepository,
+    mesh_org: SimpleNamespace,
+    django_capture_on_commit_callbacks: DjangoCaptureOnCommitCallbacks,
+) -> None:
     hub, token = _grant(client, mesh_org)
     identity = hub.client_id
 
@@ -452,7 +491,9 @@ def test_a_hub_deletes_itself_with_its_own_token(
 
 
 @pytest.mark.django_db
-def test_hub_deletion_needs_a_hub_token(client, ionscale_repo, mesh_org):
+def test_hub_deletion_needs_a_hub_token(
+    client: Client, ionscale_repo: FakeIonscaleRepository, mesh_org: SimpleNamespace
+) -> None:
     assert client.post(reverse("fakts:hubdelete")).status_code == 401
 
     # A valid token whose client is no (longer a) hub identity: nothing to delete, said
@@ -466,13 +507,13 @@ def test_hub_deletion_needs_a_hub_token(client, ionscale_repo, mesh_org):
 
 
 @pytest.mark.django_db
-def test_the_well_known_says_where_a_hub_deletes_itself(client):
+def test_the_well_known_says_where_a_hub_deletes_itself(client: Client) -> None:
     data = client.get("/lok/.well-known/fakts").json()
     assert data["hub_deletion_endpoint"].endswith("/f/hubdelete/")
 
 
 @pytest.mark.django_db
-def test_the_well_known_says_where_a_client_revokes_its_session(client):
+def test_the_well_known_says_where_a_client_revokes_its_session(client: Client) -> None:
     """A fakts client reads one discovery document, so the revocation endpoint has to
     be in it: advertised only in the OIDC metadata, a logout could not find it."""
     data = client.get("/lok/.well-known/fakts").json()

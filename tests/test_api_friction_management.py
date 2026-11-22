@@ -7,6 +7,8 @@ list of strings).
 import pytest
 from asgiref.sync import sync_to_async
 from graphql import get_named_type
+from kante.context import HttpContext
+from strawberry.types import ExecutionResult
 
 from api.management.authz import DENIED
 from api.management.schema import schema as management_schema
@@ -17,7 +19,7 @@ from tests import factories
 from tests.conftest import build_auth_context
 
 
-def _owner_context(organization):
+def _owner_context(organization: karakter_models.Organization) -> HttpContext:
     membership = factories.make_membership(
         user=organization.owner, organization=organization
     )
@@ -25,12 +27,12 @@ def _owner_context(organization):
     return build_auth_context(organization.owner, organization, request_client)
 
 
-def _owner_setup():
+def _owner_setup() -> tuple[karakter_models.Organization, HttpContext]:
     org = factories.make_organization()
     return org, _owner_context(org)
 
 
-def _assert_clean_denial(result):
+def _assert_clean_denial(result: ExecutionResult) -> None:
     """A clean GraphQL error carrying the shared denial text — not a 500 with a
     Django traceback message such as "Field 'id' expected a number"."""
     assert result.errors, f"expected an error, got data: {result.data}"
@@ -45,7 +47,7 @@ def _assert_clean_denial(result):
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_create_profile_succeeds_despite_auto_created_row():
+async def test_create_profile_succeeds_despite_auto_created_row() -> None:
     """A post_save signal creates the Profile with the user, so the old
     ``Profile(...).save()`` always hit the OneToOne constraint."""
     org, context = await sync_to_async(_owner_setup)()
@@ -61,7 +63,7 @@ async def test_create_profile_succeeds_despite_auto_created_row():
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_create_organization_profile_succeeds_despite_auto_created_row():
+async def test_create_organization_profile_succeeds_despite_auto_created_row() -> None:
     org, context = await sync_to_async(_owner_setup)()
 
     result = await management_schema.execute(
@@ -75,11 +77,13 @@ async def test_create_organization_profile_succeeds_despite_auto_created_row():
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_change_organization_owner_works():
+async def test_change_organization_owner_works() -> None:
     """Used ``models.AbstractUser.objects`` (an abstract model: no manager) and so
     crashed on every call."""
 
-    def _setup():
+    def _setup() -> tuple[
+        karakter_models.Organization, HttpContext, karakter_models.User
+    ]:
         org, context = _owner_setup()
         new_owner = factories.make_membership(organization=org).user
         return org, context, new_owner
@@ -110,10 +114,17 @@ async def test_change_organization_owner_works():
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_accept_hub_device_code_with_an_existing_uid_reauthorizes_that_hub():
+async def test_accept_hub_device_code_with_an_existing_uid_reauthorizes_that_hub() -> (
+    None
+):
     """A known uid re-authorizes the hub in place instead of erroring or duplicating it."""
 
-    def _setup():
+    def _setup() -> tuple[
+        karakter_models.Organization,
+        HttpContext,
+        fakts_models.DeviceCode,
+        fakts_models.Hub,
+    ]:
         org, context = _owner_setup()
         hub = factories.make_hub(organization=org, identifier="dup")
         dc = factories.make_device_code(
@@ -157,7 +168,7 @@ async def test_accept_hub_device_code_with_an_existing_uid_reauthorizes_that_hub
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_malformed_ids_are_denied_not_500():
+async def test_malformed_ids_are_denied_not_500() -> None:
     _org, context = await sync_to_async(_owner_setup)()
 
     for field in (
@@ -178,7 +189,7 @@ async def test_malformed_ids_are_denied_not_500():
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_invite_by_non_uuid_code_is_a_clean_error():
+async def test_invite_by_non_uuid_code_is_a_clean_error() -> None:
     """``Invite.token`` is a UUIDField: a non-UUID code raised a ValidationError (500)."""
     _org, context = await sync_to_async(_owner_setup)()
 
@@ -201,7 +212,7 @@ async def test_invite_by_non_uuid_code_is_a_clean_error():
 # --------------------------------------------------------------------------- #
 
 
-def _searchable_root_list_fields():
+def _searchable_root_list_fields() -> list[str]:
     """Every root Query field that accepts ``filters`` whose input has ``search``."""
     query_type = management_schema._schema.query_type
     out = []
@@ -217,7 +228,7 @@ def _searchable_root_list_fields():
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_every_search_filter_executes():
+async def test_every_search_filter_executes() -> None:
     """Several ``search`` filters targeted columns their model does not have
     (``name`` on Membership/Role/Scope/ServiceInstanceMapping, ``backend`` on
     ServiceInstance, ``token``/``key`` on credentials, and borrowed filter classes
@@ -250,8 +261,8 @@ async def test_every_search_filter_executes():
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_client_kind_and_role_are_enums():
-    def _setup():
+async def test_client_kind_and_role_are_enums() -> None:
+    def _setup() -> tuple[fakts_models.Client, HttpContext]:
         org, context = _owner_setup()
         membership = karakter_models.Membership.objects.get(
             user=org.owner, organization=org
@@ -274,8 +285,8 @@ async def test_client_kind_and_role_are_enums():
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_release_requirements_are_structured():
-    def _setup():
+async def test_release_requirements_are_structured() -> None:
+    def _setup() -> tuple[fakts_models.Release, HttpContext]:
         org, context = _owner_setup()
         app = factories.make_app(organization=org)
         release = factories.make_release(

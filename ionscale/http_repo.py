@@ -12,8 +12,9 @@ sees them: responses use lowerCamelCase keys (requests accept either), and
 
 import json
 import logging
+from collections.abc import Mapping
 from pathlib import Path
-from typing import Any
+from typing import Any, TypeVar
 
 import httpx
 
@@ -33,8 +34,14 @@ logger = logging.getLogger(__name__)
 
 _SERVICE_PATH = "/ionscale.v1.IonscaleService/"
 
+#: A decoded JSON object's value type, and the type of a lookup's fallback.
+_V = TypeVar("_V")
+_D = TypeVar("_D")
 
-def _get(data: dict[str, Any], *keys: str, default: Any = None) -> Any:
+
+def _get(
+    data: Mapping[str, _V], *keys: str, default: _D | None = None
+) -> _V | _D | None:
     """Read a field by its camelCase *or* snake_case name (connect emits camel)."""
     for key in keys:
         if key in data:
@@ -47,7 +54,9 @@ def _snake_to_camel(name: str) -> str:
     return head + "".join(part.capitalize() for part in rest)
 
 
-def _lenient(data: dict[str, Any], snake: str, default: Any = None) -> Any:
+def _lenient(
+    data: Mapping[str, _V], snake: str, default: _D | None = None
+) -> _V | _D | None:
     return _get(data, _snake_to_camel(snake), snake, default=default)
 
 
@@ -62,7 +71,7 @@ class IonscaleHttpRepository:
         timeout: float = 10.0,
         verify: bool = True,
         transport: httpx.BaseTransport | None = None,
-    ):
+    ) -> None:
         if not service_token:
             raise ValueError("an ionscale service token is required")
         self.server_url = server_url.rstrip("/")

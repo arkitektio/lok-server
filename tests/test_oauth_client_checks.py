@@ -12,25 +12,28 @@ latter read a field that does not exist and would have raised `AttributeError`).
 import pytest
 
 from authapp.models import AuthorizationCode
+from fakts import models as fmodels
 from tests import factories
 
 
 @pytest.fixture
-def client(db):
+def client(db: None) -> fmodels.Client:
     return factories.make_oauth2_client(
         redirect_uris="https://rp.example/callback https://rp.example/other"
     )
 
 
 class TestRedirectUri:
-    def test_registered_uri_is_accepted(self, client):
+    def test_registered_uri_is_accepted(self, client: fmodels.Client) -> None:
         assert client.check_redirect_uri("https://rp.example/callback")
         assert client.check_redirect_uri("https://rp.example/other")
 
-    def test_unregistered_host_is_refused(self, client):
+    def test_unregistered_host_is_refused(self, client: fmodels.Client) -> None:
         assert not client.check_redirect_uri("https://evil.tld/callback")
 
-    def test_registered_uri_as_a_substring_is_refused(self, client):
+    def test_registered_uri_as_a_substring_is_refused(
+        self, client: fmodels.Client
+    ) -> None:
         """The unreachable line under the old `return True` was `in self.redirect_uris`
         — a *substring* test on the space-joined string, which an attacker passes
         by embedding the real URI in their own URL."""
@@ -38,21 +41,23 @@ class TestRedirectUri:
             "https://evil.tld/?next=https://rp.example/callback"
         )
 
-    def test_path_prefix_is_refused(self, client):
+    def test_path_prefix_is_refused(self, client: fmodels.Client) -> None:
         assert not client.check_redirect_uri("https://rp.example/callback/../../evil")
         assert not client.check_redirect_uri("https://rp.example/call")
 
-    def test_empty_is_refused(self, client):
+    def test_empty_is_refused(self, client: fmodels.Client) -> None:
         assert not client.check_redirect_uri("")
         assert not client.check_redirect_uri(None)
 
-    def test_client_with_no_registered_uris_accepts_nothing(self, db):
+    def test_client_with_no_registered_uris_accepts_nothing(self, db: None) -> None:
         bare = factories.make_oauth2_client(redirect_uris="")
         assert not bare.check_redirect_uri("https://anything.example/cb")
 
 
 class TestClientSecret:
-    def test_correct_secret_accepted_wrong_refused(self, client):
+    def test_correct_secret_accepted_wrong_refused(
+        self, client: fmodels.Client
+    ) -> None:
         assert client.check_client_secret(client.client_secret)
         assert not client.check_client_secret("wrong")
         assert not client.check_client_secret("")
@@ -60,28 +65,30 @@ class TestClientSecret:
 
 
 class TestGrantAndResponseType:
-    def test_registered_grants_allowed(self, client):
+    def test_registered_grants_allowed(self, client: fmodels.Client) -> None:
         for grant in ("authorization_code", "refresh_token", "client_credentials"):
             assert client.check_grant_type(grant)
 
-    def test_unregistered_grant_refused(self, client):
+    def test_unregistered_grant_refused(self, client: fmodels.Client) -> None:
         """Previously every grant returned True regardless of registration."""
         client.grant_types = "client_credentials"
         assert not client.check_grant_type("authorization_code")
         assert client.check_grant_type("client_credentials")
 
-    def test_unknown_grant_refused_without_raising(self, client):
+    def test_unknown_grant_refused_without_raising(
+        self, client: fmodels.Client
+    ) -> None:
         assert not client.check_grant_type("implicit")
         assert not client.check_grant_type("password")
 
-    def test_response_type_does_not_raise(self, client):
+    def test_response_type_does_not_raise(self, client: fmodels.Client) -> None:
         """It read `self.response_type`; the field is `response_types`."""
         assert client.check_response_type("code")
         assert not client.check_response_type("token")
 
 
 @pytest.mark.django_db
-def test_authorization_code_stores_pkce_challenge():
+def test_authorization_code_stores_pkce_challenge() -> None:
     """PKCE fields must persist, or `CodeChallenge` has nothing to verify against."""
     membership = factories.make_membership()
     code = AuthorizationCode.objects.create(
@@ -98,7 +105,7 @@ def test_authorization_code_stores_pkce_challenge():
 
 
 @pytest.mark.django_db
-def test_pkce_extension_is_registered():
+def test_pkce_extension_is_registered() -> None:
     """Registration is the whole fix — without it a `code_challenge` is ignored."""
     from authlib.oauth2.rfc7636 import CodeChallenge
 
@@ -117,7 +124,7 @@ def test_pkce_extension_is_registered():
 
 
 @pytest.mark.django_db
-def test_access_tokens_expire_in_an_hour_not_ten_days():
+def test_access_tokens_expire_in_an_hour_not_ten_days() -> None:
     """authlib's default for `authorization_code` and `client_credentials` is
     864000s. Verification never touches the DB, so `revoked` is not consulted
     outside `/o/user_info/` — expiry is the only control there is."""

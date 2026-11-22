@@ -1,7 +1,8 @@
 import logging
 import secrets
 import uuid
-from typing import TYPE_CHECKING, Any
+from collections.abc import Iterable
+from typing import IO, TYPE_CHECKING, Any
 
 import requests
 from django.conf import settings
@@ -16,6 +17,7 @@ from karakter.deeplinks import default_deeplink_apps
 
 if TYPE_CHECKING:
     from django.db.models.fields.related_descriptors import RelatedManager
+    from kante.types import Info
 
 logger = logging.getLogger(__name__)
 
@@ -48,7 +50,7 @@ class MediaStore(S3Store):
     """
 
     def get_presigned_url(
-        self, info, datalayer: datalayer.Datalayer, host: str | None = None
+        self, info: "Info", datalayer: datalayer.Datalayer, host: str | None = None
     ) -> str:
         """Return a presigned URL for the stored S3 object.
 
@@ -83,7 +85,7 @@ class MediaStore(S3Store):
         """Populate or refresh derived metadata for the stored object."""
         pass
 
-    def put_file(self, datalayer: datalayer.Datalayer, file) -> None:
+    def put_file(self, datalayer: datalayer.Datalayer, file: IO[bytes]) -> None:
         """Upload a file-like object to the object's S3 location and save model."""
         s3 = datalayer.s3
         s3.upload_fileobj(file, self.bucket, self.key)
@@ -175,7 +177,7 @@ class Organization(models.Model):
         max_length=64, default=generate_device_salt, editable=False
     )
 
-    def __str__(self):
+    def __str__(self) -> str:
         return self.name or self.slug or "Unnamed Organization"
 
 
@@ -234,7 +236,7 @@ class RoleSet(models.Model):
     class Meta:
         unique_together = ("name", "organization")
 
-    def __str__(self):
+    def __str__(self) -> str:
         return f"{self.name} ({self.organization})"
 
 
@@ -340,7 +342,7 @@ class Membership(models.Model):
         """
         return self.collaboration_grants.exists()
 
-    def get_user_id(self):
+    def get_user_id(self) -> str:
         return str(self.user.pk)
 
     def save(self, *args: Any, **kwargs: Any) -> None:
@@ -424,14 +426,14 @@ class RoleRequest(models.Model):
             )
         ]
 
-    def approve(self, user):
+    def approve(self, user: "User") -> None:
         self.membership.roles.add(self.role)
         self.status = self.Status.APPROVED
         self.resolved_by = user
         self.responded_at = timezone.now()
         self.save(update_fields=["status", "resolved_by", "responded_at"])
 
-    def decline(self, user):
+    def decline(self, user: "User") -> None:
         self.status = self.Status.DECLINED
         self.resolved_by = user
         self.responded_at = timezone.now()
@@ -496,7 +498,9 @@ class MembershipRequest(models.Model):
             )
         ]
 
-    def approve(self, user, roles=None):
+    def approve(
+        self, user: "User", roles: "Iterable[Role] | None" = None
+    ) -> "Membership":
         """Let the requester in. `roles` are Role rows of this organization;
         without any the member gets `guest`, as an invite without roles does."""
         membership, _ = Membership.objects.get_or_create(
@@ -526,7 +530,7 @@ class MembershipRequest(models.Model):
         )
         return membership
 
-    def decline(self, user):
+    def decline(self, user: "User") -> None:
         self.status = self.Status.DECLINED
         self.resolved_by = user
         self.responded_at = timezone.now()
@@ -572,11 +576,11 @@ class User(AbstractUser):
         related_query_name="karakter_user",
     )
 
-    def get_user_id(self):
+    def get_user_id(self) -> str:
         return str(self.pk)
 
     @property
-    def is_faktsadmin(self):
+    def is_faktsadmin(self) -> bool:
         return self.groups.filter(name="admin").exists()
 
     @property
@@ -791,20 +795,20 @@ class Invite(models.Model):
     def is_collaboration_invite(self) -> bool:
         return self.shared_collaborations is not None
 
-    def is_valid(self):
+    def is_valid(self) -> bool:
         if self.status != self.Status.PENDING:
             return False
         if self.expires_at and self.expires_at < timezone.now():
             return False
         return True
 
-    def accept(self, user):
+    def accept(self, user: "User") -> None:
         self.status = self.Status.ACCEPTED
         self.accepted_by = user
         self.responded_at = timezone.now()
         self.save(update_fields=["status", "accepted_by", "responded_at"])
 
-    def decline(self, user):
+    def decline(self, user: "User") -> None:
         if self.is_collaboration_invite:
             # A collaboration invite may be meant for many people: one of them
             # saying no must not close it for the rest.
@@ -814,7 +818,7 @@ class Invite(models.Model):
         self.responded_at = timezone.now()
         self.save(update_fields=["status", "declined_by", "responded_at"])
 
-    def cancel(self):
+    def cancel(self) -> None:
         self.status = self.Status.CANCELLED
         self.save(update_fields=["status"])
 
@@ -885,4 +889,6 @@ class CollaborationGrant(models.Model):
         return f"{self.instance_id}/{self.collaboration_id}"
 
 
-from .signals import *
+# Registers the receivers. A star on purpose: it also rebinds names this module
+# uses (`logger`), which an explicit import would change.
+from .signals import *  # noqa: F403

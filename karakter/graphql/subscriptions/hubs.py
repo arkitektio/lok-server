@@ -1,7 +1,7 @@
 """Hub health reports of the active organization, live."""
 
 from collections.abc import AsyncGenerator
-from typing import Annotated
+from typing import TYPE_CHECKING, Annotated
 
 import strawberry
 from channels.db import database_sync_to_async
@@ -10,11 +10,14 @@ from kante.types import Info
 from karakter.authz import get_organization
 from karakter.channels import hub_health_channel, hub_health_group
 
+if TYPE_CHECKING:
+    from fakts.types import Hub
+
 __all__ = ["hub_health"]
 
 
 async def hub_health(
-    self, info: Info, hub: strawberry.ID | None = None
+    self: object, info: Info, hub: strawberry.ID | None = None
 ) -> AsyncGenerator[Annotated["Hub", strawberry.lazy("fakts.types")], None]:
     """The hub, each time one of the organization's hubs reports its health (only `hub`, when given).
 

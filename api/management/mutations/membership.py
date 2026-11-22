@@ -175,7 +175,9 @@ class DeclineMembershipRequestInput:
     id: strawberry.ID
 
 
-def _pending_membership_request(info: Info, id) -> models.MembershipRequest:
+def _pending_membership_request(
+    info: Info, id: strawberry.ID
+) -> models.MembershipRequest:
     """A pending request the caller may answer: they own or administer its
     organization. Anyone else gets the same denial as a missing id."""
     membership_request = get_or_denied(

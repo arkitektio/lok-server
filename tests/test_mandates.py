@@ -9,7 +9,8 @@ issuing app, deleting the hub or the grantor.
 
 import json
 import threading
-from types import SimpleNamespace
+from dataclasses import dataclass
+from typing import TYPE_CHECKING, Any
 
 import pytest
 from asgiref.sync import sync_to_async
@@ -19,6 +20,7 @@ from django.test import Client as HttpClient
 from django.urls import reverse
 from joserfc import jwt
 from joserfc.jwk import RSAKey
+from strawberry.types import ExecutionResult
 
 from fakts import models
 from fakts.base_models import MandatePin, Manifest
@@ -28,6 +30,13 @@ from karakter.models import Scope
 from lok_server.schema import schema
 from tests import factories
 from tests.conftest import build_auth_context
+
+if TYPE_CHECKING:
+    from django.test.client import _MonkeyPatchedWSGIResponse as TestResponse
+from kante.context import HttpContext
+
+from ionscale.testing import FakeIonscaleRepository
+from karakter.models import Membership, Organization
 
 GRANT = "urn:fakts:grant-type:mandate-key"
 AGENT = "live.arkitekt.deployer"
@@ -40,7 +49,17 @@ SUBJECT = {
 }
 
 
-def _world():
+@dataclass
+class World:
+    grantor: Membership
+    hub: models.Hub
+    ui_client: models.Client
+    operator: Membership
+    agent_client: models.Client
+    org: Organization
+
+
+def _world() -> World:
     """A grantor on an app holding `read` and `rekuest` (orkestrator), and an operator's deployer client."""
     grantor = factories.make_membership()
     org = grantor.organization
@@ -70,7 +89,7 @@ def _world():
     agent_client = factories.make_client(
         membership=operator, release=agent_release, hub=hub
     )
-    return SimpleNamespace(
+    return World(
         grantor=grantor,
         hub=hub,
         ui_client=ui_client,
@@ -80,7 +99,7 @@ def _world():
     )
 
 
-def _ctx(membership, client):
+def _ctx(membership: Membership, client: models.Client) -> HttpContext:
     return build_auth_context(membership.user, membership.organization, client)
 
 
@@ -103,21 +122,24 @@ query { mandates { id agentIdentifier origin } }
 """
 
 
-async def _run(query, ctx, **variables):
+async def _run(query: str, ctx: HttpContext, **variables: object) -> ExecutionResult:
     return await schema.execute(query, context_value=ctx, variable_values=variables)
 
 
-async def _create(w, **extra):
+async def _create(w: World, **extra: object) -> dict[str, Any]:
     result = await _run(
         CREATE,
         _ctx(w.grantor, w.ui_client),
         input={"agent": AGENT, "manifest": SUBJECT, **extra},
     )
     assert not result.errors, result.errors
+    assert result.data is not None
     return result.data["createMandate"]
 
 
-async def _child(w, mandate_id, device_id="host-a:pod-1"):
+async def _child(
+    w: World, mandate_id: str, device_id: str = "host-a:pod-1"
+) -> ExecutionResult:
     return await _run(
         ISSUE_CHILD,
         _ctx(w.operator, w.agent_client),
@@ -125,7 +147,7 @@ async def _child(w, mandate_id, device_id="host-a:pod-1"):
     )
 
 
-def _login(http, key, **overrides):
+def _login(http: HttpClient, key: str, **overrides: object) -> "TestResponse":
     manifest = {**SUBJECT, "device_id": "host-a:pod-1", **overrides}
     return http.post(
         reverse("token"),
@@ -134,13 +156,13 @@ def _login(http, key, **overrides):
     )
 
 
-def _claims(access_token):
+def _claims(access_token: str) -> jwt.Claims:
     return jwt.decode(
         access_token, RSAKey.import_key(settings.PUBLIC_KEY), algorithms=["RS256"]
     ).claims
 
 
-def _agent_mandate(w, **kw) -> models.Mandate:
+def _agent_mandate(w: World, **kw: Any) -> models.Mandate:
     return mandates.issue_mandate(
         issuer=mandates.ClientIssuer(client=w.ui_client),
         grantor=w.grantor,
@@ -151,7 +173,9 @@ def _agent_mandate(w, **kw) -> models.Mandate:
     ).mandate
 
 
-def _issue_child(w, parent, device_id="host-a:pod-1", **kw) -> str:
+def _issue_child(
+    w: World, parent: models.Mandate, device_id: str = "host-a:pod-1", **kw: Any
+) -> str:
     issued = mandates.issue_mandate(
         issuer=mandates.AgentIssuer(parent=parent, client=w.agent_client),
         grantor=parent.membership,
@@ -160,6 +184,7 @@ def _issue_child(w, parent, device_id="host-a:pod-1", **kw) -> str:
         claimant=mandates.KeyClaimant(),
         **kw,
     )
+    assert issued.key is not None
     return issued.key
 
 
@@ -168,7 +193,7 @@ def _issue_child(w, parent, device_id="host-a:pod-1", **kw) -> str:
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_create_pins_the_subject_without_a_device():
+async def test_create_pins_the_subject_without_a_device() -> None:
     w = await sync_to_async(_world)()
     data = await _create(w, attestation="sha256:abc", maxClients=2)
 
@@ -191,7 +216,7 @@ async def test_create_pins_the_subject_without_a_device():
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_create_refuses_unknown_scopes():
+async def test_create_refuses_unknown_scopes() -> None:
     w = await sync_to_async(_world)()
     result = await _run(
         CREATE,
@@ -203,7 +228,7 @@ async def test_create_refuses_unknown_scopes():
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_an_app_cannot_grant_more_than_it_holds():
+async def test_an_app_cannot_grant_more_than_it_holds() -> None:
     w = await sync_to_async(_world)()
     await Scope.objects.aget_or_create(identifier="admin:all", organization=w.org)
 
@@ -234,10 +259,10 @@ async def test_an_app_cannot_grant_more_than_it_holds():
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_an_app_holding_a_catch_all_may_grant_what_it_covers():
+async def test_an_app_holding_a_catch_all_may_grant_what_it_covers() -> None:
     """Pokket holds `rekuest_all` and provisions a board asking for rekuest's own scopes."""
 
-    def setup():
+    def setup() -> World:
         w = _world()
         rekuest = factories.make_service_instance(hub=w.hub)
         mikro = factories.make_service_instance(hub=w.hub)
@@ -300,7 +325,9 @@ async def test_an_app_holding_a_catch_all_may_grant_what_it_covers():
 
 
 @pytest.mark.django_db
-def test_a_client_logged_in_with_a_key_cannot_issue_mandates(client):
+def test_a_client_logged_in_with_a_key_cannot_issue_mandates(
+    client: HttpClient,
+) -> None:
     w = _world()
     parent = _agent_mandate(w)
     body = _login(client, _issue_child(w, parent)).json()
@@ -321,7 +348,7 @@ def test_a_client_logged_in_with_a_key_cannot_issue_mandates(client):
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_an_app_issues_a_capped_key_that_dies_with_it():
+async def test_an_app_issues_a_capped_key_that_dies_with_it() -> None:
     w = await sync_to_async(_world)()
     result = await _run(
         ISSUE_KEY,
@@ -358,7 +385,7 @@ async def test_an_app_issues_a_capped_key_that_dies_with_it():
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
 @pytest.mark.parametrize("days", [0, 31])
-async def test_an_app_key_must_expire_within_a_month(days):
+async def test_an_app_key_must_expire_within_a_month(days: int) -> None:
     w = await sync_to_async(_world)()
     result = await _run(
         ISSUE_KEY,
@@ -373,7 +400,7 @@ async def test_an_app_key_must_expire_within_a_month(days):
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_a_child_key_logs_in_as_the_grantor():
+async def test_a_child_key_logs_in_as_the_grantor() -> None:
     w = await sync_to_async(_world)()
     mandate = await _create(w)
 
@@ -394,7 +421,7 @@ async def test_a_child_key_logs_in_as_the_grantor():
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_only_the_named_agent_app_may_issue_children():
+async def test_only_the_named_agent_app_may_issue_children() -> None:
     w = await sync_to_async(_world)()
     mandate = await _create(w)
 
@@ -411,8 +438,8 @@ async def test_only_the_named_agent_app_may_issue_children():
 @pytest.mark.asyncio
 @pytest.mark.parametrize("allow_mesh", [True, False])
 async def test_a_child_key_gets_a_mesh_key_only_when_its_mandate_allows_it(
-    ionscale_repo, allow_mesh
-):
+    ionscale_repo: FakeIonscaleRepository, allow_mesh: bool
+) -> None:
     w = await sync_to_async(_world)()
     await sync_to_async(models.IonscaleLayer.objects.create)(
         organization=w.org,
@@ -445,7 +472,7 @@ async def test_a_child_key_gets_a_mesh_key_only_when_its_mandate_allows_it(
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_agent_device_pin_is_enforced():
+async def test_agent_device_pin_is_enforced() -> None:
     w = await sync_to_async(_world)()
     mandate = await _create(w, agentDeviceId="some-other-host")
 
@@ -454,7 +481,7 @@ async def test_agent_device_pin_is_enforced():
 
 
 @pytest.mark.django_db
-def test_a_key_backed_agent_may_issue_children():
+def test_a_key_backed_agent_may_issue_children() -> None:
     """The plugin engine logs in with a hub mandate key and deploys apps as the approver."""
     w = _world()
     engine_parent, engine_key = factories.make_mandate_key(
@@ -482,12 +509,13 @@ def test_a_key_backed_agent_may_issue_children():
         pin=parent.pin.narrowed_to_device("pod-1"),
         claimant=mandates.KeyClaimant(),
     ).key
+    assert key is not None
 
     assert _login(http, key, device_id="pod-1").status_code == 200
 
 
 @pytest.mark.django_db
-def test_a_child_cannot_widen_the_pin_outlive_the_parent_or_name_an_agent():
+def test_a_child_cannot_widen_the_pin_outlive_the_parent_or_name_an_agent() -> None:
     w = _world()
     from datetime import timedelta
 
@@ -528,7 +556,7 @@ def test_a_child_cannot_widen_the_pin_outlive_the_parent_or_name_an_agent():
 
 
 @pytest.mark.django_db
-def test_a_child_cannot_exceed_the_mandate_ceiling_at_login(client):
+def test_a_child_cannot_exceed_the_mandate_ceiling_at_login(client: HttpClient) -> None:
     w = _world()
     key = _issue_child(w, _agent_mandate(w))
     Scope.objects.get_or_create(identifier="admin:all", organization=w.org)
@@ -540,7 +568,7 @@ def test_a_child_cannot_exceed_the_mandate_ceiling_at_login(client):
 
 
 @pytest.mark.django_db
-def test_two_instances_on_one_host_do_not_rotate_each_other(client):
+def test_two_instances_on_one_host_do_not_rotate_each_other(client: HttpClient) -> None:
     w = _world()
     parent = _agent_mandate(w)
     a = _issue_child(w, parent, "host-a:pod-1")
@@ -552,7 +580,7 @@ def test_two_instances_on_one_host_do_not_rotate_each_other(client):
 
 
 @pytest.mark.django_db(transaction=True)
-def test_max_clients_counts_live_children_under_concurrency():
+def test_max_clients_counts_live_children_under_concurrency() -> None:
     w = _world()
     parent = _agent_mandate(w, max_clients=2)
     barrier = threading.Barrier(5)
@@ -584,7 +612,9 @@ def test_max_clients_counts_live_children_under_concurrency():
 
 
 @pytest.mark.django_db
-def test_revoking_the_parent_revokes_every_child_and_deletes_their_clients(client):
+def test_revoking_the_parent_revokes_every_child_and_deletes_their_clients(
+    client: HttpClient,
+) -> None:
     w = _world()
     parent = _agent_mandate(w)
     used = _issue_child(w, parent, "host-a:pod-1")
@@ -604,7 +634,7 @@ def test_revoking_the_parent_revokes_every_child_and_deletes_their_clients(clien
 
 
 @pytest.mark.django_db
-def test_rejecting_the_issuing_app_revokes_what_it_issued(client):
+def test_rejecting_the_issuing_app_revokes_what_it_issued(client: HttpClient) -> None:
     from fakts.services.mesh import reject_app_installation
 
     w = _world()
@@ -620,7 +650,7 @@ def test_rejecting_the_issuing_app_revokes_what_it_issued(client):
 
 
 @pytest.mark.django_db
-def test_rejecting_the_agent_kills_every_app_it_deployed(client):
+def test_rejecting_the_agent_kills_every_app_it_deployed(client: HttpClient) -> None:
     from fakts.services.mesh import reject_app_installation
 
     w = _world()
@@ -638,7 +668,7 @@ def test_rejecting_the_agent_kills_every_app_it_deployed(client):
 
 
 @pytest.mark.django_db
-def test_logging_out_the_issuing_app_keeps_what_it_issued(client):
+def test_logging_out_the_issuing_app_keeps_what_it_issued(client: HttpClient) -> None:
     w = _world()
     parent = _agent_mandate(w)
     key = _issue_child(w, parent)
@@ -653,7 +683,7 @@ def test_logging_out_the_issuing_app_keeps_what_it_issued(client):
 
 
 @pytest.mark.django_db
-def test_reapproving_the_issuing_app_keeps_what_it_issued(client):
+def test_reapproving_the_issuing_app_keeps_what_it_issued(client: HttpClient) -> None:
     """bind_client replaces the issuer's row on re-approval; its mandates move to the new row."""
     w = _world()
     parent = _agent_mandate(w)
@@ -676,7 +706,7 @@ def test_reapproving_the_issuing_app_keeps_what_it_issued(client):
 
 
 @pytest.mark.django_db
-def test_deleting_the_hub_deletes_its_mandates(client):
+def test_deleting_the_hub_deletes_its_mandates(client: HttpClient) -> None:
     w = _world()
     key = _issue_child(w, _agent_mandate(w))
 
@@ -691,7 +721,9 @@ def test_deleting_the_hub_deletes_its_mandates(client):
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_only_grantor_admin_or_issuing_app_may_revoke_and_agent_sees_its_mandates():
+async def test_only_grantor_admin_or_issuing_app_may_revoke_and_agent_sees_its_mandates() -> (
+    None
+):
     w = await sync_to_async(_world)()
     mandate = await _create(w)
 
@@ -718,7 +750,9 @@ async def test_only_grantor_admin_or_issuing_app_may_revoke_and_agent_sees_its_m
 
 
 @pytest.mark.django_db
-def test_a_device_issued_a_second_child_key_keeps_its_client(client):
+def test_a_device_issued_a_second_child_key_keeps_its_client(
+    client: HttpClient,
+) -> None:
     """Re-keying a device under the standing mandate is not a new installation: same client_id, same agent."""
     w = _world()
     parent = _agent_mandate(w)

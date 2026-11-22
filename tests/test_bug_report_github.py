@@ -8,6 +8,8 @@ closes and reopens the report when the issue is closed or reopened.
 import hashlib
 import hmac
 import json
+from collections.abc import Iterator
+from typing import TYPE_CHECKING, Any
 
 import httpx
 import pytest
@@ -16,11 +18,23 @@ from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
 from django.test import Client as HttpClient
 from django.urls import reverse
+from kante.context import HttpContext
+from pytest_django.fixtures import SettingsWrapper
+from strawberry.types import ExecutionResult
 
 from fakts import models
 from fakts.services import github
 from lok_server.configuration import GithubSettings
-from tests.test_bug_reports import JPEG_URL, _as_session, _create, _setup
+from tests.test_bug_reports import (
+    JPEG_URL,
+    BugSetup,
+    _as_session,
+    _create,
+    _setup,
+)
+
+if TYPE_CHECKING:
+    from django.test.client import _MonkeyPatchedWSGIResponse as TestResponse
 
 REPO = "arkitektio/example"
 SECRET = "hook-secret"
@@ -39,7 +53,7 @@ UNFORWARD = """
 
 
 class FakeGithub:
-    def __init__(self, installed=True):
+    def __init__(self, installed: bool = True) -> None:
         self.installed = installed
         self.issues = []
 
@@ -72,7 +86,9 @@ class FakeGithub:
 
 
 @pytest.fixture
-def fake_github(settings, monkeypatch):
+def fake_github(
+    settings: SettingsWrapper, monkeypatch: pytest.MonkeyPatch
+) -> Iterator[FakeGithub]:
     key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
     pem = key.private_bytes(
         serialization.Encoding.PEM,
@@ -89,7 +105,7 @@ def fake_github(settings, monkeypatch):
     github.clear_caches()
 
 
-def _with_repo(s):
+def _with_repo(s: BugSetup) -> BugSetup:
     for client in (s["owner_client"], s["member_client"]):
         client.public_sources = [
             {"kind": "github", "url": f"https://github.com/{REPO}"}
@@ -98,7 +114,9 @@ def _with_repo(s):
     return s
 
 
-async def _management(query, context, **variables):
+async def _management(
+    query: str, context: HttpContext, **variables: object
+) -> ExecutionResult:
     from api.management.schema import schema as management_schema
 
     return await management_schema.execute(
@@ -106,7 +124,7 @@ async def _management(query, context, **variables):
     )
 
 
-async def _ready():
+async def _ready() -> tuple[BugSetup, dict[str, Any], HttpContext]:
     s = await sync_to_async(lambda: _with_repo(_setup()))()
     report = await _create(
         s["admin"],
@@ -119,7 +137,7 @@ async def _ready():
     return s, report, owner
 
 
-def test_the_repository_is_read_from_the_declared_source():
+def test_the_repository_is_read_from_the_declared_source() -> None:
     client = models.Client(
         public_sources=[
             {"kind": "website", "url": "https://x.org"},
@@ -140,7 +158,7 @@ def test_the_repository_is_read_from_the_declared_source():
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_an_admin_reviews_and_opens_the_issue(fake_github):
+async def test_an_admin_reviews_and_opens_the_issue(fake_github: FakeGithub) -> None:
     s, report, owner = await _ready()
 
     detail = await _management(DETAIL, owner, id=report["id"])
@@ -205,7 +223,9 @@ async def test_an_admin_reviews_and_opens_the_issue(fake_github):
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_the_screenshot_stays_private_unless_chosen(fake_github):
+async def test_the_screenshot_stays_private_unless_chosen(
+    fake_github: FakeGithub,
+) -> None:
     s, report, owner = await _ready()
     filed = await _management(
         FILE, owner, input={"id": report["id"], "title": "t", "body": "b"}
@@ -217,7 +237,7 @@ async def test_the_screenshot_stays_private_unless_chosen(fake_github):
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_without_the_app_installed_it_falls_back(fake_github):
+async def test_without_the_app_installed_it_falls_back(fake_github: FakeGithub) -> None:
     fake_github.installed = False
     s, report, owner = await _ready()
 
@@ -234,7 +254,7 @@ async def test_without_the_app_installed_it_falls_back(fake_github):
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_a_member_cannot_open_an_issue(fake_github):
+async def test_a_member_cannot_open_an_issue(fake_github: FakeGithub) -> None:
     s, _, _ = await _ready()
     own = await _create(s["plain"])
     member = _as_session(s["plain"], s["member"].user)
@@ -245,7 +265,12 @@ async def test_a_member_cannot_open_an_issue(fake_github):
     assert fake_github.issues == []
 
 
-def _deliver(http, payload, event="issues", secret=SECRET):
+def _deliver(
+    http: HttpClient,
+    payload: dict[str, object],
+    event: str = "issues",
+    secret: str = SECRET,
+) -> "TestResponse":
     body = json.dumps(payload).encode()
     signature = "sha256=" + hmac.new(secret.encode(), body, hashlib.sha256).hexdigest()
     return http.post(
@@ -259,7 +284,7 @@ def _deliver(http, payload, event="issues", secret=SECRET):
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_the_webhook_follows_the_issue(fake_github):
+async def test_the_webhook_follows_the_issue(fake_github: FakeGithub) -> None:
     s, report, owner = await _ready()
     filed = await _management(
         FILE, owner, input={"id": report["id"], "title": "t", "body": "b"}
@@ -312,13 +337,15 @@ async def test_the_webhook_follows_the_issue(fake_github):
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_an_admins_own_resolution_survives_a_reopen(fake_github):
+async def test_an_admins_own_resolution_survives_a_reopen(
+    fake_github: FakeGithub,
+) -> None:
     s, report, owner = await _ready()
     await _management(
         FILE, owner, input={"id": report["id"], "title": "t", "body": "b"}
     )
 
-    def resolve_by_hand():
+    def resolve_by_hand() -> None:
         models.BugReport.objects.filter(pk=report["id"]).update(
             resolution_note="fixed in 6.0.2", resolved_at="2026-11-13T00:00:00Z"
         )

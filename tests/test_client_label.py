@@ -10,6 +10,7 @@ import pytest
 from asgiref.sync import sync_to_async
 
 from fakts import models as fmodels
+from karakter.models import Organization, User
 from lok_server.schema import schema
 from tests import factories
 from tests.conftest import build_auth_context
@@ -17,7 +18,7 @@ from tests.conftest import build_auth_context
 CLIENTS_QUERY = "query { clients { id name } }"
 
 
-def _setup():
+def _setup() -> tuple[User, Organization, fmodels.Client]:
     """Sync DB setup (must not run inside the async event loop)."""
     user = factories.make_user(username="jhnnsrs", first_name="Johannes", last_name="")
     membership = factories.make_membership(user=user)
@@ -32,7 +33,7 @@ def _setup():
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_client_name_is_comprehensive_label():
+async def test_client_name_is_comprehensive_label() -> None:
     user, organization, client = await sync_to_async(_setup)()
 
     result = await schema.execute(
@@ -45,7 +46,7 @@ async def test_client_name_is_comprehensive_label():
     assert names[str(client.id)] == "com.example.app:v0.1.1 by Johannes on my-laptop"
 
 
-def _setup_no_device():
+def _setup_no_device() -> tuple[User, Organization, fmodels.Client]:
     user = factories.make_user(username="alice", first_name="Alice", last_name="Smith")
     membership = factories.make_membership(user=user)
     app = factories.make_app(identifier="com.example.tool")
@@ -58,7 +59,7 @@ def _setup_no_device():
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_client_name_omits_device_when_absent():
+async def test_client_name_omits_device_when_absent() -> None:
     """Without a device the label drops the `on <device>` suffix, and a full name
     (first + last) is used for the operator."""
     user, organization, client = await sync_to_async(_setup_no_device)()

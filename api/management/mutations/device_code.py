@@ -11,6 +11,7 @@ from api.management.authz import DENIED, assert_member_or_guest, get_or_denied
 from api.management.device_code_authz import resolve_device_code_with_proof
 from fakts import logic
 from fakts import models as fakts_models
+from karakter import models as karakter_models
 from karakter.collaboration_grants import live_grants, mesh_hub_ids
 
 logger = logging.getLogger(__name__)
@@ -105,7 +106,11 @@ def accept_device_code(
     return validate_device_code.client
 
 
-def _grant_mesh_key(device_code: fakts_models.DeviceCode, user, organization) -> None:
+def _grant_mesh_key(
+    device_code: fakts_models.DeviceCode,
+    user: karakter_models.User,
+    organization: karakter_models.Organization,
+) -> None:
     """Mint the app's mesh key onto the code; the token response hands it out once.
 
     Best-effort: without a mesh, or with ionscale failing, the app is still

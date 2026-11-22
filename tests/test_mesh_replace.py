@@ -8,8 +8,10 @@ their key. See ``ionscale.manager.replace_org_mesh``.
 
 from datetime import timedelta
 from types import SimpleNamespace
+from typing import TYPE_CHECKING, Any
 
 import pytest
+from django.test import Client
 from django.urls import reverse
 from django.utils import timezone
 from graphql import GraphQLError
@@ -23,13 +25,18 @@ from fakts.services.hubs import MESH_KEY_RENEWAL_INTERVAL_SECONDS
 from ionscale.base_models import Machine
 from ionscale.errors import IonscaleError
 from ionscale.manager import ensure_org_mesh
+from ionscale.testing import FakeIonscaleRepository
+from karakter.models import User
 from tests import factories
 from tests.test_app_mesh_key import _grant as grant_app
 from tests.test_hub_mesh import _grant as grant_hub
 
+if TYPE_CHECKING:
+    from django.test.client import _MonkeyPatchedWSGIResponse as TestResponse
+
 
 @pytest.fixture
-def org(ionscale_repo):
+def org(ionscale_repo: FakeIonscaleRepository) -> SimpleNamespace:
     ionscale_repo.unique_auth_keys = True
     organization = factories.make_organization()
     layer = ensure_org_mesh(organization)
@@ -47,21 +54,26 @@ def org(ionscale_repo):
     )
 
 
-def _info_for(user):
+def _info_for(user: object) -> SimpleNamespace:
     return SimpleNamespace(context=SimpleNamespace(request=SimpleNamespace(user=user)))
 
 
-def _replace(org, user=None, confirm=None):
-    return replace_ionscale_layer(
+def _replace(
+    org: SimpleNamespace, user: User | None = None, confirm: str | None = None
+) -> models.IonscaleLayer:
+    layer = replace_ionscale_layer(
         _info_for(user or org.organization.owner),
         ReplaceIonscaleLayerInput(
             id=org.layer.pk,
             confirm=org.layer.tailnet_name if confirm is None else confirm,
         ),
     )
+    # The resolver hands back the model row (strawberry-django types wrap rows).
+    assert isinstance(layer, models.IonscaleLayer)
+    return layer
 
 
-def _renew(client, token):
+def _renew(client: Client, token: dict[str, Any]) -> "TestResponse":
     return client.post(
         reverse("fakts:meshkey"),
         HTTP_AUTHORIZATION=f"Bearer {token['access_token']}",
@@ -69,15 +81,15 @@ def _renew(client, token):
     )
 
 
-def _let_the_keys_age():
+def _let_the_keys_age() -> None:
     old = timezone.now() - timedelta(seconds=MESH_KEY_RENEWAL_INTERVAL_SECONDS + 1)
     models.IonscaleAuthKey.objects.update(created_at=old)
 
 
 @pytest.mark.django_db
 def test_replace_recreates_the_tailnet_under_the_same_name_and_organization(
-    ionscale_repo, org
-):
+    ionscale_repo: FakeIonscaleRepository, org: SimpleNamespace
+) -> None:
     name = org.layer.tailnet_name
     ionscale_repo.machines_by_tailnet[name] = [
         Machine(id="1", name="laptop", tags=[], connected=True)
@@ -100,8 +112,8 @@ def test_replace_recreates_the_tailnet_under_the_same_name_and_organization(
 
 @pytest.mark.django_db
 def test_sidecars_keep_their_grant_and_renew_into_the_new_tailnet(
-    client, ionscale_repo, org
-):
+    client: Client, ionscale_repo: FakeIonscaleRepository, org: SimpleNamespace
+) -> None:
     app_token = grant_app(client, org.member, org.hub)
     hub, hub_token = grant_hub(client, org.hub_granter)
     enrollment = models.AppMeshEnrollment.objects.get()
@@ -127,7 +139,9 @@ def test_sidecars_keep_their_grant_and_renew_into_the_new_tailnet(
 
 
 @pytest.mark.django_db
-def test_replace_drops_keys_nothing_points_at(ionscale_repo, org):
+def test_replace_drops_keys_nothing_points_at(
+    ionscale_repo: FakeIonscaleRepository, org: SimpleNamespace
+) -> None:
     loose = models.IonscaleAuthKey.objects.create(
         layer=org.layer, key="tskey-loose", creator=org.organization.owner
     )
@@ -138,7 +152,9 @@ def test_replace_drops_keys_nothing_points_at(ionscale_repo, org):
 
 
 @pytest.mark.django_db
-def test_a_tailnet_already_gone_is_recreated(ionscale_repo, org):
+def test_a_tailnet_already_gone_is_recreated(
+    ionscale_repo: FakeIonscaleRepository, org: SimpleNamespace
+) -> None:
     ionscale_repo.fail_with["delete_tailnet"] = IonscaleError(
         "not_found", "no such tailnet"
     )
@@ -150,7 +166,9 @@ def test_a_tailnet_already_gone_is_recreated(ionscale_repo, org):
 
 
 @pytest.mark.django_db
-def test_a_failed_delete_changes_nothing(ionscale_repo, org):
+def test_a_failed_delete_changes_nothing(
+    ionscale_repo: FakeIonscaleRepository, org: SimpleNamespace
+) -> None:
     ionscale_repo.fail_with["delete_tailnet"] = IonscaleError("unavailable", "down")
 
     with pytest.raises(GraphQLError):
@@ -160,7 +178,9 @@ def test_a_failed_delete_changes_nothing(ionscale_repo, org):
 
 
 @pytest.mark.django_db
-def test_a_failed_acl_push_is_an_error(ionscale_repo, org):
+def test_a_failed_acl_push_is_an_error(
+    ionscale_repo: FakeIonscaleRepository, org: SimpleNamespace
+) -> None:
     ionscale_repo.fail_with["set_acl_policy"] = IonscaleError("unavailable", "down")
 
     with pytest.raises(GraphQLError):
@@ -168,7 +188,9 @@ def test_a_failed_acl_push_is_an_error(ionscale_repo, org):
 
 
 @pytest.mark.django_db
-def test_replace_needs_the_name_typed_out(ionscale_repo, org):
+def test_replace_needs_the_name_typed_out(
+    ionscale_repo: FakeIonscaleRepository, org: SimpleNamespace
+) -> None:
     with pytest.raises(GraphQLError):
         _replace(org, confirm="nope")
 
@@ -176,7 +198,9 @@ def test_replace_needs_the_name_typed_out(ionscale_repo, org):
 
 
 @pytest.mark.django_db
-def test_replace_rejects_non_admin(ionscale_repo, org):
+def test_replace_rejects_non_admin(
+    ionscale_repo: FakeIonscaleRepository, org: SimpleNamespace
+) -> None:
     with pytest.raises(GraphQLError):
         _replace(org, user=org.member.user)
 

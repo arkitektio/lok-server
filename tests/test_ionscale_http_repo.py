@@ -21,7 +21,7 @@ SERVICE = "/ionscale.v1.IonscaleService/"
 TOKEN = "svc_" + "x" * 40
 
 
-def _json(status: int, payload: Any) -> httpx.Response:
+def _json(status: int, payload: object) -> httpx.Response:
     return httpx.Response(status, json=payload)
 
 
@@ -49,7 +49,7 @@ class FakeIonscale:
     ) -> None:
         self.handlers[method] = handler
 
-    def reply(self, method: str, payload: Any, status: int = 200) -> None:
+    def reply(self, method: str, payload: object, status: int = 200) -> None:
         self.on(method, lambda _body: _json(status, payload))
 
     def __call__(self, request: httpx.Request) -> httpx.Response:
@@ -79,7 +79,7 @@ def server() -> FakeIonscale:
 
 
 @pytest.fixture
-def repo(server) -> IonscaleHttpRepository:
+def repo(server: FakeIonscale) -> IonscaleHttpRepository:
     return IonscaleHttpRepository(
         "https://mesh.example.org/", TOKEN, transport=httpx.MockTransport(server)
     )
@@ -93,12 +93,14 @@ TAILNET_WIRE = {
 }
 
 
-def test_requires_a_token():
+def test_requires_a_token() -> None:
     with pytest.raises(ValueError):
         IonscaleHttpRepository("https://mesh", "")
 
 
-def test_request_shape_path_headers_and_body(server, repo):
+def test_request_shape_path_headers_and_body(
+    server: FakeIonscale, repo: IonscaleHttpRepository
+) -> None:
     server.reply("ListTailnets", {"tailnet": [TAILNET_WIRE]})
 
     repo.list_tailnets()
@@ -113,7 +115,9 @@ def test_request_shape_path_headers_and_body(server, repo):
     assert json.loads(request.content) == {}
 
 
-def test_parses_camel_case_and_string_ids(server, repo):
+def test_parses_camel_case_and_string_ids(
+    server: FakeIonscale, repo: IonscaleHttpRepository
+) -> None:
     server.reply("ListTailnets", {"tailnet": [TAILNET_WIRE]})
 
     (tailnet,) = repo.list_tailnets()
@@ -124,7 +128,9 @@ def test_parses_camel_case_and_string_ids(server, repo):
     assert tailnet.dns_name == "acme.mesh.example.org"
 
 
-def test_tailnet_keyed_calls_resolve_the_id_once(server, repo):
+def test_tailnet_keyed_calls_resolve_the_id_once(
+    server: FakeIonscale, repo: IonscaleHttpRepository
+) -> None:
     server.reply("ListTailnets", {"tailnet": [TAILNET_WIRE]})
     server.reply("GetIAMPolicy", {"policy": json.dumps({"subs": ["1", "2"]})})
 
@@ -135,13 +141,17 @@ def test_tailnet_keyed_calls_resolve_the_id_once(server, repo):
     assert server.bodies("GetIAMPolicy") == [{"tailnet_id": "8543723985234"}] * 2
 
 
-def test_empty_policy_is_an_empty_dict(server, repo):
+def test_empty_policy_is_an_empty_dict(
+    server: FakeIonscale, repo: IonscaleHttpRepository
+) -> None:
     server.reply("ListTailnets", {"tailnet": [TAILNET_WIRE]})
     server.reply("GetIAMPolicy", {})
     assert repo.get_policy("acme") == {}
 
 
-def test_unknown_tailnet_name_is_not_found_without_a_call(server, repo):
+def test_unknown_tailnet_name_is_not_found_without_a_call(
+    server: FakeIonscale, repo: IonscaleHttpRepository
+) -> None:
     server.reply("ListTailnets", {"tailnet": [TAILNET_WIRE]})
 
     with pytest.raises(IonscaleError) as excinfo:
@@ -151,7 +161,9 @@ def test_unknown_tailnet_name_is_not_found_without_a_call(server, repo):
     assert server.calls() == ["ListTailnets"]
 
 
-def test_stale_cached_id_is_refreshed_once(server, repo):
+def test_stale_cached_id_is_refreshed_once(
+    server: FakeIonscale, repo: IonscaleHttpRepository
+) -> None:
     """The tailnet was deleted and recreated under the same name: the first
     call fails with not_found, the id is re-resolved, the call is retried."""
     ids = iter(["1", "2"])
@@ -183,7 +195,9 @@ def test_stale_cached_id_is_refreshed_once(server, repo):
     ]
 
 
-def test_fresh_id_not_found_is_not_retried(server, repo):
+def test_fresh_id_not_found_is_not_retried(
+    server: FakeIonscale, repo: IonscaleHttpRepository
+) -> None:
     server.reply("ListTailnets", {"tailnet": [TAILNET_WIRE]})
     server.on("SetIAMPolicy", lambda _b: _connect_error("not_found", "gone"))
 
@@ -194,7 +208,9 @@ def test_fresh_id_not_found_is_not_retried(server, repo):
     assert server.calls() == ["ListTailnets", "SetIAMPolicy"]
 
 
-def test_connect_error_code_wins_over_http_status(server, repo):
+def test_connect_error_code_wins_over_http_status(
+    server: FakeIonscale, repo: IonscaleHttpRepository
+) -> None:
     server.on(
         "CreateTailnet",
         lambda _b: _connect_error("already_exists", "tailnet already exists with id 4"),
@@ -211,7 +227,9 @@ def test_connect_error_code_wins_over_http_status(server, repo):
     assert server.bodies("CreateTailnet") == [{"name": "acme", "organization": "17"}]
 
 
-def test_non_connect_error_maps_http_status(server, repo):
+def test_non_connect_error_maps_http_status(
+    server: FakeIonscale, repo: IonscaleHttpRepository
+) -> None:
     server.on(
         "ListTailnets", lambda _b: httpx.Response(503, text="<html>bad gateway</html>")
     )
@@ -223,7 +241,7 @@ def test_non_connect_error_maps_http_status(server, repo):
     assert excinfo.value.http_status == 503
 
 
-def test_transport_failure_is_unavailable():
+def test_transport_failure_is_unavailable() -> None:
     def boom(_request: httpx.Request) -> httpx.Response:
         raise httpx.ConnectTimeout("timed out")
 
@@ -238,7 +256,9 @@ def test_transport_failure_is_unavailable():
     assert excinfo.value.http_status is None
 
 
-def test_create_tailnet_caches_the_new_id(server, repo):
+def test_create_tailnet_caches_the_new_id(
+    server: FakeIonscale, repo: IonscaleHttpRepository
+) -> None:
     server.reply("CreateTailnet", {"tailnet": TAILNET_WIRE})
     server.reply("SetIAMPolicy", {})
 
@@ -249,23 +269,29 @@ def test_create_tailnet_caches_the_new_id(server, repo):
     assert server.calls() == ["CreateTailnet", "SetIAMPolicy"]  # no ListTailnets needed
 
 
-def test_get_tailnet_by_organization(server, repo):
+def test_get_tailnet_by_organization(
+    server: FakeIonscale, repo: IonscaleHttpRepository
+) -> None:
     server.reply("GetTailnetByOrganization", {"tailnet": TAILNET_WIRE})
 
-    tailnet = repo.get_tailnet_by_organization(17)
+    tailnet = repo.get_tailnet_by_organization(17)  # pyright: ignore[reportArgumentType]  # an int on purpose: the repo stringifies ids
 
     assert tailnet is not None and tailnet.name == "acme"
     assert server.bodies() == [{"organization": "17"}]
 
 
-def test_get_tailnet_by_organization_missing_is_none(server, repo):
+def test_get_tailnet_by_organization_missing_is_none(
+    server: FakeIonscale, repo: IonscaleHttpRepository
+) -> None:
     server.on(
         "GetTailnetByOrganization", lambda _b: _connect_error("not_found", "no tailnet")
     )
     assert repo.get_tailnet_by_organization("17") is None
 
 
-def test_get_tailnet_by_organization_falls_back_to_list_filter(server, repo):
+def test_get_tailnet_by_organization_falls_back_to_list_filter(
+    server: FakeIonscale, repo: IonscaleHttpRepository
+) -> None:
     """Older ionscale without the RPC: filter ListTailnets by organization."""
     server.on("GetTailnetByOrganization", lambda _b: _connect_error("unimplemented"))
     server.on(
@@ -275,11 +301,14 @@ def test_get_tailnet_by_organization_falls_back_to_list_filter(server, repo):
         ),
     )
 
-    assert repo.get_tailnet_by_organization("17").name == "acme"
+    found = repo.get_tailnet_by_organization("17")
+    assert found is not None and found.name == "acme"
     assert repo.get_tailnet_by_organization("18") is None
 
 
-def test_update_tailnet_is_partial_and_renames(server, repo):
+def test_update_tailnet_is_partial_and_renames(
+    server: FakeIonscale, repo: IonscaleHttpRepository
+) -> None:
     server.reply("ListTailnets", {"tailnet": [TAILNET_WIRE]})
     server.on(
         "UpdateTailnet",
@@ -290,7 +319,10 @@ def test_update_tailnet_is_partial_and_renames(server, repo):
     server.reply("GetIAMPolicy", {"policy": "{}"})
 
     updated = repo.update_tailnet(
-        "acme", name="acme-corp", ssh_enabled=True, machine_authorization_enabled=None
+        "acme",
+        name="acme-corp",
+        ssh_enabled=True,
+        machine_authorization_enabled=None,  # pyright: ignore[reportArgumentType]  # None on purpose: an unset flag is skipped
     )
 
     assert updated.name == "acme-corp"
@@ -306,7 +338,9 @@ def test_update_tailnet_is_partial_and_renames(server, repo):
     assert server.calls()[-2:] == ["ListTailnets", "GetIAMPolicy"]
 
 
-def test_delete_tailnet_forwards_force_and_forgets_the_id(server, repo):
+def test_delete_tailnet_forwards_force_and_forgets_the_id(
+    server: FakeIonscale, repo: IonscaleHttpRepository
+) -> None:
     server.reply("ListTailnets", {"tailnet": [TAILNET_WIRE]})
     server.reply("DeleteTailnet", {})
 
@@ -318,7 +352,9 @@ def test_delete_tailnet_forwards_force_and_forgets_the_id(server, repo):
     assert "acme" not in repo._tailnet_ids
 
 
-def test_set_dns_config_sends_full_config_with_extra_records(server, repo):
+def test_set_dns_config_sends_full_config_with_extra_records(
+    server: FakeIonscale, repo: IonscaleHttpRepository
+) -> None:
     server.reply("ListTailnets", {"tailnet": [TAILNET_WIRE]})
     server.reply("SetDNSConfig", {"config": {}})
 
@@ -355,7 +391,9 @@ def test_set_dns_config_sends_full_config_with_extra_records(server, repo):
     ]
 
 
-def test_create_auth_key_returns_value_and_encodes_expiry(server, repo):
+def test_create_auth_key_returns_value_and_encodes_expiry(
+    server: FakeIonscale, repo: IonscaleHttpRepository
+) -> None:
     server.reply("ListTailnets", {"tailnet": [TAILNET_WIRE]})
     server.reply("CreateAuthKey", {"value": "tskey-abc", "authKey": {"id": "3"}})
 
@@ -379,7 +417,9 @@ def test_create_auth_key_returns_value_and_encodes_expiry(server, repo):
     ]
 
 
-def test_list_machines_and_get_machine(server, repo):
+def test_list_machines_and_get_machine(
+    server: FakeIonscale, repo: IonscaleHttpRepository
+) -> None:
     server.reply("ListTailnets", {"tailnet": [TAILNET_WIRE]})
     wire = {
         "id": "99",
@@ -400,7 +440,7 @@ def test_list_machines_and_get_machine(server, repo):
     server.reply("GetMachine", {"machine": wire})
 
     (machine,) = repo.list_machines("acme")
-    detail = repo.get_machine(99)
+    detail = repo.get_machine(99)  # pyright: ignore[reportArgumentType]  # an int on purpose: the repo stringifies ids
 
     assert machine.id == "99" and machine.tailnet == "acme" and machine.connected
     assert machine.last_seen == datetime(2026, 9, 1, 10, 0, tzinfo=UTC)
@@ -410,7 +450,9 @@ def test_list_machines_and_get_machine(server, repo):
     assert server.bodies("GetMachine") == [{"machine_id": "99"}]
 
 
-def test_list_users_carries_external_ids(server, repo):
+def test_list_users_carries_external_ids(
+    server: FakeIonscale, repo: IonscaleHttpRepository
+) -> None:
     server.reply("ListTailnets", {"tailnet": [TAILNET_WIRE]})
     server.reply(
         "ListUsers",
@@ -430,27 +472,35 @@ def test_list_users_carries_external_ids(server, repo):
     ]
 
 
-def test_revoke_account_returns_affected_tailnets(server, repo):
+def test_revoke_account_returns_affected_tailnets(
+    server: FakeIonscale, repo: IonscaleHttpRepository
+) -> None:
     server.reply("RevokeAccount", {"tailnetIds": ["8543723985234"]})
 
-    assert repo.revoke_account(42, organization=17) == ["8543723985234"]
+    assert repo.revoke_account(42, organization=17) == ["8543723985234"]  # pyright: ignore[reportArgumentType]  # an int on purpose: the repo stringifies ids
     assert server.bodies() == [{"external_id": "42", "organization": "17"}]
 
 
-def test_revoke_account_everywhere_omits_organization(server, repo):
+def test_revoke_account_everywhere_omits_organization(
+    server: FakeIonscale, repo: IonscaleHttpRepository
+) -> None:
     server.reply("RevokeAccount", {})
     assert repo.revoke_account("42") == []
     assert server.bodies() == [{"external_id": "42"}]
 
 
-def test_revoke_account_treats_not_found_as_noop(server, repo):
+def test_revoke_account_treats_not_found_as_noop(
+    server: FakeIonscale, repo: IonscaleHttpRepository
+) -> None:
     server.on(
         "RevokeAccount", lambda _b: _connect_error("not_found", "account not found")
     )
     assert repo.revoke_account("42", "17") == []
 
 
-def test_revoke_account_other_errors_propagate(server, repo):
+def test_revoke_account_other_errors_propagate(
+    server: FakeIonscale, repo: IonscaleHttpRepository
+) -> None:
     server.on(
         "RevokeAccount",
         lambda _b: _connect_error("permission_denied", "system admin required"),
@@ -460,7 +510,9 @@ def test_revoke_account_other_errors_propagate(server, repo):
     assert excinfo.value.code == "permission_denied"
 
 
-def test_tailnet_lock_status(server, repo):
+def test_tailnet_lock_status(
+    server: FakeIonscale, repo: IonscaleHttpRepository
+) -> None:
     server.reply("ListTailnets", {"tailnet": [TAILNET_WIRE]})
     server.reply(
         "GetTailnetLockStatus",

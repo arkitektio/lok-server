@@ -3,8 +3,11 @@ the management schema shows them: themselves, their own membership and the hubs
 their collaborations run on. Not the organization's member directory, devices or
 clients — a guest's app token used to list all of those."""
 
+from typing import Any
+
 import pytest
 from asgiref.sync import sync_to_async
+from kante.context import HttpContext
 
 from karakter import models
 from lok_server.schema import schema as main_schema
@@ -22,7 +25,7 @@ query {
 """
 
 
-def _setup(guest: bool):
+def _setup(guest: bool) -> tuple[HttpContext, dict[str, str]]:
     organization = factories.make_organization()
     factories.make_membership(user=organization.owner, organization=organization)
     granted_hub = factories.make_hub(organization=organization)
@@ -55,16 +58,17 @@ def _setup(guest: bool):
     }
 
 
-async def _run(guest: bool):
+async def _run(guest: bool) -> tuple[dict[str, Any], dict[str, str]]:
     context, ids = await sync_to_async(_setup)(guest)
     result = await main_schema.execute(DIRECTORY, context_value=context)
     assert result.errors is None, result.errors
+    assert result.data is not None
     return result.data, ids
 
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_a_guest_sees_themselves_and_their_hubs_only():
+async def test_a_guest_sees_themselves_and_their_hubs_only() -> None:
     data, ids = await _run(guest=True)
 
     assert [u["id"] for u in data["users"]] == [ids["self"]]
@@ -78,7 +82,7 @@ async def test_a_guest_sees_themselves_and_their_hubs_only():
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_a_full_member_still_sees_the_organization():
+async def test_a_full_member_still_sees_the_organization() -> None:
     data, ids = await _run(guest=False)
 
     user_ids = {u["id"] for u in data["users"]}

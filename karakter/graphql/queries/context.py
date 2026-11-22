@@ -1,10 +1,15 @@
+from typing import TYPE_CHECKING
+
 from django.core.exceptions import ObjectDoesNotExist
 from kante.types import Info
 
 from karakter import types
 
+if TYPE_CHECKING:
+    from fakts.models import Client, Hub
 
-def _hub_for_client(client):
+
+def _hub_for_client(client: "Client | None") -> "Hub | None":
     """The hub a client belongs to: an app client's assigned hub, or the hub a
     hub-identity client *is*. None for clients bound to neither (relying parties)."""
     if client is None:

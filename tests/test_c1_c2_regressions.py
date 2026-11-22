@@ -5,9 +5,11 @@ C2 — the main GraphQL API must reject a token not issued by, or not addressed
      to, this server.
 """
 
+from typing import Any
+
 import pytest
 from asgiref.sync import sync_to_async
-from authentikate.base_models import StaticToken
+from authentikate.base_models import JWTToken, StaticToken
 from authentikate.errors import InvalidJwtTokenError
 from django.conf import settings
 
@@ -20,7 +22,7 @@ from karakter.models import Membership, Organization, User
 
 
 @pytest.mark.django_db
-def test_signup_does_not_join_existing_organization():
+def test_signup_does_not_join_existing_organization() -> None:
     """The finding: `get_or_create(slug=f"{username}-org")` matched on slug alone
     and then granted `admin` outside the `if created` branch, so registering the
     username `acme` made you an admin of the pre-existing org `acme-org`.
@@ -44,7 +46,7 @@ def test_signup_does_not_join_existing_organization():
 
 
 @pytest.mark.django_db
-def test_signup_still_provisions_an_admin_org():
+def test_signup_still_provisions_an_admin_org() -> None:
     user = User.objects.create(username="freshuser")
     org = Organization.objects.get(owner=user)
     membership = Membership.objects.get(user=user, organization=org)
@@ -56,7 +58,7 @@ def test_signup_still_provisions_an_admin_org():
 # --------------------------------------------------------------------------- #
 
 
-def _token(**overrides):
+def _token(**overrides: Any) -> StaticToken:
     claims = dict(
         sub="1",
         iss=settings.OIDC_ISSUER,
@@ -68,11 +70,11 @@ def _token(**overrides):
     return StaticToken(**claims)
 
 
-def test_token_addressed_to_lok_is_accepted():
+def test_token_addressed_to_lok_is_accepted() -> None:
     assert_addressed_to_lok(_token())
 
 
-def test_relying_party_token_is_rejected():
+def test_relying_party_token_is_rejected() -> None:
     """The finding: `get_audiences` mints `[client_id]` for a plain OIDC relying
     party — explicitly not `lok` — but the main schema never checked `aud`, so
     an RP's access token authenticated as its user.
@@ -81,7 +83,7 @@ def test_relying_party_token_is_rejected():
         assert_addressed_to_lok(_token(aud=["some-relying-party"]))
 
 
-def test_token_without_audience_is_rejected():
+def test_token_without_audience_is_rejected() -> None:
     """An audience-less token names no service, so it must never authenticate.
 
     In authentikate v4 this is enforced a layer earlier than lok's own gate:
@@ -98,7 +100,7 @@ def test_token_without_audience_is_rejected():
         _token(aud=[])
 
 
-def test_token_from_a_foreign_issuer_is_rejected():
+def test_token_from_a_foreign_issuer_is_rejected() -> None:
     with pytest.raises(InvalidJwtTokenError):
         assert_addressed_to_lok(_token(iss="https://evil.example"))
 
@@ -108,7 +110,7 @@ def test_token_from_a_foreign_issuer_is_rejected():
 # --------------------------------------------------------------------------- #
 
 
-def _jwt_token(**overrides):
+def _jwt_token(**overrides: Any) -> JWTToken:
     """A `JWTToken` — the model production actually authenticates with.
 
     `StaticToken` defaults `org` to "static_org", so a static fixture cannot show
@@ -136,7 +138,7 @@ def _jwt_token(**overrides):
     return JWTToken(**claims)
 
 
-def test_read_org_claim_rejects_a_token_naming_no_organization():
+def test_read_org_claim_rejects_a_token_naming_no_organization() -> None:
     from authapp.extension import read_org_claim
 
     with pytest.raises(InvalidJwtTokenError):
@@ -145,7 +147,7 @@ def test_read_org_claim_rejects_a_token_naming_no_organization():
         read_org_claim(_token(org=""))
 
 
-def test_read_org_claim_reads_the_declared_org_claim():
+def test_read_org_claim_reads_the_declared_org_claim() -> None:
     """`org` is a field authentikate declares (v4), so it is parsed off the
     signature-verified payload like any other claim. This used to be read by
     hand-decoding `token.raw`, because the library dropped undeclared claims —
@@ -161,7 +163,7 @@ def test_read_org_claim_reads_the_declared_org_claim():
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_extension_resolves_the_organization_by_pk_from_a_real_token():
+async def test_extension_resolves_the_organization_by_pk_from_a_real_token() -> None:
     """The production resolution path: `org` claim -> Organization pk lookup,
     end to end through the extension rather than `read_org_claim` alone.
     """
@@ -182,7 +184,7 @@ async def test_extension_resolves_the_organization_by_pk_from_a_real_token():
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_extension_fails_closed_on_an_unknown_or_malformed_org():
+async def test_extension_fails_closed_on_an_unknown_or_malformed_org() -> None:
     from authapp.extension import AuthAppExtension
 
     for org in ("99999999", "not-a-pk"):
@@ -193,7 +195,7 @@ async def test_extension_fails_closed_on_an_unknown_or_malformed_org():
 
 
 @pytest.mark.django_db
-def test_org_claim_survives_a_real_mint_decode_roundtrip():
+def test_org_claim_survives_a_real_mint_decode_roundtrip() -> None:
     """The seam `read_org_claim` depends on, end to end.
 
     `read_org_claim` used to hand-decode `token.raw`, precisely because

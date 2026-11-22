@@ -5,8 +5,12 @@ the caller's token, so it must not turn into an existence oracle: every call
 answers the same, whatever the organization id names.
 """
 
+from typing import TypedDict
+
 import pytest
 from asgiref.sync import sync_to_async
+from kante.context import HttpContext
+from strawberry.types import ExecutionResult
 
 from karakter import models
 from karakter.graphql.mutations import membership_request as module
@@ -41,9 +45,11 @@ MEMBER_OF = """
 
 
 @pytest.fixture(autouse=True)
-def quiet_notifications(monkeypatch):
+def quiet_notifications(
+    monkeypatch: pytest.MonkeyPatch,
+) -> list[tuple[list[models.Membership], str]]:
     """No pushes from tests; record who would have been told instead."""
-    sent = []
+    sent: list[tuple[list[models.Membership], str]] = []
     monkeypatch.setattr(
         module,
         "_notify",
@@ -52,7 +58,7 @@ def quiet_notifications(monkeypatch):
     return sent
 
 
-def _context(membership):
+def _context(membership: models.Membership) -> HttpContext:
     return build_auth_context(
         membership.user,
         membership.organization,
@@ -60,7 +66,17 @@ def _context(membership):
     )
 
 
-def _setup():
+class Setup(TypedDict):
+    outsider: models.Membership
+    target: models.Organization
+    outsider_context: HttpContext
+    owner_context: HttpContext
+    admin_context: HttpContext
+    member_context: HttpContext
+    member: models.Membership
+
+
+def _setup() -> Setup:
     """An outsider signed into their own organization, and a target organization
     with its owner, an admin and a plain member."""
     outsider = factories.make_membership()
@@ -81,7 +97,9 @@ def _setup():
     }
 
 
-async def _ask(context, organization_id, reason=None):
+async def _ask(
+    context: HttpContext, organization_id: int | str, reason: str | None = None
+) -> ExecutionResult:
     return await schema.execute(
         REQUEST,
         context_value=context,
@@ -91,15 +109,15 @@ async def _ask(context, organization_id, reason=None):
     )
 
 
-def _rows(**lookup):
+def _rows(**lookup: object) -> list[models.MembershipRequest]:
     return list(models.MembershipRequest.objects.filter(**lookup))
 
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
 async def test_request_is_stored_and_approval_creates_the_membership(
-    quiet_notifications,
-):
+    quiet_notifications: list[tuple[list[models.Membership], str]],
+) -> None:
     s = await sync_to_async(_setup)()
 
     result = await _ask(s["outsider_context"], s["target"].id, "I was sent a link")
@@ -151,7 +169,7 @@ async def test_request_is_stored_and_approval_creates_the_membership(
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_approval_assigns_the_named_roles():
+async def test_approval_assigns_the_named_roles() -> None:
     s = await sync_to_async(_setup)()
     await _ask(s["outsider_context"], s["target"].id)
     row = (await sync_to_async(_rows)(organization=s["target"]))[0]
@@ -169,7 +187,7 @@ async def test_approval_assigns_the_named_roles():
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_every_request_answers_the_same():
+async def test_every_request_answers_the_same() -> None:
     """Real, missing, malformed, already a member, asked twice: one answer."""
     s = await sync_to_async(_setup)()
     context = s["outsider_context"]
@@ -193,7 +211,9 @@ async def test_every_request_answers_the_same():
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_a_declined_request_is_not_repeated_right_away(quiet_notifications):
+async def test_a_declined_request_is_not_repeated_right_away(
+    quiet_notifications: list[tuple[list[models.Membership], str]],
+) -> None:
     s = await sync_to_async(_setup)()
     await _ask(s["outsider_context"], s["target"].id)
     row = (await sync_to_async(_rows)(organization=s["target"]))[0]
@@ -222,7 +242,7 @@ async def test_a_declined_request_is_not_repeated_right_away(quiet_notifications
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_only_owner_and_admins_see_and_answer_requests():
+async def test_only_owner_and_admins_see_and_answer_requests() -> None:
     s = await sync_to_async(_setup)()
     await _ask(s["outsider_context"], s["target"].id)
     row = (await sync_to_async(_rows)(organization=s["target"]))[0]
@@ -253,10 +273,10 @@ async def test_only_owner_and_admins_see_and_answer_requests():
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_member_of_says_nothing_about_other_organizations():
+async def test_member_of_says_nothing_about_other_organizations() -> None:
     s = await sync_to_async(_setup)()
 
-    async def member_of(organization):
+    async def member_of(organization: int | str) -> bool:
         result = await schema.execute(
             MEMBER_OF,
             context_value=s["outsider_context"],

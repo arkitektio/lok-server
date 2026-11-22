@@ -9,15 +9,23 @@ PKCE is required for public clients at token exchange.
 
 import base64
 import hashlib
+from typing import TYPE_CHECKING
 from urllib.parse import parse_qs, urlparse
 
 import pytest
+from django.test import Client
 from django.urls import reverse
+from pytest_django.fixtures import SettingsWrapper
 
+from fakts import models as fmodels
+from karakter.models import Organization, User
 from tests import factories
 
+if TYPE_CHECKING:
+    from django.test.client import _MonkeyPatchedWSGIResponse as TestResponse
 
-def _setup():
+
+def _setup() -> tuple[User, Organization, fmodels.Client]:
     membership = factories.make_membership()
     # A separate OAuth2 client acting as the relying party being authorized.
     rp = factories.make_oauth2_client(
@@ -36,7 +44,7 @@ def _s256(verifier: str) -> str:
     return base64.urlsafe_b64encode(digest).rstrip(b"=").decode()
 
 
-def _authorize_params(rp, **extra):
+def _authorize_params(rp: fmodels.Client, **extra: str) -> dict[str, str]:
     params = {
         "response_type": "code",
         "client_id": rp.client_id,
@@ -52,7 +60,7 @@ def _authorize_params(rp, **extra):
 
 
 @pytest.mark.django_db
-def test_get_forwards_to_consent_page(client):
+def test_get_forwards_to_consent_page(client: Client) -> None:
     user, _organization, rp = _setup()
     client.force_login(user)
 
@@ -64,7 +72,7 @@ def test_get_forwards_to_consent_page(client):
 
 
 @pytest.mark.django_db
-def test_get_with_unknown_client_errors_without_redirect(client):
+def test_get_with_unknown_client_errors_without_redirect(client: Client) -> None:
     user, _organization, _rp = _setup()
     client.force_login(user)
 
@@ -82,7 +90,7 @@ def test_get_with_unknown_client_errors_without_redirect(client):
 
 
 @pytest.mark.django_db
-def test_post_consent_redirects_with_code(client):
+def test_post_consent_redirects_with_code(client: Client) -> None:
     user, organization, rp = _setup()
     client.force_login(user)
 
@@ -115,7 +123,7 @@ def test_post_consent_redirects_with_code(client):
 
 
 @pytest.mark.django_db
-def test_post_deny_redirects_with_access_denied(client):
+def test_post_deny_redirects_with_access_denied(client: Client) -> None:
     user, _organization, rp = _setup()
     client.force_login(user)
 
@@ -128,7 +136,7 @@ def test_post_deny_redirects_with_access_denied(client):
 
 
 @pytest.mark.django_db
-def test_post_without_membership_is_rejected(client):
+def test_post_without_membership_is_rejected(client: Client) -> None:
     user, _organization, rp = _setup()
     client.force_login(user)
 
@@ -143,7 +151,7 @@ def test_post_without_membership_is_rejected(client):
 
 
 @pytest.mark.django_db
-def test_post_refuses_an_unregistered_redirect_uri(client):
+def test_post_refuses_an_unregistered_redirect_uri(client: Client) -> None:
     """The end-to-end shape of the takeover: the endpoint 302s the browser to
     `redirect_uri`, so an unregistered one must never get that far."""
     user, organization, rp = _setup()
@@ -165,7 +173,7 @@ def test_post_refuses_an_unregistered_redirect_uri(client):
 
 
 @pytest.mark.django_db
-def test_pkce_is_required_for_public_clients(client):
+def test_pkce_is_required_for_public_clients(client: Client) -> None:
     """A public client (no secret) cannot even obtain a code without a PKCE
     challenge, and cannot exchange one without the verifier."""
     membership = factories.make_membership()
@@ -224,7 +232,7 @@ def test_pkce_is_required_for_public_clients(client):
 
 
 @pytest.mark.django_db
-def test_ensureopenid_provisions_client(settings):
+def test_ensureopenid_provisions_client(settings: SettingsWrapper) -> None:
     """ensureopenid creates an OAuth2Client from openid_apps with a matching
     secret and a narrowed grant surface."""
     from django.core.management import call_command
@@ -249,7 +257,7 @@ def test_ensureopenid_provisions_client(settings):
 
 
 @pytest.mark.django_db
-def test_pkce_is_required_for_confidential_clients_too(client):
+def test_pkce_is_required_for_confidential_clients_too(client: Client) -> None:
     """RFC 9700 §2.1.1: a client secret is not a substitute for PKCE.
 
     authlib's `CodeChallenge(required=True)` only enforces the verifier when
@@ -280,7 +288,7 @@ def test_pkce_is_required_for_confidential_clients_too(client):
 
 
 @pytest.mark.django_db
-def test_plain_code_challenge_method_is_refused(client):
+def test_plain_code_challenge_method_is_refused(client: Client) -> None:
     """Discovery advertises S256 only, so `plain` must not be silently accepted.
 
     authlib defaults a challenge carrying no method to `plain`; both that
@@ -313,7 +321,9 @@ def test_plain_code_challenge_method_is_refused(client):
 # --------------------------------------------------------------------------- #
 
 
-def _consent(client, rp, organization):
+def _consent(
+    client: Client, rp: fmodels.Client, organization: Organization
+) -> "TestResponse":
     return client.post(
         reverse("authorize"),
         {
@@ -326,7 +336,7 @@ def _consent(client, rp, organization):
 
 
 @pytest.mark.django_db
-def test_an_app_from_another_organization_gets_no_code(client):
+def test_an_app_from_another_organization_gets_no_code(client: Client) -> None:
     """The phishing shape: an attacker approves their own app (redirect URI theirs) in
     their own organization, and a member of another organization clicks Allow. The
     token would carry the victim's `org` with `aud: lok`, so no code may be issued."""
@@ -347,7 +357,7 @@ def test_an_app_from_another_organization_gets_no_code(client):
 
 
 @pytest.mark.django_db
-def test_an_app_is_authorized_in_its_own_organization(client):
+def test_an_app_is_authorized_in_its_own_organization(client: Client) -> None:
     membership = factories.make_membership()
     app = factories.make_client(
         membership=membership, redirect_uris="https://rp.example/callback"
@@ -362,7 +372,7 @@ def test_an_app_is_authorized_in_its_own_organization(client):
 
 
 @pytest.mark.django_db
-def test_a_relying_party_serves_every_organization(client):
+def test_a_relying_party_serves_every_organization(client: Client) -> None:
     """Config-provisioned relying parties are global: their tokens are addressed to themselves."""
     from fakts.enums import ClientKindChoices
 
@@ -383,7 +393,7 @@ def test_a_relying_party_serves_every_organization(client):
 
 
 @pytest.mark.django_db
-def test_a_staged_client_runs_no_code_flow(client):
+def test_a_staged_client_runs_no_code_flow(client: Client) -> None:
     """Registered but never approved: no organization, so no organization to authorize into."""
     member = factories.make_membership()
     staged = factories.make_oauth2_client(

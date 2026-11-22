@@ -1,3 +1,5 @@
+from typing import Any
+
 from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.core.management.base import BaseCommand
@@ -14,7 +16,7 @@ User = get_user_model()
 class Command(BaseCommand):
     help = "Creates all default organisations if it doesn't exist and applies auto-configured kommunity partners"
 
-    def handle(self, *args, **kwargs):
+    def handle(self, *args: Any, **kwargs: Any) -> None:
         organizations = settings.ENSURE_ORGANIZATIONS
         hub_keys_written: set[str] = set()
 

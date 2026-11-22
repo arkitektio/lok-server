@@ -1,6 +1,6 @@
 import datetime
 from enum import Enum
-from typing import Optional, cast
+from typing import Any, NoReturn, Optional, TypeVar, cast
 
 import kante
 import strawberry
@@ -8,7 +8,7 @@ import strawberry_django
 from allauth.socialaccount import models as smodels
 from django.conf import settings
 from django.contrib.auth import get_user_model
-from django.db.models import Q
+from django.db.models import Model, Q, QuerySet
 from kante.types import Info
 from pydantic import ValidationError as PydanticValidationError
 from strawberry.experimental import pydantic
@@ -29,8 +29,14 @@ from karakter import models
 from karakter.collaboration_grants import full_member_q, is_full_member
 from karakter.datalayer import get_current_datalayer
 
+#: The row a scoped list is about.
+_M = TypeVar("_M", bound=Model)
 
-def build_prescoper(field="organization"):
+#: What a mesh sidecar belongs to: an app enrollment or a hub.
+SidecarOwner = fakts_models.AppMeshEnrollment | fakts_models.Hub
+
+
+def build_prescoper(field: str = "organization") -> NoReturn:
     """Deliberately absent: use `karakter.types.build_prescoper`.
 
     A no-op copy used to live here under the same name as the real scoping
@@ -44,7 +50,7 @@ def build_prescoper(field="organization"):
     )
 
 
-def _caller(info: Info):
+def _caller(info: Info) -> models.User | None:
     """The authenticated caller, or ``None``.
 
     Field resolvers on types reachable from the public ``inviteByCode`` root run
@@ -58,10 +64,11 @@ def _caller(info: Info):
         return None
     if user is None or not getattr(user, "is_authenticated", False):
         return None
-    return user
+    # AUTH_USER_MODEL: the principal is a karakter User.
+    return cast(models.User, user)
 
 
-def _can_see_user_details(info: Info, target) -> bool:
+def _can_see_user_details(info: Info, target: models.User) -> bool:
     """Whether the caller may read ``target``'s personal details.
 
     Mirrors the ``friends`` scoping in ``ManagementUser.get_queryset``: the user
@@ -93,7 +100,7 @@ def _can_see_user_details(info: Info, target) -> bool:
     return cache[key]
 
 
-def _membership_scoped(queryset, info: Info, path: str):
+def _membership_scoped(queryset: QuerySet[_M], info: Info, path: str) -> QuerySet[_M]:
     """Filter ``queryset`` to rows whose organization (reached via ``path``) the
     caller belongs to. ``path`` is the ORM lookup from the row to its
     organization, e.g. ``"organization"`` or ``"instance__organization"``."""
@@ -220,7 +227,9 @@ class ManagementUser:
         return smodels.SocialAccount.objects.filter(user_id=self.id)
 
     @classmethod
-    def get_queryset(cls, queryset, info: Info, **kwargs):
+    def get_queryset(
+        cls, queryset: QuerySet[models.User], info: Info, **kwargs: Any
+    ) -> QuerySet[models.User]:
         """Restrict user listings to people the caller shares an organization with.
 
         This type exposes `email`, real names, `memberships` and `com_channels`,
@@ -326,7 +335,9 @@ class ManagementSocialAccount:
     )
 
     @classmethod
-    def get_queryset(cls, queryset, info: Info):
+    def get_queryset(
+        cls, queryset: QuerySet[smodels.SocialAccount], info: Info
+    ) -> QuerySet[smodels.SocialAccount]:
         return queryset.filter(user=info.context.request.user)
 
 
@@ -416,7 +427,7 @@ class ManagementOrcidAccount(ManagementSocialAccount):
         )
 
     @staticmethod
-    def is_type_of(ob, info):
+    def is_type_of(ob: object, info: Info) -> bool:
         return ob.provider == "orcid"
 
 
@@ -438,7 +449,7 @@ class ManagementGithubAccount(ManagementSocialAccount):
         return None
 
     @staticmethod
-    def is_type_of(ob, info):
+    def is_type_of(ob: object, info: Info) -> bool:
         return ob.provider == "github"
 
 
@@ -456,7 +467,7 @@ class ManagementGenericAccount(ManagementSocialAccount):
     extra_data: scalars.ExtraData
 
     @staticmethod
-    def is_type_of(ob, info):
+    def is_type_of(ob: object, info: Info) -> bool:
         return ob.provider != "orcid"
 
 
@@ -473,7 +484,7 @@ class ManagementGoogleAccount(ManagementSocialAccount):
     extra_data: scalars.ExtraData
 
     @staticmethod
-    def is_type_of(ob, info):
+    def is_type_of(ob: object, info: Info) -> bool:
         return ob.provider == "google"
 
 
@@ -535,7 +546,9 @@ class ManagementRole:
         return self.description or self.identifier
 
     @classmethod
-    def get_queryset(cls, queryset, info: Info):
+    def get_queryset(
+        cls, queryset: QuerySet[models.Role], info: Info
+    ) -> QuerySet[models.Role]:
         return queryset.filter(
             full_member_q("organization", info.context.request.user)
         ).distinct()
@@ -555,7 +568,9 @@ class ManagementRoleSet:
     )
 
     @classmethod
-    def get_queryset(cls, queryset, info: Info):
+    def get_queryset(
+        cls, queryset: QuerySet[models.RoleSet], info: Info
+    ) -> QuerySet[models.RoleSet]:
         return queryset.filter(
             full_member_q("organization", info.context.request.user)
         ).distinct()
@@ -588,7 +603,9 @@ class ManagementScope:
         return self.description or self.identifier
 
     @classmethod
-    def get_queryset(cls, queryset, info: Info):
+    def get_queryset(
+        cls, queryset: QuerySet[models.Scope], info: Info
+    ) -> QuerySet[models.Scope]:
         return queryset.filter(
             full_member_q("organization", info.context.request.user)
         ).distinct()
@@ -657,7 +674,9 @@ class ManagementMembership:
         ).exists()
 
     @classmethod
-    def get_queryset(cls, queryset, info: Info):
+    def get_queryset(
+        cls, queryset: QuerySet[models.Membership], info: Info
+    ) -> QuerySet[models.Membership]:
         # A full member sees the memberships of their organization; a guest of
         # some collaborations sees just their own.
         user = info.context.request.user
@@ -690,7 +709,9 @@ class ManagementRoleRequest:
     responded_at: datetime.datetime | None
 
     @classmethod
-    def get_queryset(cls, queryset, info: Info):
+    def get_queryset(
+        cls, queryset: QuerySet[models.RoleRequest], info: Info
+    ) -> QuerySet[models.RoleRequest]:
         # A caller may see a role request only if it is their own, or if they own
         # *or administer* the organization it targets (so the admin inbox can list
         # what its holder is already allowed to approve). This deliberately mirrors
@@ -727,7 +748,9 @@ class ManagementMembershipRequest:
         return models.User.objects.get(pk=self.user_id)
 
     @classmethod
-    def get_queryset(cls, queryset, info: Info):
+    def get_queryset(
+        cls, queryset: QuerySet[models.MembershipRequest], info: Info
+    ) -> QuerySet[models.MembershipRequest]:
         # Who asked to join is nobody else's business, and only the owner and
         # admins can answer — the same bar the approve/decline mutations enforce.
         return queryset.filter(
@@ -892,7 +915,9 @@ class ManagementOrganization:
         return is_owner_or_admin(user, self)
 
     @classmethod
-    def get_queryset(cls, queryset, info: Info):
+    def get_queryset(
+        cls, queryset: QuerySet[models.Organization], info: Info
+    ) -> QuerySet[models.Organization]:
         # Any membership, scoped ones included: a guest of some collaborations sees
         # the organization's name, logo and link apps. Everything that reaches
         # further (members, invites, hubs, clients…) is gated on full membership
@@ -1021,7 +1046,9 @@ class ManagementInvite:
         return f"{settings.KONTROL_FRONTEND_URL}/invite/{self.token}"
 
     @classmethod
-    def get_queryset(cls, queryset, info: Info, **kwargs):
+    def get_queryset(
+        cls, queryset: QuerySet[models.Invite], info: Info, **kwargs: Any
+    ) -> QuerySet[models.Invite]:
         """Only an organization's owner or admins may list its invites.
 
         This type exposes `token` (and `invite_url`, which embeds it), and an invite
@@ -1048,7 +1075,7 @@ class ManagementInvite:
         ).distinct()
 
 
-def _visible_invite(info: Info, invite_id) -> ManagementInvite | None:
+def _visible_invite(info: Info, invite_id: object) -> ManagementInvite | None:
     """The invite behind a foreign key, if the caller may see it.
 
     A forward FK reaches its type unscoped (`ManagementInvite.get_queryset` only
@@ -1100,7 +1127,9 @@ class ManagementCollaborationGrant:
     )
 
     @classmethod
-    def get_queryset(cls, queryset, info: Info, **kwargs):
+    def get_queryset(
+        cls, queryset: QuerySet[models.CollaborationGrant], info: Info, **kwargs: Any
+    ) -> QuerySet[models.CollaborationGrant]:
         # Full members see who their organization's collaborations are granted to; the
         # guest they are granted to sees their own.
         user = info.context.request.user
@@ -1244,7 +1273,9 @@ class ManagementService:
     )
 
     @classmethod
-    def get_queryset(cls, queryset, info: Info):
+    def get_queryset(
+        cls, queryset: QuerySet[fakts_models.Service], info: Info
+    ) -> QuerySet[fakts_models.Service]:
         return _membership_scoped(queryset, info, "organization")
 
 
@@ -1352,7 +1383,9 @@ class ManagementServiceRelease:
     )
 
     @classmethod
-    def get_queryset(cls, queryset, info: Info):
+    def get_queryset(
+        cls, queryset: QuerySet[fakts_models.ServiceRelease], info: Info
+    ) -> QuerySet[fakts_models.ServiceRelease]:
         return _membership_scoped(queryset, info, "service__organization")
 
 
@@ -1412,7 +1445,9 @@ class ManagementServiceInstance:
         return f"{self.instance_id} @ {self.device.name if self.device else 'no-device'} @ {self.organization.slug}"
 
     @classmethod
-    def get_queryset(cls, queryset, info: Info):
+    def get_queryset(
+        cls, queryset: QuerySet[fakts_models.ServiceInstance], info: Info
+    ) -> QuerySet[fakts_models.ServiceInstance]:
         return _membership_scoped(queryset, info, "organization")
 
 
@@ -1491,7 +1526,9 @@ class ManagementHub:
         return list(ManagementInstanceAlias.get_queryset(queryset, info).order_by("id"))
 
     @classmethod
-    def get_queryset(cls, queryset, info: Info):
+    def get_queryset(
+        cls, queryset: QuerySet[fakts_models.Hub], info: Info
+    ) -> QuerySet[fakts_models.Hub]:
         # A full member sees the organization's hubs. A guest sees the hubs their live
         # collaborations run on, to approve an app into one: of a hub they read only what
         # it is, since its instances, clients and mandates are gated on full membership by
@@ -1644,7 +1681,9 @@ class ManagementInstanceAlias:
         return own_priority(self)
 
     @classmethod
-    def get_queryset(cls, queryset, info: Info):
+    def get_queryset(
+        cls, queryset: QuerySet[fakts_models.InstanceAlias], info: Info
+    ) -> QuerySet[fakts_models.InstanceAlias]:
         return _membership_scoped(queryset, info, "instance__organization")
 
 
@@ -1680,7 +1719,9 @@ class ManagementAliasRule:
     )
 
     @classmethod
-    def get_queryset(cls, queryset, info: Info):
+    def get_queryset(
+        cls, queryset: QuerySet[fakts_models.AliasRule], info: Info
+    ) -> QuerySet[fakts_models.AliasRule]:
         return _membership_scoped(queryset, info, "alias__instance__organization")
 
 
@@ -1716,7 +1757,9 @@ class ManagementServiceInstanceMapping:
         return versions.satisfies(self.instance.release.version, self.wants_version)
 
     @classmethod
-    def get_queryset(cls, queryset, info: Info):
+    def get_queryset(
+        cls, queryset: QuerySet[fakts_models.ServiceInstanceMapping], info: Info
+    ) -> QuerySet[fakts_models.ServiceInstanceMapping]:
         return _membership_scoped(queryset, info, "instance__organization")
 
 
@@ -1743,7 +1786,9 @@ class ManagementApp:
     )
 
     @classmethod
-    def get_queryset(cls, queryset, info: Info):
+    def get_queryset(
+        cls, queryset: QuerySet[fakts_models.App], info: Info
+    ) -> QuerySet[fakts_models.App]:
         return _membership_scoped(queryset, info, "organization")
 
 
@@ -1754,11 +1799,13 @@ class MachineKind(str, Enum):
     HUB = "hub"
 
 
-def mesh_sidecar_owners(layer) -> dict:
+def mesh_sidecar_owners(
+    layer: fakts_models.IonscaleLayer,
+) -> dict[str, SidecarOwner]:
     """Sidecar tag -> what owns it, for every app enrollment and hub of the
     layer's organization: `tag:app-<n>` -> AppMeshEnrollment, `tag:hub-<m>` -> Hub.
     Two queries for a whole machine list."""
-    owners: dict = {}
+    owners: dict[str, SidecarOwner] = {}
     enrollments = fakts_models.AppMeshEnrollment.objects.filter(
         organization_id=layer.organization_id
     ).select_related("app", "device", "membership__user")
@@ -1786,8 +1833,8 @@ class ManagementMachine:
         tailnet: str,
         layer_id: strawberry.ID,
         magic_dns_enabled: bool = False,
-        sidecar_owners=None,
-    ):
+        sidecar_owners: dict[str, SidecarOwner] | None = None,
+    ) -> None:
         self.instance = instance
         self.tailnet = tailnet
         self.layer_id = layer_id
@@ -1799,7 +1846,7 @@ class ManagementMachine:
         self.sidecar_owners = sidecar_owners or {}
         self._owner = _UNRESOLVED
 
-    def _sidecar_owner(self):
+    def _sidecar_owner(self) -> SidecarOwner | None:
         """The AppMeshEnrollment or Hub whose sidecar this machine is, or None for
         a machine that joined on its own (an auth key or a login)."""
         if self._owner is _UNRESOLVED:
@@ -2088,7 +2135,9 @@ class ManagementLayer:
         )
 
     @classmethod
-    def get_queryset(cls, queryset, info: Info):
+    def get_queryset(
+        cls, queryset: QuerySet[fakts_models.IonscaleLayer], info: Info
+    ) -> QuerySet[fakts_models.IonscaleLayer]:
         return queryset.filter(
             full_member_q("organization", info.context.request.user)
         ).distinct()
@@ -2124,7 +2173,9 @@ class ManagementIonscaleAuthKey:
         return None
 
     @classmethod
-    def get_queryset(cls, queryset, info: Info):
+    def get_queryset(
+        cls, queryset: QuerySet[fakts_models.IonscaleAuthKey], info: Info
+    ) -> QuerySet[fakts_models.IonscaleAuthKey]:
         return queryset.filter(
             full_member_q("layer__organization", info.context.request.user)
         ).distinct()
@@ -2180,7 +2231,9 @@ class ManagementRelease:
         return out
 
     @classmethod
-    def get_queryset(cls, queryset, info: Info):
+    def get_queryset(
+        cls, queryset: QuerySet[fakts_models.Release], info: Info
+    ) -> QuerySet[fakts_models.Release]:
         return _membership_scoped(queryset, info, "app__organization")
 
 
@@ -2200,7 +2253,9 @@ class ManagementDeviceGroup:
         return self.devices.all()
 
     @classmethod
-    def get_queryset(cls, queryset, info: Info):
+    def get_queryset(
+        cls, queryset: QuerySet[fakts_models.DeviceGroup], info: Info
+    ) -> QuerySet[fakts_models.DeviceGroup]:
         return queryset.filter(
             full_member_q("organization", info.context.request.user)
         ).distinct()
@@ -2235,7 +2290,9 @@ class ManagementDevice:
     )
 
     @classmethod
-    def get_queryset(cls, queryset, info: Info):
+    def get_queryset(
+        cls, queryset: QuerySet[fakts_models.Device], info: Info
+    ) -> QuerySet[fakts_models.Device]:
         # Devices are scoped to every organization the caller is a member of (matching
         # ManagementDeviceGroup / ManagementClient). Callers narrow to a single org via
         # the `organization` filter (e.g. the /organization/:orgId/devices page); scoping
@@ -2275,7 +2332,9 @@ class ManagementUsedAlias:
     )
 
     @classmethod
-    def get_queryset(cls, queryset, info: Info):
+    def get_queryset(
+        cls, queryset: QuerySet[fakts_models.UsedAlias], info: Info
+    ) -> QuerySet[fakts_models.UsedAlias]:
         return _membership_scoped(queryset, info, "client__organization")
 
 
@@ -2354,7 +2413,9 @@ class ManagementReport:
         return entries
 
     @classmethod
-    def get_queryset(cls, queryset, info: Info):
+    def get_queryset(
+        cls, queryset: QuerySet[fakts_models.Report], info: Info
+    ) -> QuerySet[fakts_models.Report]:
         return queryset.filter(
             full_member_q("client__organization", info.context.request.user)
         ).distinct()
@@ -2488,7 +2549,9 @@ class ManagementBugReport:
         return f"data:{self.screenshot_content_type};base64,{base64.b64encode(bytes(self.screenshot)).decode('ascii')}"
 
     @classmethod
-    def get_queryset(cls, queryset, info: Info):
+    def get_queryset(
+        cls, queryset: QuerySet[fakts_models.BugReport], info: Info
+    ) -> QuerySet[fakts_models.BugReport]:
         return fakts_models.BugReport.visible_to(queryset, info.context.request.user)
 
 
@@ -2669,7 +2732,9 @@ class ManagementClient:
         return self.reports.order_by("-created_at", "-id").first()
 
     @classmethod
-    def get_queryset(cls, queryset, info: Info):
+    def get_queryset(
+        cls, queryset: QuerySet[fakts_models.Client], info: Info
+    ) -> QuerySet[fakts_models.Client]:
         return queryset.filter(
             full_member_q("organization", info.context.request.user)
         ).distinct()
@@ -2744,7 +2809,9 @@ class ManagementDeviceCode:
     )
 
     @classmethod
-    def get_queryset(cls, queryset, info: Info):
+    def get_queryset(
+        cls, queryset: QuerySet[fakts_models.DeviceCode], info: Info
+    ) -> QuerySet[fakts_models.DeviceCode]:
         """By-id access is scoped to codes accepted into one of the caller's
         organizations. A *pending* code has no organization yet and is therefore
         not reachable by id at all — the `...ByCode` queries are the capability
@@ -2861,7 +2928,9 @@ class ManagementHubDeviceCode:
             return None
 
     @classmethod
-    def get_queryset(cls, queryset, info: Info):
+    def get_queryset(
+        cls, queryset: QuerySet[fakts_models.DeviceCode], info: Info
+    ) -> QuerySet[fakts_models.DeviceCode]:
         """See ``ManagementDeviceCode.get_queryset``: pending hub codes are reachable
         only through ``hubDeviceCodeByCode``."""
         return _membership_scoped(queryset, info, "organization")
@@ -2896,7 +2965,9 @@ class ManagementMeshDeviceCode:
         return self.staging_relay
 
     @classmethod
-    def get_queryset(cls, queryset, info: Info):
+    def get_queryset(
+        cls, queryset: QuerySet[fakts_models.MeshDeviceCode], info: Info
+    ) -> QuerySet[fakts_models.MeshDeviceCode]:
         """A mesh device code carries no organization of its own; it is tied to a
         tenant only once accepted (through the minted key's layer) or to the user
         who requested it. Pending codes are reachable only via ``meshDeviceCodeByCode``."""
@@ -3039,7 +3110,9 @@ class ManagementMandate:
         return self.is_live()
 
     @classmethod
-    def get_queryset(cls, queryset, info: Info):
+    def get_queryset(
+        cls, queryset: QuerySet[fakts_models.Mandate], info: Info
+    ) -> QuerySet[fakts_models.Mandate]:
         """A member sees the mandates they granted; owners and admins see every mandate of their organization."""
         user = info.context.request.user
         return queryset.filter(

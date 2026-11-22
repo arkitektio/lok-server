@@ -7,6 +7,7 @@ collision-free slug via ``suggest_slug``, retry on ``IntegrityError``) had no
 test. ``karakter.slugs`` itself was likewise untested. These pin all of it.
 """
 
+from typing import Any
 from unittest import mock
 
 import pytest
@@ -22,7 +23,7 @@ from tests import factories
 
 
 @pytest.mark.django_db
-def test_signup_never_joins_an_existing_organization():
+def test_signup_never_joins_an_existing_organization() -> None:
     victim_owner = factories.make_user()
     victim = factories.make_organization(owner=victim_owner, slug="acme-org")
 
@@ -41,7 +42,7 @@ def test_signup_never_joins_an_existing_organization():
 
 
 @pytest.mark.django_db
-def test_username_of_only_symbols_falls_back_to_a_pk_based_slug():
+def test_username_of_only_symbols_falls_back_to_a_pk_based_slug() -> None:
     user = factories.make_user(username="***")
 
     personal = Organization.objects.get(owner=user)
@@ -49,12 +50,12 @@ def test_username_of_only_symbols_falls_back_to_a_pk_based_slug():
 
 
 @pytest.mark.django_db
-def test_integrity_error_is_retried_against_a_fresh_slug():
+def test_integrity_error_is_retried_against_a_fresh_slug() -> None:
     user = factories.make_user(username="racer")
     real_create = Organization.objects.create
     calls = []
 
-    def flaky(**kw):
+    def flaky(**kw: Any) -> Organization:
         calls.append(kw["slug"])
         if len(calls) == 1:
             raise IntegrityError("duplicate key")
@@ -74,7 +75,7 @@ def test_integrity_error_is_retried_against_a_fresh_slug():
 
 
 @pytest.mark.django_db
-def test_exhausted_retries_return_none_without_raising():
+def test_exhausted_retries_return_none_without_raising() -> None:
     user = factories.make_user(username="unlucky")
     before = Organization.objects.count()
 
@@ -103,8 +104,10 @@ def test_exhausted_retries_return_none_without_raising():
         (None, ""),
     ],
 )
-def test_normalize_slug_produces_the_canonical_form(raw, expected):
-    assert slugs.normalize_slug(raw) == expected
+def test_normalize_slug_produces_the_canonical_form(
+    raw: str | None, expected: str
+) -> None:
+    assert slugs.normalize_slug(raw) == expected  # pyright: ignore[reportArgumentType]  # None on purpose: a missing name normalises to ""
     # Idempotent: normalising a canonical slug changes nothing.
     assert slugs.normalize_slug(expected) == expected
 
@@ -112,18 +115,18 @@ def test_normalize_slug_produces_the_canonical_form(raw, expected):
 @pytest.mark.parametrize(
     "bad", ["", "-acme-", "Acme", "acme--inc", "acme_inc", "acme inc"]
 )
-def test_validate_slug_rejects_malformed_slugs(bad):
+def test_validate_slug_rejects_malformed_slugs(bad: str) -> None:
     with pytest.raises(ValueError):
         slugs.validate_slug(bad)
 
 
 @pytest.mark.parametrize("good", ["acme", "acme-inc", "a1-b2-c3", "42"])
-def test_validate_slug_accepts_canonical_slugs(good):
+def test_validate_slug_accepts_canonical_slugs(good: str) -> None:
     slugs.validate_slug(good)
 
 
 @pytest.mark.django_db
-def test_is_slug_taken_is_case_insensitive():
+def test_is_slug_taken_is_case_insensitive() -> None:
     factories.make_organization(slug="acme")
 
     assert slugs.is_slug_taken("acme")
@@ -132,7 +135,7 @@ def test_is_slug_taken_is_case_insensitive():
 
 
 @pytest.mark.django_db
-def test_suggest_slug_walks_the_prefixes_then_numbers():
+def test_suggest_slug_walks_the_prefixes_then_numbers() -> None:
     factories.make_organization(slug="acme")
     assert slugs.suggest_slug("acme") == "the-real-acme"
 

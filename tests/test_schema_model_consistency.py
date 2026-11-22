@@ -16,8 +16,13 @@ a non-null fallback) are listed in ``ACCEPTED`` with the reason; anything else f
 import ast
 import inspect
 import textwrap
+from collections.abc import Callable
+from typing import TypeAlias
 
+from django.contrib.contenttypes.fields import GenericForeignKey
 from django.core.exceptions import FieldDoesNotExist
+from django.db.models import Field, ForeignObjectRel, Model
+from strawberry import Schema
 from strawberry.types.base import StrawberryList, StrawberryOptional
 
 from api.management.schema import schema as management_schema
@@ -42,26 +47,31 @@ ACCEPTED = {
     ("main", "Organization", "name"): "resolver falls back to slug/id",
 }
 
+#: (schema, graphql type, field, kind, detail)
+Finding: TypeAlias = tuple[str, str, str, str, str]
+
 IGNORED_TYPE_SUFFIXES = ("Filter", "Order", "Ordering", "Input")
 LOGICAL_OPS = {"AND", "OR", "NOT", "DISTINCT"}
 
 
-def _is_nonnull(t):
+def _is_nonnull(t: object) -> bool:
     return not isinstance(t, StrawberryOptional)
 
 
-def _model_field(model, name):
+def _model_field(
+    model: type[Model], name: str
+) -> Field | ForeignObjectRel | GenericForeignKey | None:
     try:
         return model._meta.get_field(name)
     except FieldDoesNotExist:
         return None
 
 
-def _model_has(model, name):
+def _model_has(model: type[Model], name: str) -> bool:
     return _model_field(model, name) is not None or hasattr(model, name)
 
 
-def _self_attrs(fn):
+def _self_attrs(fn: Callable[..., object]) -> set[str]:
     try:
         src = textwrap.dedent(inspect.getsource(fn))
     except (OSError, TypeError):
@@ -77,7 +87,7 @@ def _self_attrs(fn):
     return out
 
 
-def _sweep(schema, label):
+def _sweep(schema: Schema, label: str) -> list[Finding]:
     findings = []
     seen = set()
     for name, sd in schema.schema_converter.type_map.items():
@@ -152,21 +162,21 @@ def _sweep(schema, label):
     return findings
 
 
-def _unexpected(schema, label):
+def _unexpected(schema: Schema, label: str) -> list[Finding]:
     return [f for f in _sweep(schema, label) if (f[0], f[1], f[2]) not in ACCEPTED]
 
 
-def test_management_schema_matches_models():
+def test_management_schema_matches_models() -> None:
     bad = _unexpected(management_schema, "mgmt")
     assert not bad, "\n".join("\t".join(f) for f in bad)
 
 
-def test_main_schema_matches_models():
+def test_main_schema_matches_models() -> None:
     bad = _unexpected(main_schema, "main")
     assert not bad, "\n".join("\t".join(f) for f in bad)
 
 
-def test_accepted_list_has_no_stale_entries():
+def test_accepted_list_has_no_stale_entries() -> None:
     """Keep ACCEPTED honest: every entry must still correspond to a real finding."""
     live = {
         (f[0], f[1], f[2])

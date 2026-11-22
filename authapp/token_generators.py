@@ -16,7 +16,7 @@ Notes:
   signing and must remain secret in settings.
 """
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from authlib.oauth2.rfc6749.errors import InvalidClientError, InvalidGrantError
 from authlib.oauth2.rfc9068 import JWTBearerTokenGenerator
@@ -25,6 +25,10 @@ from cryptography.hazmat.primitives import serialization
 from django.conf import settings
 from django.core.exceptions import ObjectDoesNotExist
 from joserfc.jwk import RSAKey
+
+if TYPE_CHECKING:
+    from fakts.models import Client, Hub
+    from karakter.models import Membership
 
 # Load RSA private key (used for signing). The settings.PRIVATE_KEY must
 # contain the PEM-encoded private key string.
@@ -55,7 +59,7 @@ def public_jwks() -> dict:
     return {"keys": [public_jwk_dict]}
 
 
-def _actor_claim(client: Any) -> dict:
+def _actor_claim(client: "Client | None") -> dict:
     """``act`` for a client logging in with a mandate key that an app handed out, else nothing.
 
     ``client_app`` is the app that issued the key (the agent, for a key issued under
@@ -102,17 +106,19 @@ class MyJWTBearerTokenGenerator(JWTBearerTokenGenerator):
         """
         return {"keys": [jwk_dict]}
 
-    def _get_app_client(self, client: Any) -> Any | None:
+    def _get_app_client(self, client: "Client") -> "Client | None":
         """The client itself when it is a bound app client (has a release)."""
         return client if getattr(client, "release_id", None) else None
 
-    def _get_hub(self, client: Any) -> Any | None:
+    def _get_hub(self, client: "Client") -> "Hub | None":
         try:
             return client.hub_identity
         except ObjectDoesNotExist:
             return None
 
-    def _get_membership(self, client: Any, user: Any) -> Any:
+    def _get_membership(
+        self, client: "Client", user: "Membership | None"
+    ) -> "Membership":
         if user:
             return user
 
@@ -124,7 +130,11 @@ class MyJWTBearerTokenGenerator(JWTBearerTokenGenerator):
             ) from exc
 
     def get_extra_claims(
-        self, client: Any, grant_type: Any, user: Any, scope: str | None
+        self,
+        client: "Client",
+        grant_type: str,
+        user: "Membership | None",
+        scope: str | None,
     ) -> dict:
         """Construct application-specific claims to include in the JWT.
 
@@ -215,7 +225,7 @@ class MyJWTBearerTokenGenerator(JWTBearerTokenGenerator):
         }
 
     @staticmethod
-    def _app_hub(fakts_client: Any) -> Any:
+    def _app_hub(fakts_client: "Client | None") -> "Hub | None":
         """The hub an app's token is for: its client's, else the one hub its services run in."""
         if fakts_client is None:
             return None
@@ -228,14 +238,14 @@ class MyJWTBearerTokenGenerator(JWTBearerTokenGenerator):
         ]
         return hubs[0] if len(hubs) == 1 else None
 
-    def _instance_pks(self, client: Any) -> list[int]:
+    def _instance_pks(self, client: "Client") -> list[int]:
         """The ServiceInstance pks a token for ``client`` is composed for: a guest's collaborations are listed for these."""
         fakts_client = self._get_app_client(client)
         if fakts_client is None:
             return []
         return sorted(set(fakts_client.mappings.values_list("instance_id", flat=True)))
 
-    def _instance_audiences(self, client: Any) -> list[str]:
+    def _instance_audiences(self, client: "Client") -> list[str]:
         """The names of the services a token for ``client`` is composed for, sorted: its ``aud``.
 
         A fakts client is composed for the services of one hub (its own), each named as that hub
@@ -249,7 +259,7 @@ class MyJWTBearerTokenGenerator(JWTBearerTokenGenerator):
         )
 
     def get_audiences(
-        self, client: Any, user: Any, scope: str | None
+        self, client: "Client", user: "Membership | None", scope: str | None
     ) -> str | list[str]:
         """Return the audience claim(s) for the token.
 

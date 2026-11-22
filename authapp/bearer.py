@@ -13,6 +13,7 @@ consumer of these tokens validates them.
 import time
 
 from django.conf import settings
+from django.http import HttpRequest
 from joserfc import jwt
 from joserfc.jwk import RSAKey
 
@@ -23,7 +24,7 @@ class InvalidBearerToken(Exception):
     """Raised when a request carries no valid Bearer access token."""
 
 
-def decode_bearer_token(request) -> dict:
+def decode_bearer_token(request: HttpRequest) -> dict:
     """Verify the request's Bearer JWT and return its claims.
 
     Raises :class:`InvalidBearerToken` on a missing header, bad signature, or

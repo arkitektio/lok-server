@@ -9,8 +9,11 @@ import time
 from types import SimpleNamespace
 
 import pytest
+from django.test import Client
 from django.urls import reverse
 from graphql import GraphQLError
+from pytest_django import DjangoCaptureOnCommitCallbacks
+from pytest_django.fixtures import SettingsWrapper
 
 from api.management.mutations.ionscale import (
     CreateIonscaleAuthKeyInput,
@@ -20,11 +23,14 @@ from api.management.mutations.revoke import (
     RevokeClientSessionsInput,
     revoke_client_sessions,
 )
+from api.management.types import ManagementClient
 from authapp.models import OAuth2Token
 from fakts import models
 from ionscale.acl import build_acl_policy
 from ionscale.base_models import Machine
 from ionscale.reconcile import reconcile_sidecars
+from ionscale.testing import FakeIonscaleRepository
+from karakter.models import Membership
 from tests import factories
 from tests.test_app_mesh_key import _accept as accept_app
 from tests.test_app_mesh_key import _grant as grant_app
@@ -34,7 +40,7 @@ from tests.test_hub_mesh import _grant as grant_hub
 
 
 @pytest.fixture
-def org(settings):
+def org(settings: SettingsWrapper) -> SimpleNamespace:
     settings.IONSCALE_MAGIC_DNS_SUFFIX = "mesh.example.test"
     organization = factories.make_organization()
     layer = models.IonscaleLayer.objects.create(
@@ -60,13 +66,13 @@ def org(settings):
     )
 
 
-def _info(membership):
+def _info(membership: Membership) -> SimpleNamespace:
     return SimpleNamespace(
         context=SimpleNamespace(request=SimpleNamespace(user=membership.user))
     )
 
 
-def _app_client(org):
+def _app_client(org: SimpleNamespace) -> models.Client:
     return models.Client.objects.get(
         membership=org.member,
         release__app__identifier="com.example.meshapp",
@@ -74,11 +80,13 @@ def _app_client(org):
     )
 
 
-def _seed(ionscale_repo, org, *machines):
+def _seed(
+    ionscale_repo: FakeIonscaleRepository, org: SimpleNamespace, *machines: Machine
+) -> None:
     ionscale_repo.machines_by_tailnet[org.layer.tailnet_name] = list(machines)
 
 
-def _age_out(client):
+def _age_out(client: models.Client) -> None:
     """Make a client's refresh chain (and its creation) older than every lifetime."""
     past = int(time.time()) - OAuth2Token.REFRESH_CHAIN_MAX_LIFETIME - 10
     OAuth2Token.objects.filter(client_id=client.client_id).update(
@@ -93,7 +101,9 @@ def _age_out(client):
 
 
 @pytest.mark.django_db
-def test_acl_lets_an_app_sidecar_reach_only_its_hub_one_way(client, ionscale_repo, org):
+def test_acl_lets_an_app_sidecar_reach_only_its_hub_one_way(
+    client: Client, ionscale_repo: FakeIonscaleRepository, org: SimpleNamespace
+) -> None:
     grant_app(client, org.member, org.hub)
     enrollment = models.AppMeshEnrollment.objects.get()
 
@@ -118,8 +128,8 @@ def test_acl_lets_an_app_sidecar_reach_only_its_hub_one_way(client, ionscale_rep
 
 @pytest.mark.django_db
 def test_acl_grants_every_node_the_organization_s_relays_both_ways(
-    client, ionscale_repo, org
-):
+    client: Client, ionscale_repo: FakeIonscaleRepository, org: SimpleNamespace
+) -> None:
     grant_app(client, org.member, org.hub)
     enrollment = models.AppMeshEnrollment.objects.get()
     org_id = org.organization.pk
@@ -148,8 +158,11 @@ def test_acl_grants_every_node_the_organization_s_relays_both_ways(
 
 @pytest.mark.django_db
 def test_acl_is_applied_on_accept_and_follows_a_new_hub(
-    client, ionscale_repo, org, django_capture_on_commit_callbacks
-):
+    client: Client,
+    ionscale_repo: FakeIonscaleRepository,
+    org: SimpleNamespace,
+    django_capture_on_commit_callbacks: DjangoCaptureOnCommitCallbacks,
+) -> None:
     other_hub = factories.make_hub(organization=org.organization)
     with django_capture_on_commit_callbacks(execute=True):
         grant_app(client, org.member, org.hub)
@@ -166,7 +179,9 @@ def test_acl_is_applied_on_accept_and_follows_a_new_hub(
 
 
 @pytest.mark.django_db
-def test_reserved_sidecar_tags_cannot_be_minted_by_hand(ionscale_repo, org):
+def test_reserved_sidecar_tags_cannot_be_minted_by_hand(
+    ionscale_repo: FakeIonscaleRepository, org: SimpleNamespace
+) -> None:
     with pytest.raises(GraphQLError, match="reserved"):
         create_ionscale_auth_key(
             _info(org.admin),
@@ -187,8 +202,11 @@ def test_reserved_sidecar_tags_cannot_be_minted_by_hand(ionscale_repo, org):
 
 @pytest.mark.django_db
 def test_deleting_the_backing_client_reaps_the_sidecar(
-    client, ionscale_repo, org, django_capture_on_commit_callbacks
-):
+    client: Client,
+    ionscale_repo: FakeIonscaleRepository,
+    org: SimpleNamespace,
+    django_capture_on_commit_callbacks: DjangoCaptureOnCommitCallbacks,
+) -> None:
     token = grant_app(client, org.member, org.hub)
     enrollment = models.AppMeshEnrollment.objects.get()
     _seed(
@@ -210,8 +228,11 @@ def test_deleting_the_backing_client_reaps_the_sidecar(
 
 @pytest.mark.django_db
 def test_reauthorization_keeps_the_sidecar(
-    client, ionscale_repo, org, django_capture_on_commit_callbacks
-):
+    client: Client,
+    ionscale_repo: FakeIonscaleRepository,
+    org: SimpleNamespace,
+    django_capture_on_commit_callbacks: DjangoCaptureOnCommitCallbacks,
+) -> None:
     with django_capture_on_commit_callbacks(execute=True):
         grant_app(client, org.member, org.hub)
     enrollment = models.AppMeshEnrollment.objects.get()
@@ -231,8 +252,11 @@ def test_reauthorization_keeps_the_sidecar(
 
 @pytest.mark.django_db
 def test_revoking_the_clients_sessions_reaps_the_sidecar(
-    client, ionscale_repo, org, django_capture_on_commit_callbacks
-):
+    client: Client,
+    ionscale_repo: FakeIonscaleRepository,
+    org: SimpleNamespace,
+    django_capture_on_commit_callbacks: DjangoCaptureOnCommitCallbacks,
+) -> None:
     grant_app(client, org.member, org.hub)
     enrollment = models.AppMeshEnrollment.objects.get()
     _seed(
@@ -252,8 +276,11 @@ def test_revoking_the_clients_sessions_reaps_the_sidecar(
 
 @pytest.mark.django_db
 def test_an_expired_refresh_chain_is_reaped_by_the_sweep(
-    client, ionscale_repo, org, django_capture_on_commit_callbacks
-):
+    client: Client,
+    ionscale_repo: FakeIonscaleRepository,
+    org: SimpleNamespace,
+    django_capture_on_commit_callbacks: DjangoCaptureOnCommitCallbacks,
+) -> None:
     grant_app(client, org.member, org.hub)
     enrollment = models.AppMeshEnrollment.objects.get()
     _seed(
@@ -284,8 +311,11 @@ def test_an_expired_refresh_chain_is_reaped_by_the_sweep(
 
 @pytest.mark.django_db
 def test_deleting_a_hub_deletes_its_identity_client(
-    client, ionscale_repo, org, django_capture_on_commit_callbacks
-):
+    client: Client,
+    ionscale_repo: FakeIonscaleRepository,
+    org: SimpleNamespace,
+    django_capture_on_commit_callbacks: DjangoCaptureOnCommitCallbacks,
+) -> None:
     hub, _ = grant_hub(client, org.hub_granter)
     identity = hub.client_id
 
@@ -297,8 +327,11 @@ def test_deleting_a_hub_deletes_its_identity_client(
 
 @pytest.mark.django_db
 def test_revoking_the_hub_identity_reaps_its_sidecar_but_keeps_the_hub(
-    client, ionscale_repo, org, django_capture_on_commit_callbacks
-):
+    client: Client,
+    ionscale_repo: FakeIonscaleRepository,
+    org: SimpleNamespace,
+    django_capture_on_commit_callbacks: DjangoCaptureOnCommitCallbacks,
+) -> None:
     hub, token = grant_hub(client, org.hub_granter)
     _seed(
         ionscale_repo,
@@ -327,8 +360,8 @@ def test_revoking_the_hub_identity_reaps_its_sidecar_but_keeps_the_hub(
 
 @pytest.mark.django_db
 def test_sweep_deletes_orphans_and_migrates_double_tagged_sidecars(
-    client, ionscale_repo, org
-):
+    client: Client, ionscale_repo: FakeIonscaleRepository, org: SimpleNamespace
+) -> None:
     grant_app(client, org.member, org.hub)
     tag = models.AppMeshEnrollment.objects.get().tag
     mesh = f"tag:mesh-{org.organization.pk}"
@@ -355,7 +388,7 @@ def test_sweep_deletes_orphans_and_migrates_double_tagged_sidecars(
 # --------------------------------------------------------------------------- #
 
 
-def _reject(membership, client_pk):
+def _reject(membership: Membership, client_pk: int) -> ManagementClient:
     return revoke_client_sessions(
         _info(membership), RevokeClientSessionsInput(client=str(client_pk))
     )
@@ -363,8 +396,11 @@ def _reject(membership, client_pk):
 
 @pytest.mark.django_db
 def test_the_member_who_approved_an_app_may_reject_it(
-    client, ionscale_repo, org, django_capture_on_commit_callbacks
-):
+    client: Client,
+    ionscale_repo: FakeIonscaleRepository,
+    org: SimpleNamespace,
+    django_capture_on_commit_callbacks: DjangoCaptureOnCommitCallbacks,
+) -> None:
     token = grant_app(client, org.member, org.hub)
     enrollment = models.AppMeshEnrollment.objects.get()
     _seed(
@@ -388,7 +424,9 @@ def test_the_member_who_approved_an_app_may_reject_it(
 
 
 @pytest.mark.django_db
-def test_another_plain_member_may_not_reject_it(client, ionscale_repo, org):
+def test_another_plain_member_may_not_reject_it(
+    client: Client, ionscale_repo: FakeIonscaleRepository, org: SimpleNamespace
+) -> None:
     grant_app(client, org.member, org.hub)
     bystander = factories.make_membership(organization=org.organization)
 
@@ -401,8 +439,11 @@ def test_another_plain_member_may_not_reject_it(client, ionscale_repo, org):
 
 @pytest.mark.django_db
 def test_rejecting_one_client_removes_the_whole_installation(
-    client, ionscale_repo, org, django_capture_on_commit_callbacks
-):
+    client: Client,
+    ionscale_repo: FakeIonscaleRepository,
+    org: SimpleNamespace,
+    django_capture_on_commit_callbacks: DjangoCaptureOnCommitCallbacks,
+) -> None:
     # The same app on the same device, bound to two hubs: two clients, one sidecar.
     other_hub = factories.make_hub(organization=org.organization)
     with django_capture_on_commit_callbacks(execute=True):
@@ -430,8 +471,11 @@ def test_rejecting_one_client_removes_the_whole_installation(
 
 @pytest.mark.django_db
 def test_rejecting_burns_an_approved_code_that_was_not_polled_yet(
-    client, ionscale_repo, org, django_capture_on_commit_callbacks
-):
+    client: Client,
+    ionscale_repo: FakeIonscaleRepository,
+    org: SimpleNamespace,
+    django_capture_on_commit_callbacks: DjangoCaptureOnCommitCallbacks,
+) -> None:
     body = start_app(client)
     accept_app(body, org.member, org.hub)
     assert models.AppMeshEnrollment.objects.exists()
@@ -446,8 +490,11 @@ def test_rejecting_burns_an_approved_code_that_was_not_polled_yet(
 
 @pytest.mark.django_db
 def test_a_client_revoking_itself_keeps_a_shared_sidecar_but_loses_its_hub(
-    client, ionscale_repo, org, django_capture_on_commit_callbacks
-):
+    client: Client,
+    ionscale_repo: FakeIonscaleRepository,
+    org: SimpleNamespace,
+    django_capture_on_commit_callbacks: DjangoCaptureOnCommitCallbacks,
+) -> None:
     other_hub = factories.make_hub(organization=org.organization)
     with django_capture_on_commit_callbacks(execute=True):
         first = grant_app(client, org.member, org.hub)
@@ -473,8 +520,11 @@ def test_a_client_revoking_itself_keeps_a_shared_sidecar_but_loses_its_hub(
 
 @pytest.mark.django_db
 def test_a_client_revoking_its_last_session_reaps_the_sidecar(
-    client, ionscale_repo, org, django_capture_on_commit_callbacks
-):
+    client: Client,
+    ionscale_repo: FakeIonscaleRepository,
+    org: SimpleNamespace,
+    django_capture_on_commit_callbacks: DjangoCaptureOnCommitCallbacks,
+) -> None:
     token = grant_app(client, org.member, org.hub)
     enrollment = models.AppMeshEnrollment.objects.get()
     _seed(
@@ -503,7 +553,7 @@ def test_a_client_revoking_its_last_session_reaps_the_sidecar(
 # --------------------------------------------------------------------------- #
 
 
-def _expire(client, *, days_ago):
+def _expire(client: models.Client, *, days_ago: int) -> None:
     """Let a client's refresh token run out ``days_ago`` days ago (sliding lifetime)."""
     past = int(time.time()) - OAuth2Token.REFRESH_TOKEN_LIFETIME - days_ago * 86400
     OAuth2Token.objects.filter(client_id=client.client_id).update(
@@ -514,8 +564,11 @@ def _expire(client, *, days_ago):
 
 @pytest.mark.django_db
 def test_an_expired_session_keeps_the_sidecar_but_loses_the_hub(
-    client, ionscale_repo, org, django_capture_on_commit_callbacks
-):
+    client: Client,
+    ionscale_repo: FakeIonscaleRepository,
+    org: SimpleNamespace,
+    django_capture_on_commit_callbacks: DjangoCaptureOnCommitCallbacks,
+) -> None:
     with django_capture_on_commit_callbacks(execute=True):
         grant_app(client, org.member, org.hub)
     enrollment = models.AppMeshEnrollment.objects.get()
@@ -546,8 +599,12 @@ def test_an_expired_session_keeps_the_sidecar_but_loses_the_hub(
 
 @pytest.mark.django_db
 def test_the_sidecar_is_reaped_once_the_grace_is_over(
-    client, ionscale_repo, org, settings, django_capture_on_commit_callbacks
-):
+    client: Client,
+    ionscale_repo: FakeIonscaleRepository,
+    org: SimpleNamespace,
+    settings: SettingsWrapper,
+    django_capture_on_commit_callbacks: DjangoCaptureOnCommitCallbacks,
+) -> None:
     grant_app(client, org.member, org.hub)
     enrollment = models.AppMeshEnrollment.objects.get()
     _seed(
@@ -566,8 +623,11 @@ def test_the_sidecar_is_reaped_once_the_grace_is_over(
 
 @pytest.mark.django_db
 def test_a_revoked_session_gets_no_grace(
-    client, ionscale_repo, org, django_capture_on_commit_callbacks
-):
+    client: Client,
+    ionscale_repo: FakeIonscaleRepository,
+    org: SimpleNamespace,
+    django_capture_on_commit_callbacks: DjangoCaptureOnCommitCallbacks,
+) -> None:
     token = grant_app(client, org.member, org.hub)
     enrollment = models.AppMeshEnrollment.objects.get()
     OAuth2Token.objects.filter(client_id=token["client_id"]).update(revoked=True)
@@ -580,8 +640,11 @@ def test_a_revoked_session_gets_no_grace(
 
 @pytest.mark.django_db
 def test_a_hub_whose_identity_expired_keeps_its_node_for_the_grace(
-    client, ionscale_repo, org, django_capture_on_commit_callbacks
-):
+    client: Client,
+    ionscale_repo: FakeIonscaleRepository,
+    org: SimpleNamespace,
+    django_capture_on_commit_callbacks: DjangoCaptureOnCommitCallbacks,
+) -> None:
     hub, _ = grant_hub(client, org.hub_granter)
     _seed(
         ionscale_repo,
@@ -601,8 +664,11 @@ def test_a_hub_whose_identity_expired_keeps_its_node_for_the_grace(
 
 @pytest.mark.django_db
 def test_a_rejected_client_reads_as_revoked(
-    client, ionscale_repo, org, django_capture_on_commit_callbacks
-):
+    client: Client,
+    ionscale_repo: FakeIonscaleRepository,
+    org: SimpleNamespace,
+    django_capture_on_commit_callbacks: DjangoCaptureOnCommitCallbacks,
+) -> None:
     # What the client page shows after a reject (ManagementClient.accessState).
     from fakts.services.clients import client_access_state
 
@@ -622,7 +688,9 @@ def test_a_rejected_client_reads_as_revoked(
 
 
 @pytest.mark.django_db
-def test_an_admin_revokes_a_hand_made_key_and_removes_a_machine(ionscale_repo, org):
+def test_an_admin_revokes_a_hand_made_key_and_removes_a_machine(
+    ionscale_repo: FakeIonscaleRepository, org: SimpleNamespace
+) -> None:
     from api.management.mutations.ionscale import (
         DeleteIonscaleAuthKeyInput,
         DeleteMachineInput,
@@ -666,7 +734,9 @@ def test_an_admin_revokes_a_hand_made_key_and_removes_a_machine(ionscale_repo, o
 
 
 @pytest.mark.django_db
-def test_sidecar_keys_and_nodes_are_not_removed_by_hand(client, ionscale_repo, org):
+def test_sidecar_keys_and_nodes_are_not_removed_by_hand(
+    client: Client, ionscale_repo: FakeIonscaleRepository, org: SimpleNamespace
+) -> None:
     from api.management.mutations.ionscale import (
         DeleteIonscaleAuthKeyInput,
         DeleteMachineInput,

@@ -3,23 +3,37 @@ raised (FieldError, ValidationError, AttributeError, NotImplementedError) or
 silently returned nothing for legitimate input.
 """
 
+from typing import TYPE_CHECKING, TypeAlias
+
 import pytest
 from asgiref.sync import sync_to_async
 from graphql import (
     GraphQLEnumType,
     GraphQLInputObjectType,
+    GraphQLInputType,
     GraphQLList,
     GraphQLNonNull,
     GraphQLScalarType,
+    GraphQLType,
 )
+from kante.context import HttpContext
 
+from fakts import models as fakts_models
 from karakter.hashers import hash_device_id
+from karakter.models import Membership
 from lok_server.schema import schema
 from tests import factories
 from tests.conftest import build_auth_context
 
+if TYPE_CHECKING:
+    from _pytest.mark.structures import ParameterSet
 
-def _principal():
+# A value `_sample` makes up for a GraphQL input type: JSON, as a variable is sent.
+_Sample: TypeAlias = str | int | float | bool | list["_Sample"] | dict[str, "_Sample"]
+from strawberry.types import ExecutionResult
+
+
+def _principal() -> tuple[HttpContext, Membership, fakts_models.Client]:
     membership = factories.make_membership()
     client = factories.make_client(membership=membership)
     return (
@@ -29,18 +43,18 @@ def _principal():
     )
 
 
-def _assert_denied(result):
+def _assert_denied(result: ExecutionResult) -> None:
     assert result.errors, f"expected a denial, got data: {result.data}"
     assert "not authorized" in result.errors[0].message, result.errors[0].message
 
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_device_by_device_id_hashes_the_raw_id():
+async def test_device_by_device_id_hashes_the_raw_id() -> None:
     """Every write path stores `hash_device_id(node_id, org)`; the lookup must too."""
     context, membership, _client = await sync_to_async(_principal)()
 
-    def _device():
+    def _device() -> fakts_models.Device:
         from fakts.models import Device
 
         return Device.objects.create(
@@ -66,10 +80,12 @@ async def test_device_by_device_id_hashes_the_raw_id():
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_client_kind_covers_hub_and_relying_party():
+async def test_client_kind_covers_hub_and_relying_party() -> None:
     context, membership, _client = await sync_to_async(_principal)()
 
-    def _clients():
+    def _clients() -> tuple[
+        fakts_models.Client, fakts_models.Client, fakts_models.Client
+    ]:
         hub = factories.make_client(membership=membership, kind="hub")
         rp = factories.make_client(membership=membership, kind="relying_party")
         mobile = factories.make_client(membership=membership, kind="mobile")
@@ -89,10 +105,10 @@ async def test_client_kind_covers_hub_and_relying_party():
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_release_requirements_serialise():
+async def test_release_requirements_serialise() -> None:
     context, membership, _client = await sync_to_async(_principal)()
 
-    def _release():
+    def _release() -> fakts_models.Release:
         app = factories.make_app(organization=membership.organization)
         return factories.make_release(
             app=app,
@@ -139,7 +155,7 @@ async def test_release_requirements_serialise():
         'mutation { cancelInvite(input: {id: "abc"}) { id } }',
     ],
 )
-async def test_malformed_ids_are_a_clean_denial(query):
+async def test_malformed_ids_are_a_clean_denial(query: str) -> None:
     context, _membership, _client = await sync_to_async(_principal)()
 
     result = await schema.execute(query, context_value=context)
@@ -155,11 +171,11 @@ async def test_malformed_ids_are_a_clean_denial(query):
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_null_filters_variable_on_a_scoped_list_works():
+async def test_null_filters_variable_on_a_scoped_list_works() -> None:
     """`build_prescoped_queryset` used to crash on an explicit `filters: null`."""
     context, membership, _client = await sync_to_async(_principal)()
 
-    def _device():
+    def _device() -> fakts_models.Device:
         from fakts.models import Device
 
         return Device.objects.create(
@@ -185,13 +201,13 @@ async def test_null_filters_variable_on_a_scoped_list_works():
 _SKIP_FILTER_FIELDS = {"AND", "OR", "NOT"}
 
 
-def _unwrap(gql_type):
+def _unwrap(gql_type: GraphQLType) -> GraphQLType:
     while isinstance(gql_type, (GraphQLNonNull, GraphQLList)):
         gql_type = gql_type.of_type
     return gql_type
 
 
-def _sample(gql_type):
+def _sample(gql_type: GraphQLInputType) -> _Sample:
     """A plausible value for a GraphQL input type."""
     if isinstance(gql_type, GraphQLNonNull):
         return _sample(gql_type.of_type)
@@ -228,9 +244,9 @@ def _sample(gql_type):
     raise AssertionError(f"unhandled input type {gql_type}")
 
 
-def _filterable_root_fields():
+def _filterable_root_fields() -> list["ParameterSet"]:
     query_type = schema._schema.query_type
-    cases = []
+    cases: list[ParameterSet] = []
     for field_name, field in query_type.fields.items():
         arg = field.args.get("filters")
         if arg is None:
@@ -258,8 +274,8 @@ def _filterable_root_fields():
     "field_name,filter_type_name,filters", _filterable_root_fields()
 )
 async def test_every_root_filter_executes_without_field_error(
-    field_name, filter_type_name, filters
-):
+    field_name: str, filter_type_name: str, filters: dict[str, _Sample]
+) -> None:
     context, _membership, _client = await sync_to_async(_principal)()
 
     query = f"query ($filters: {filter_type_name}) {{ {field_name}(filters: $filters) {{ __typename }} }}"

@@ -11,7 +11,7 @@ from fakts.services.hubs import (
 
 
 class PartnerPreAuthorizeHookTests(SimpleTestCase):
-    def test_run_partner_pre_authorize_hook_accepts_ok_json(self):
+    def test_run_partner_pre_authorize_hook_accepts_ok_json(self) -> None:
         partner = SimpleNamespace(
             pk="1",
             identifier="demo",
@@ -41,7 +41,7 @@ class PartnerPreAuthorizeHookTests(SimpleTestCase):
         assert kwargs["headers"]["Authorization"] == "Bearer secret-token"
         assert kwargs["json"]["license_signature"] == "Jane Doe"
 
-    def test_create_hub_from_partner_deletes_hub_when_hook_rejects(self):
+    def test_create_hub_from_partner_deletes_hub_when_hook_rejects(self) -> None:
         hub = SimpleNamespace(identifier="demo-comp", delete=MagicMock())
         partner = SimpleNamespace(
             identifier="demo",

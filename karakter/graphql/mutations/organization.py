@@ -59,7 +59,7 @@ def update_organization(
         try:
             slugs.validate_slug(candidate)
         except ValueError as exc:
-            raise GraphQLError(str(exc))
+            raise GraphQLError(str(exc)) from exc
         if candidate != organization.slug and slugs.is_slug_taken(candidate):
             raise GraphQLError(
                 f"The handle '{candidate}' is already taken. Try '{slugs.suggest_slug(candidate)}'."
@@ -77,11 +77,11 @@ def update_organization(
 
     try:
         organization.save()
-    except IntegrityError:
+    except IntegrityError as exc:
         # Closes the check->save race on the unique slug column.
         raise GraphQLError(
             f"The handle '{organization.slug}' is already taken. Try '{slugs.suggest_slug(organization.slug)}'."
-        )
+        ) from exc
     logger.info(
         f"Updated Organization: {organization.id} with name: {organization.name}"
     )

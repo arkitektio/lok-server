@@ -15,7 +15,8 @@ import re
 from django import forms
 from django.conf import settings
 from django.core.mail import send_mail
-from django.http import Http404, HttpResponseRedirect
+from django.http import Http404, HttpRequest, HttpResponse, HttpResponseRedirect
+from django.http.response import HttpResponseBase
 from django.shortcuts import render
 from django.urls import reverse
 from django.utils.decorators import method_decorator
@@ -23,6 +24,7 @@ from django.views import View
 from django.views.decorators.csrf import csrf_exempt
 
 from authapp.throttle import is_throttled
+from lok_server.configuration import SecuritySettings
 
 from .models import VulnerabilityReport
 from .securitytxt import expires_value
@@ -37,7 +39,7 @@ REPORT_LIMIT_PER_MINUTE = 30
 _REFERENCE = re.compile(r"^VR-[A-Z0-9]{4}-[A-Z0-9]{4}$")
 
 
-def _security():
+def _security() -> SecuritySettings:
     sec = getattr(settings, "SECURITY_DISCLOSURE", None)
     if sec is None:
         raise Http404("This deployment publishes no vulnerability disclosure contact.")
@@ -48,7 +50,7 @@ def _grouped(fingerprint: str) -> str:
     return " ".join(fingerprint[i : i + 4] for i in range(0, len(fingerprint), 4))
 
 
-def _context(sec, **extra):
+def _context(sec: SecuritySettings, **extra: object) -> dict[str, object]:
     base = sec.base_path
     return {
         "sec": sec,
@@ -90,16 +92,18 @@ class ReportForm(forms.Form):
 class ReportPage(View):
     """The central page for incoming vulnerability reports (4.5), with the form (4.3.3)."""
 
-    def get(self, request):
+    def get(self, request: HttpRequest) -> HttpResponse:
         sec = _security()
         return render(request, "cvd/report.html", _context(sec, form=ReportForm()))
 
     @method_decorator(csrf_exempt)
-    def dispatch(self, request, *args, **kwargs):
+    def dispatch(
+        self, request: HttpRequest, *args: object, **kwargs: object
+    ) -> HttpResponseBase:
         # csrf_exempt: anonymous, sessionless, and a successful forgery only files a report.
         return super().dispatch(request, *args, **kwargs)
 
-    def post(self, request):
+    def post(self, request: HttpRequest) -> HttpResponse:
         sec = _security()
         if is_throttled(request, "cvd-report", REPORT_LIMIT_PER_MINUTE):
             return render(
@@ -140,7 +144,9 @@ class ReportPage(View):
         return response
 
 
-def _notify(request, sec, report: VulnerabilityReport) -> None:
+def _notify(
+    request: HttpRequest, sec: SecuritySettings, report: VulnerabilityReport
+) -> None:
     """Tell the PSIRT mailbox a report arrived. Only the reference and where to read it:
     the report itself stays in lok and never travels as plaintext email."""
     if getattr(settings, "EMAIL_HOST", None) in (None, "", "localhost"):
@@ -177,7 +183,7 @@ def _notify(request, sec, report: VulnerabilityReport) -> None:
 
 
 class ThanksPage(View):
-    def get(self, request):
+    def get(self, request: HttpRequest) -> HttpResponse:
         sec = _security()
         ref = request.GET.get("ref", "")
         return render(
@@ -188,12 +194,12 @@ class ThanksPage(View):
 
 
 class PolicyPage(View):
-    def get(self, request):
+    def get(self, request: HttpRequest) -> HttpResponse:
         return render(request, "cvd/policy.html", _context(_security()))
 
 
 class AcknowledgementsPage(View):
-    def get(self, request):
+    def get(self, request: HttpRequest) -> HttpResponse:
         sec = _security()
         entries = sorted(sec.acknowledgements, key=lambda a: a.date, reverse=True)
         return render(

@@ -15,10 +15,13 @@ from datetime import timedelta
 import pytest
 from asgiref.sync import sync_to_async
 from django.utils import timezone
+from kante.context import HttpContext
+from strawberry.types import ExecutionResult
 
 from api.management.authz import DENIED
 from api.management.schema import schema as management_schema
 from fakts import models as fakts_models
+from karakter.models import Membership
 from tests import factories
 from tests.conftest import build_auth_context
 from tests.test_management_tenant_isolation import _staged_hub_code
@@ -28,7 +31,7 @@ DECLINE_HUB = "mutation ($input: DeclineHubDeviceCodeInput!) { declineHubDeviceC
 ACCEPT = "mutation ($input: AcceptDeviceCodeInput!) { acceptDeviceCode(input: $input) { id } }"
 
 
-def _member_context():
+def _member_context() -> tuple[Membership, HttpContext]:
     membership = factories.make_membership()
     return membership, build_auth_context(
         membership.user,
@@ -37,13 +40,15 @@ def _member_context():
     )
 
 
-async def _decline(context, query=DECLINE, **input):
+async def _decline(
+    context: HttpContext, query: str = DECLINE, **input: object
+) -> ExecutionResult:
     return await management_schema.execute(
         query, context_value=context, variable_values={"input": input}
     )
 
 
-async def _denied_flag(device_code):
+async def _denied_flag(device_code: fakts_models.DeviceCode) -> bool:
     return await sync_to_async(
         lambda: fakts_models.DeviceCode.objects.get(pk=device_code.pk).denied
     )()
@@ -51,12 +56,12 @@ async def _denied_flag(device_code):
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_holder_of_the_code_can_decline():
+async def test_holder_of_the_code_can_decline() -> None:
     _membership, context = await sync_to_async(_member_context)()
     device_code = await sync_to_async(factories.make_device_code)()
 
     result = await _decline(
-        context, deviceCode=str(device_code.id), code=device_code.code
+        context, deviceCode=str(device_code.pk), code=device_code.code
     )
 
     assert not result.errors, result.errors
@@ -66,11 +71,11 @@ async def test_holder_of_the_code_can_decline():
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_omitting_the_code_is_denied_even_though_the_schema_allows_it():
+async def test_omitting_the_code_is_denied_even_though_the_schema_allows_it() -> None:
     _membership, context = await sync_to_async(_member_context)()
     device_code = await sync_to_async(factories.make_device_code)()
 
-    result = await _decline(context, deviceCode=str(device_code.id))
+    result = await _decline(context, deviceCode=str(device_code.pk))
 
     assert result.errors, f"declined without proof: {result.data}"
     assert result.errors[0].message == DENIED
@@ -79,11 +84,11 @@ async def test_omitting_the_code_is_denied_even_though_the_schema_allows_it():
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_wrong_code_unknown_id_and_malformed_id_are_indistinguishable():
+async def test_wrong_code_unknown_id_and_malformed_id_are_indistinguishable() -> None:
     _membership, context = await sync_to_async(_member_context)()
     device_code = await sync_to_async(factories.make_device_code)()
 
-    wrong = await _decline(context, deviceCode=str(device_code.id), code="not-the-code")
+    wrong = await _decline(context, deviceCode=str(device_code.pk), code="not-the-code")
     unknown = await _decline(context, deviceCode="999999999", code=device_code.code)
     malformed = await _decline(context, deviceCode="not-an-id", code=device_code.code)
 
@@ -94,16 +99,16 @@ async def test_wrong_code_unknown_id_and_malformed_id_are_indistinguishable():
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_hub_decline_does_not_reach_an_app_code_and_vice_versa():
+async def test_hub_decline_does_not_reach_an_app_code_and_vice_versa() -> None:
     _membership, context = await sync_to_async(_member_context)()
     app_code = await sync_to_async(factories.make_device_code)()
     hub_code = await sync_to_async(_staged_hub_code)("proof-hub")
 
     crossed_hub = await _decline(
-        context, DECLINE_HUB, deviceCode=str(app_code.id), code=app_code.code
+        context, DECLINE_HUB, deviceCode=str(app_code.pk), code=app_code.code
     )
     crossed_app = await _decline(
-        context, DECLINE, deviceCode=str(hub_code.id), code=hub_code.code
+        context, DECLINE, deviceCode=str(hub_code.pk), code=hub_code.code
     )
 
     assert crossed_hub.errors and crossed_hub.errors[0].message == DENIED
@@ -112,21 +117,23 @@ async def test_hub_decline_does_not_reach_an_app_code_and_vice_versa():
     assert await _denied_flag(hub_code) is False
 
     straight = await _decline(
-        context, DECLINE_HUB, deviceCode=str(hub_code.id), code=hub_code.code
+        context, DECLINE_HUB, deviceCode=str(hub_code.pk), code=hub_code.code
     )
     assert not straight.errors, straight.errors
     assert await _denied_flag(hub_code) is True
 
 
-async def _accept(context, device_code, hub):
+async def _accept(
+    context: HttpContext, device_code: fakts_models.DeviceCode, hub: fakts_models.Hub
+) -> ExecutionResult:
     return await management_schema.execute(
         ACCEPT,
         context_value=context,
         variable_values={
             "input": {
-                "deviceCode": str(device_code.id),
+                "deviceCode": str(device_code.pk),
                 "code": device_code.code,
-                "hub": str(hub.id),
+                "hub": str(hub.pk),
             }
         },
     )
@@ -134,7 +141,7 @@ async def _accept(context, device_code, hub):
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_accepting_an_expired_code_is_refused():
+async def test_accepting_an_expired_code_is_refused() -> None:
     membership, context = await sync_to_async(_member_context)()
     hub = await sync_to_async(factories.make_hub)(organization=membership.organization)
     device_code = await sync_to_async(factories.make_device_code)(
@@ -149,7 +156,7 @@ async def test_accepting_an_expired_code_is_refused():
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_accepting_an_already_declined_code_is_refused():
+async def test_accepting_an_already_declined_code_is_refused() -> None:
     membership, context = await sync_to_async(_member_context)()
     hub = await sync_to_async(factories.make_hub)(organization=membership.organization)
     device_code = await sync_to_async(factories.make_device_code)(denied=True)
@@ -162,7 +169,9 @@ async def test_accepting_an_already_declined_code_is_refused():
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_accept_requires_the_code_and_membership_in_the_hubs_organization():
+async def test_accept_requires_the_code_and_membership_in_the_hubs_organization() -> (
+    None
+):
     membership, context = await sync_to_async(_member_context)()
     their_hub = await sync_to_async(factories.make_hub)()
     device_code = await sync_to_async(factories.make_device_code)()
@@ -178,9 +187,9 @@ async def test_accept_requires_the_code_and_membership_in_the_hubs_organization(
         context_value=context,
         variable_values={
             "input": {
-                "deviceCode": str(device_code.id),
+                "deviceCode": str(device_code.pk),
                 "code": "nope",
-                "hub": str(my_hub.id),
+                "hub": str(my_hub.pk),
             }
         },
     )

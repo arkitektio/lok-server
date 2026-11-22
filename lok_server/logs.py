@@ -13,7 +13,10 @@ Two rules keep the dev console readable (a flooded console also stalls the serve
 """
 
 import logging
-from typing import Any, Iterable
+from collections.abc import Iterable
+
+from graphql import GraphQLError
+from strawberry.types import ExecutionContext
 
 logger = logging.getLogger("strawberry.execution")
 
@@ -49,7 +52,10 @@ def build_logging(level: str = "INFO", rich: bool = False) -> dict:
         "version": 1,
         "disable_existing_loggers": False,
         "formatters": {
-            "plain": {"format": "%(asctime)s %(levelname)-7s %(name)s: %(message)s", "datefmt": "%H:%M:%S"},
+            "plain": {
+                "format": "%(asctime)s %(levelname)-7s %(name)s: %(message)s",
+                "datefmt": "%H:%M:%S",
+            },
             # rich prints time and level itself.
             "bare": {"format": "%(message)s"},
         },
@@ -61,21 +67,40 @@ def build_logging(level: str = "INFO", rich: bool = False) -> dict:
             "django": {"handlers": [], "level": "INFO", "propagate": True},
             "django.server": {"handlers": [], "level": "INFO", "propagate": True},
             # Where daphne's runserver logs each request.
-            "django.channels.server": {"handlers": [], "level": "INFO", "propagate": True},
-            **{name: {"handlers": [], "level": "WARNING", "propagate": True} for name in _QUIET},
+            "django.channels.server": {
+                "handlers": [],
+                "level": "INFO",
+                "propagate": True,
+            },
+            **{
+                name: {"handlers": [], "level": "WARNING", "propagate": True}
+                for name in _QUIET
+            },
         },
     }
 
 
 def _expected_errors() -> tuple[type[BaseException], ...]:
-    from django.core.exceptions import ObjectDoesNotExist, PermissionDenied, ValidationError
+    from django.core.exceptions import (
+        ObjectDoesNotExist,
+        PermissionDenied,
+        ValidationError,
+    )
     from graphql import GraphQLError
 
     # ValueError covers pydantic's ValidationError; LookupError covers kante's UnscopedModelError.
-    return (GraphQLError, PermissionError, PermissionDenied, ObjectDoesNotExist, ValidationError, ValueError, LookupError)
+    return (
+        GraphQLError,
+        PermissionError,
+        PermissionDenied,
+        ObjectDoesNotExist,
+        ValidationError,
+        ValueError,
+        LookupError,
+    )
 
 
-def log_graphql_errors(errors: Iterable[Any]) -> None:
+def log_graphql_errors(errors: Iterable[GraphQLError]) -> None:
     """Log resolver errors: one line for an expected refusal, a traceback for a bug."""
     expected = _expected_errors()
     for error in errors:
@@ -91,5 +116,9 @@ def log_graphql_errors(errors: Iterable[Any]) -> None:
 class QuietErrorsSchema:
     """Mix in before the strawberry schema class: ``class Schema(QuietErrorsSchema, kante.Schema)``."""
 
-    def process_errors(self, errors: list, execution_context: Any = None) -> None:
+    def process_errors(
+        self,
+        errors: list[GraphQLError],
+        execution_context: ExecutionContext | None = None,
+    ) -> None:
         log_graphql_errors(errors)

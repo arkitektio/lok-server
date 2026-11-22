@@ -7,14 +7,18 @@ pump feeding the layer's messages into it, as the websocket handler would.
 
 import asyncio
 import contextlib
+from collections.abc import AsyncIterator, Awaitable, Callable
+from typing import Any
 
 import pytest
 import pytest_asyncio
 from asgiref.sync import sync_to_async
 from django.conf import settings as django_settings
-from kante.context import TemporalResponse, UniversalRequest, WsContext
+from kante.context import HttpContext, TemporalResponse, UniversalRequest, WsContext
+from strawberry.schema.schema import SubscriptionResult
 
 from fakts.base_models import HubHealthReport
+from fakts.models import Hub
 from fakts.services.hubs import report_hub_health
 from karakter import models
 from karakter.managers import create_role
@@ -26,7 +30,9 @@ pytestmark = [pytest.mark.django_db(transaction=True), pytest.mark.asyncio]
 
 
 @pytest_asyncio.fixture
-async def ws_context():
+async def ws_context() -> AsyncIterator[
+    Callable[[models.Membership], Awaitable[WsContext]]
+]:
     """``ws_context(membership)`` → a websocket context authenticated as that member."""
     from channels.layers import get_channel_layer
     from strawberry.channels import ChannelsConsumer
@@ -35,8 +41,8 @@ async def ws_context():
     await layer.flush()
     pumps = []
 
-    async def make(membership) -> WsContext:
-        def authenticate():
+    async def make(membership: models.Membership) -> WsContext:
+        def authenticate() -> HttpContext:
             return build_auth_context(
                 membership.user,
                 membership.organization,
@@ -49,7 +55,7 @@ async def ws_context():
         consumer.channel_layer = layer
         consumer.channel_name = await layer.new_channel()
 
-        async def pump():
+        async def pump() -> None:
             while True:
                 await consumer.dispatch(await layer.receive(consumer.channel_name))
 
@@ -73,7 +79,7 @@ class Listener:
     """Drains a subscription in the background, so the resolver joins its group
     right away (a subscription's resolver only runs once someone iterates it)."""
 
-    def __init__(self, generator):
+    def __init__(self, generator: SubscriptionResult) -> None:
         self.generator = generator
         self.queue: asyncio.Queue = asyncio.Queue()
         self.task = asyncio.create_task(self._drain())
@@ -82,7 +88,7 @@ class Listener:
         async for result in self.generator:
             await self.queue.put(result)
 
-    async def next(self, timeout: float = 5.0):
+    async def next(self, timeout: float = 5.0) -> dict[str, Any]:
         result = await asyncio.wait_for(self.queue.get(), timeout)
         assert not result.errors, result.errors
         return result.data
@@ -97,7 +103,9 @@ class Listener:
             await self.task
 
 
-async def _subscribe(context, document, **variables) -> Listener:
+async def _subscribe(
+    context: WsContext, document: str, **variables: object
+) -> Listener:
     generator = await schema.subscribe(
         document, context_value=context, variable_values=variables
     )
@@ -110,7 +118,9 @@ async def _subscribe(context, document, **variables) -> Listener:
 MY_MESSAGES = "subscription { myMessages { create { id title } update { id } delete } }"
 
 
-async def test_my_messages_tells_the_owner_and_nobody_else(ws_context):
+async def test_my_messages_tells_the_owner_and_nobody_else(
+    ws_context: Callable[[models.Membership], Awaitable[WsContext]],
+) -> None:
     me = await sync_to_async(factories.make_membership)()
     someone = await sync_to_async(factories.make_membership)(
         organization=me.organization
@@ -145,8 +155,10 @@ MEMBERSHIP_REQUESTS = (
 )
 
 
-async def test_membership_requests_reach_the_admins_only(ws_context):
-    def setup():
+async def test_membership_requests_reach_the_admins_only(
+    ws_context: Callable[[models.Membership], Awaitable[WsContext]],
+) -> None:
+    def setup() -> tuple[models.Membership, models.Membership]:
         owner = factories.make_user()
         organization = factories.make_organization(owner=owner)
         create_role(organization=organization, identifier="guest")
@@ -181,8 +193,10 @@ async def test_membership_requests_reach_the_admins_only(ws_context):
 HUB_HEALTH = "subscription ($hub: ID) { hubHealth(hub: $hub) { id lastHealthy online offlineAt } }"
 
 
-async def test_hub_health_reports_the_organizations_hubs(ws_context):
-    def setup():
+async def test_hub_health_reports_the_organizations_hubs(
+    ws_context: Callable[[models.Membership], Awaitable[WsContext]],
+) -> None:
+    def setup() -> tuple[models.Membership, Hub, Hub, Hub]:
         membership = factories.make_membership()
         watched = factories.make_hub(organization=membership.organization)
         other = factories.make_hub(organization=membership.organization)
@@ -214,7 +228,7 @@ async def test_hub_health_reports_the_organizations_hubs(ws_context):
     await one.close()
 
 
-async def _hub_row(hub):
+async def _hub_row(hub: Hub) -> dict[str, object]:
     await hub.arefresh_from_db()
     interval = getattr(django_settings, "HUB_HEALTH_INTERVAL", 60)
     import datetime

@@ -12,7 +12,9 @@ crypto, no certificate and no clock dependence to keep working.
 """
 
 import base64
+from collections.abc import Iterator
 from http import HTTPStatus
+from typing import TYPE_CHECKING
 from unittest.mock import patch
 
 import pytest
@@ -22,6 +24,9 @@ from django.urls import reverse
 
 from karakter.models import Membership, User
 from karakter.slugs import validate_slug
+
+if TYPE_CHECKING:
+    from django.test.client import _MonkeyPatchedWSGIResponse as TestResponse
 
 HOST = "example.com"
 # The URL segment is the app's client_id — an identity-provider name, not an
@@ -115,18 +120,18 @@ SAML_RESPONSE_XML = f"""<samlp:Response xmlns:samlp="urn:oasis:names:tc:SAML:2.0
 
 
 @pytest.fixture
-def saml_response():
+def saml_response() -> str:
     return base64.b64encode(SAML_RESPONSE_XML.encode("utf8")).decode("utf8")
 
 
 @pytest.fixture
-def mocked_signature_validation():
+def mocked_signature_validation() -> Iterator[None]:
     with patch("onelogin.saml2.utils.OneLogin_Saml2_Utils.validate_sign") as mock:
         mock.return_value = True
         yield
 
 
-def post_assertion(client, saml_response):
+def post_assertion(client: Client, saml_response: str) -> "TestResponse":
     """Drive ACS -> finish, the two-step redirect allauth uses to get the IdP's
     cross-site POST onto a same-site GET before logging the user in."""
     slug = {
@@ -145,8 +150,8 @@ def post_assertion(client, saml_response):
 @pytest.mark.django_db
 @override_settings(SOCIALACCOUNT_PROVIDERS={"saml": {"APPS": [SAML_APP]}})
 def test_saml_assertion_registers_and_logs_in_a_user(
-    saml_response, mocked_signature_validation
-):
+    saml_response: str, mocked_signature_validation: None
+) -> None:
     post_assertion(Client(HTTP_HOST=HOST), saml_response)
 
     user = User.objects.get(socialaccount__uid="dummysamluid")
@@ -160,8 +165,8 @@ def test_saml_assertion_registers_and_logs_in_a_user(
 @pytest.mark.django_db
 @override_settings(SOCIALACCOUNT_PROVIDERS={"saml": {"APPS": [SAML_APP]}})
 def test_saml_login_grants_no_organization_membership(
-    saml_response, mocked_signature_validation
-):
+    saml_response: str, mocked_signature_validation: None
+) -> None:
     """Standing guard against organization auto-provisioning creeping back in.
 
     An earlier design made a SAML app's client_id an Organization slug and granted
@@ -187,7 +192,9 @@ def test_saml_login_grants_no_organization_membership(
 
 @pytest.mark.django_db
 @override_settings(SOCIALACCOUNT_PROVIDERS={"saml": {"APPS": [SAML_APP]}})
-def test_second_saml_login_is_idempotent(saml_response, mocked_signature_validation):
+def test_second_saml_login_is_idempotent(
+    saml_response: str, mocked_signature_validation: None
+) -> None:
     """Logging in again must not duplicate the user or the linked account."""
     post_assertion(Client(HTTP_HOST=HOST), saml_response)
     post_assertion(Client(HTTP_HOST=HOST), saml_response)

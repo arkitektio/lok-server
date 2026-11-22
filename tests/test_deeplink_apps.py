@@ -7,8 +7,12 @@ it). Its protocols are held to plain app schemes and its install links to https:
 anything else would turn those pages into an open redirect.
 """
 
+from collections.abc import Sequence
+from typing import TypedDict
+
 import pytest
 from asgiref.sync import sync_to_async
+from kante.context import HttpContext
 
 from api.management.schema import schema as management_schema
 from karakter import models
@@ -46,7 +50,9 @@ ORKESTRATOR = {
 # --------------------------------------------------------------------------- #
 
 
-def test_the_default_is_orkestrator_with_its_install_page_on_desktop_and_mobile():
+def test_the_default_is_orkestrator_with_its_install_page_on_desktop_and_mobile() -> (
+    None
+):
     assert default_deeplink_apps() == [
         {
             "protocol": "orkestrator",
@@ -59,7 +65,7 @@ def test_the_default_is_orkestrator_with_its_install_page_on_desktop_and_mobile(
     assert normalize_deeplink_apps(default_deeplink_apps()) == default_deeplink_apps()
 
 
-def test_normalize_fills_in_defaults_and_keeps_the_order():
+def test_normalize_fills_in_defaults_and_keeps_the_order() -> None:
     assert normalize_deeplink_apps(
         [
             {
@@ -85,14 +91,14 @@ def test_normalize_fills_in_defaults_and_keeps_the_order():
     ]
 
 
-def test_normalize_accepts_an_empty_list():
+def test_normalize_accepts_an_empty_list() -> None:
     assert normalize_deeplink_apps([]) == []
 
 
 @pytest.mark.parametrize(
     "protocol", ["https", "HTTP", "javascript", "data", "file", "mailto", "javascript:"]
 )
-def test_normalize_refuses_browser_schemes(protocol):
+def test_normalize_refuses_browser_schemes(protocol: str) -> None:
     with pytest.raises(ValueError, match="cannot be used"):
         normalize_deeplink_apps([{"protocol": protocol}])
 
@@ -100,7 +106,7 @@ def test_normalize_refuses_browser_schemes(protocol):
 @pytest.mark.parametrize(
     "protocol", ["", " ", "1app", "my app", "app/evil", "app://host", "ap_p", "a" * 33]
 )
-def test_normalize_refuses_malformed_schemes(protocol):
+def test_normalize_refuses_malformed_schemes(protocol: str) -> None:
     with pytest.raises(ValueError, match="not a valid protocol"):
         normalize_deeplink_apps([{"protocol": protocol}])
 
@@ -116,12 +122,12 @@ def test_normalize_refuses_malformed_schemes(protocol):
         "ftp://example.com",
     ],
 )
-def test_normalize_refuses_install_links_that_are_not_https(install_url):
+def test_normalize_refuses_install_links_that_are_not_https(install_url: str) -> None:
     with pytest.raises(ValueError, match="not a valid install link"):
         normalize_deeplink_apps([{"protocol": "app", "install_url": install_url}])
 
 
-def test_normalize_refuses_duplicates_and_caps_the_list():
+def test_normalize_refuses_duplicates_and_caps_the_list() -> None:
     with pytest.raises(ValueError, match="more than once"):
         normalize_deeplink_apps([{"protocol": "app"}, {"protocol": "APP://"}])
     assert (
@@ -137,7 +143,7 @@ def test_normalize_refuses_duplicates_and_caps_the_list():
 # --------------------------------------------------------------------------- #
 
 
-def _setup():
+def _setup() -> tuple[models.Organization, HttpContext, HttpContext]:
     """An organization, its owner's context, and a plain member's context."""
     organization = factories.make_organization()
     owner_membership = factories.make_membership(
@@ -157,7 +163,7 @@ def _setup():
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_a_new_organization_allows_orkestrator():
+async def test_a_new_organization_allows_orkestrator() -> None:
     organization, owner_context, _ = await sync_to_async(_setup)()
 
     result = await management_schema.execute(
@@ -171,7 +177,7 @@ async def test_a_new_organization_allows_orkestrator():
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_owner_registers_apps_and_members_can_read_them():
+async def test_owner_registers_apps_and_members_can_read_them() -> None:
     organization, owner_context, member_context = await sync_to_async(_setup)()
 
     result = await management_schema.execute(
@@ -220,7 +226,9 @@ async def test_owner_registers_apps_and_members_can_read_them():
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_owner_can_switch_forwarding_off_and_other_updates_leave_the_list_alone():
+async def test_owner_can_switch_forwarding_off_and_other_updates_leave_the_list_alone() -> (
+    None
+):
     organization, owner_context, _ = await sync_to_async(_setup)()
 
     result = await management_schema.execute(
@@ -254,7 +262,9 @@ async def test_owner_can_switch_forwarding_off_and_other_updates_leave_the_list_
         [{"protocol": "app", "installUrl": "javascript://alert(1)"}],
     ],
 )
-async def test_bad_apps_are_refused_and_nothing_is_stored(apps):
+async def test_bad_apps_are_refused_and_nothing_is_stored(
+    apps: list[dict[str, str]],
+) -> None:
     organization, owner_context, _ = await sync_to_async(_setup)()
 
     result = await management_schema.execute(
@@ -270,7 +280,7 @@ async def test_bad_apps_are_refused_and_nothing_is_stored(apps):
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_a_plain_member_cannot_change_the_apps():
+async def test_a_plain_member_cannot_change_the_apps() -> None:
     organization, _, member_context = await sync_to_async(_setup)()
 
     result = await management_schema.execute(
@@ -295,9 +305,11 @@ async def test_a_plain_member_cannot_change_the_apps():
 
 
 @pytest.fixture
-def quiet_notifications(monkeypatch):
+def quiet_notifications(
+    monkeypatch: pytest.MonkeyPatch,
+) -> list[list[models.Membership]]:
     """No pushes from tests; record who would have been told instead."""
-    sent = []
+    sent: list[list[models.Membership]] = []
     monkeypatch.setattr(
         request_module,
         "_notify",
@@ -306,7 +318,7 @@ def quiet_notifications(monkeypatch):
     return sent
 
 
-def _outsider_setup():
+def _outsider_setup() -> tuple[models.Membership, models.Organization, HttpContext]:
     """An outsider signed into their own organization, and a target a link names by its id."""
     outsider = factories.make_membership()
     target = factories.make_organization()
@@ -319,7 +331,7 @@ def _outsider_setup():
     return outsider, target, context
 
 
-def _requests(**lookup):
+def _requests(**lookup: object) -> list[tuple[int, str, str]]:
     return [
         (r.user_id, r.status, r.reason)
         for r in models.MembershipRequest.objects.filter(**lookup)
@@ -328,7 +340,9 @@ def _requests(**lookup):
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_an_outsider_asks_to_join_by_the_links_id(quiet_notifications):
+async def test_an_outsider_asks_to_join_by_the_links_id(
+    quiet_notifications: list[list[models.Membership]],
+) -> None:
     outsider, target, context = await sync_to_async(_outsider_setup)()
 
     result = await management_schema.execute(
@@ -360,8 +374,8 @@ async def test_an_outsider_asks_to_join_by_the_links_id(quiet_notifications):
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
 async def test_an_unknown_organization_answers_the_same_and_stores_nothing(
-    quiet_notifications,
-):
+    quiet_notifications: list[list[models.Membership]],
+) -> None:
     _, _, context = await sync_to_async(_outsider_setup)()
 
     result = await management_schema.execute(
@@ -394,7 +408,16 @@ DECLINE = """
 """
 
 
-def _inbox_setup():
+class Inbox(TypedDict):
+    target: models.Organization
+    owner: HttpContext
+    admin: HttpContext
+    member: HttpContext
+    first: models.MembershipRequest
+    second: models.MembershipRequest
+
+
+def _inbox_setup() -> Inbox:
     """A target organization with an owner, an admin and a plain member, and two
     outsiders who asked to join."""
     from karakter.managers import create_role
@@ -406,7 +429,9 @@ def _inbox_setup():
     admin.roles.add(create_role(organization=target, identifier="admin"))
     member = factories.make_membership(organization=target)
 
-    def context(membership, roles=("admin",)):
+    def context(
+        membership: models.Membership, roles: Sequence[str] = ("admin",)
+    ) -> HttpContext:
         return build_auth_context(
             membership.user,
             target,
@@ -433,8 +458,8 @@ def _inbox_setup():
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
 async def test_owner_and_admin_see_pending_requests_and_a_plain_member_sees_none(
-    quiet_notifications,
-):
+    quiet_notifications: list[list[models.Membership]],
+) -> None:
     s = await sync_to_async(_inbox_setup)()
     variables = {"id": str(s["target"].id)}
 
@@ -458,7 +483,9 @@ async def test_owner_and_admin_see_pending_requests_and_a_plain_member_sees_none
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_admin_approves_one_request_and_declines_the_other(quiet_notifications):
+async def test_admin_approves_one_request_and_declines_the_other(
+    quiet_notifications: list[list[models.Membership]],
+) -> None:
     s = await sync_to_async(_inbox_setup)()
 
     approved = await management_schema.execute(
@@ -484,7 +511,7 @@ async def test_admin_approves_one_request_and_declines_the_other(quiet_notificat
     assert not declined.errors, declined.errors
     assert declined.data["declineMembershipRequest"]["status"] == "declined"
 
-    def state():
+    def state() -> tuple[bool, bool]:
         return (
             models.Membership.objects.filter(
                 user_id=s["first"].user_id, organization=s["target"]
@@ -512,11 +539,11 @@ async def test_admin_approves_one_request_and_declines_the_other(quiet_notificat
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
 async def test_a_plain_member_and_an_outsider_cannot_answer_a_request(
-    quiet_notifications,
-):
+    quiet_notifications: list[list[models.Membership]],
+) -> None:
     s = await sync_to_async(_inbox_setup)()
 
-    def outsider_context():
+    def outsider_context() -> HttpContext:
         outsider = factories.make_membership()
         return build_auth_context(
             outsider.user,
@@ -533,7 +560,7 @@ async def test_a_plain_member_and_an_outsider_cannot_answer_a_request(
             )
             assert result.errors
 
-    def still_pending():
+    def still_pending() -> str:
         return models.MembershipRequest.objects.get(pk=s["first"].pk).status
 
     assert await sync_to_async(still_pending)() == "pending"

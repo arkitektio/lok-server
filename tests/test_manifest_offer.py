@@ -10,15 +10,18 @@ changes and the app is told that a person has to approve it.
 """
 
 import json
+from typing import Any
 
 import pytest
 from django.conf import settings
+from django.test import Client
 from django.urls import reverse
 from joserfc import jwt
 from joserfc.jwk import RSAKey
 
 from fakts import models
 from fakts.services.device_codes import validate_device_code
+from karakter.models import User
 from tests import factories
 
 DEVICE_CODE_GRANT = "urn:ietf:params:oauth:grant-type:device_code"
@@ -39,7 +42,12 @@ def _decode(access_token: str) -> dict:
     ).claims
 
 
-def _login(client, manifest=V1, user=None, hub=None):
+def _login(
+    client: Client,
+    manifest: dict[str, object] = V1,
+    user: User | None = None,
+    hub: models.Hub | None = None,
+) -> tuple[dict[str, Any], models.Hub, User]:
     """Device-code login as an approved app; returns (token response, hub, user)."""
     body = client.post(
         reverse("app_authorization"),
@@ -68,7 +76,9 @@ def _login(client, manifest=V1, user=None, hub=None):
     return token, hub, user
 
 
-def _refresh(client, token, manifest=None):
+def _refresh(
+    client: Client, token: dict[str, Any], manifest: dict[str, object] | None = None
+) -> dict[str, Any]:
     data = {
         "grant_type": "refresh_token",
         "refresh_token": token["refresh_token"],
@@ -82,7 +92,7 @@ def _refresh(client, token, manifest=None):
 
 
 @pytest.mark.django_db
-def test_the_same_manifest_changes_nothing(client):
+def test_the_same_manifest_changes_nothing(client: Client) -> None:
     token, _, _ = _login(client)
 
     refreshed = _refresh(client, token, V1)
@@ -94,7 +104,9 @@ def test_the_same_manifest_changes_nothing(client):
 
 
 @pytest.mark.django_db
-def test_a_new_version_moves_the_client_and_gives_it_a_new_identity(client):
+def test_a_new_version_moves_the_client_and_gives_it_a_new_identity(
+    client: Client,
+) -> None:
     token, _, _ = _login(client)
     before = _decode(token["access_token"])
 
@@ -129,7 +141,7 @@ def test_a_new_version_moves_the_client_and_gives_it_a_new_identity(client):
 
 
 @pytest.mark.django_db
-def test_going_back_to_a_release_finds_its_identity_again(client):
+def test_going_back_to_a_release_finds_its_identity_again(client: Client) -> None:
     token, _, _ = _login(client)
     first = _decode(token["access_token"])["client_id"]
 
@@ -152,7 +164,9 @@ def test_going_back_to_a_release_finds_its_identity_again(client):
     ],
     ids=["scope", "service", "device", "app"],
 )
-def test_asking_for_more_changes_nothing_and_says_so(client, change):
+def test_asking_for_more_changes_nothing_and_says_so(
+    client: Client, change: dict[str, object]
+) -> None:
     token, _, _ = _login(client)
 
     refreshed = _refresh(client, token, {**V2, **change})
@@ -169,7 +183,7 @@ def test_asking_for_more_changes_nothing_and_says_so(client, change):
 
 
 @pytest.mark.django_db
-def test_asking_for_less_is_adopted(client):
+def test_asking_for_less_is_adopted(client: Client) -> None:
     token, _, _ = _login(client, {**V1, "scopes": ["openid", "profile"]})
 
     refreshed = _refresh(client, token, {**V2, "scopes": ["openid"]})
@@ -179,7 +193,9 @@ def test_asking_for_less_is_adopted(client):
 
 
 @pytest.mark.django_db
-def test_a_client_is_not_moved_onto_another_login_of_the_same_person(client):
+def test_a_client_is_not_moved_onto_another_login_of_the_same_person(
+    client: Client,
+) -> None:
     """Two browsers have no device id, so they are one device to lok. One of them
     updating must not take the place, and with it the session, of the other."""
     deviceless = {k: v for k, v in V1.items() if k != "device_id"}
@@ -194,7 +210,9 @@ def test_a_client_is_not_moved_onto_another_login_of_the_same_person(client):
 
 
 @pytest.mark.django_db
-def test_a_manifest_that_cannot_be_read_does_not_fail_the_refresh(client):
+def test_a_manifest_that_cannot_be_read_does_not_fail_the_refresh(
+    client: Client,
+) -> None:
     token, _, _ = _login(client)
 
     response = client.post(
@@ -213,7 +231,7 @@ def test_a_manifest_that_cannot_be_read_does_not_fail_the_refresh(client):
 
 
 @pytest.mark.django_db
-def test_a_client_is_found_by_any_id_it_has_had(client):
+def test_a_client_is_found_by_any_id_it_has_had(client: Client) -> None:
     token, _, _ = _login(client)
     first = _decode(token["access_token"])["client_id"]
     second = _decode(_refresh(client, token, V2)["access_token"])["client_id"]

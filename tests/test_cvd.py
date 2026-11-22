@@ -2,14 +2,18 @@
 
 import datetime
 import re
+from collections.abc import Iterator
+from typing import Any
 
 import pytest
 from django.core import mail
 from django.core.cache import cache
 from django.test import Client
+from pytest_django.fixtures import SettingsWrapper
 
 from cvd.models import VulnerabilityReport
 from cvd.securitytxt import render_security_txt
+from karakter.models import User
 from lok_server.configuration import SecuritySettings
 
 PSIRT_FPR = "D7B9A162DA4BC8711C3C9D46EAF68605EF40FEA6"
@@ -17,7 +21,7 @@ CSIRT_FPR = "E904021F2EF95EC71A329A1891EB2A609F055969"
 SIGN_FPR = "BA786FE42081B3507CACF30B363EB7A0FBDE0CCD"
 
 
-def _security(**overrides) -> SecuritySettings:
+def _security(**overrides: Any) -> SecuritySettings:
     data = {
         "vendor": "Example",
         "page_url": "https://go.example.org/security",
@@ -52,7 +56,7 @@ def _security(**overrides) -> SecuritySettings:
 
 
 @pytest.fixture
-def security(settings):
+def security(settings: SettingsWrapper) -> Iterator[SecuritySettings]:
     cache.clear()
     settings.SECURITY_DISCLOSURE = _security()
     settings.EMAIL_HOST = "smtp.example.org"
@@ -61,7 +65,7 @@ def security(settings):
     cache.clear()
 
 
-def _report(**overrides):
+def _report(**overrides: Any) -> dict[str, str]:
     data = {
         "kind": "product",
         "title": "Token endpoint leaks timing",
@@ -79,7 +83,7 @@ def _report(**overrides):
 # --- security.txt -----------------------------------------------------------------
 
 
-def test_security_txt_has_the_bsi_fields_in_order():
+def test_security_txt_has_the_bsi_fields_in_order() -> None:
     body = render_security_txt(_security())
     fields = [
         line.split(":", 1)[0]
@@ -111,7 +115,7 @@ def test_security_txt_has_the_bsi_fields_in_order():
     assert "CSAF:" not in body
 
 
-def test_security_txt_fields_are_printable_ascii():
+def test_security_txt_fields_are_printable_ascii() -> None:
     body = render_security_txt(
         _security(csaf="https://go.example.org/.well-known/csaf/provider-metadata.json")
     )
@@ -125,12 +129,12 @@ def test_security_txt_fields_are_printable_ascii():
         render_security_txt(_security(page_url="https://gö.example.org/security"))
 
 
-def test_english_must_be_a_preferred_language():
+def test_english_must_be_a_preferred_language() -> None:
     with pytest.raises(ValueError):
         _security(preferred_languages=["de"])
 
 
-def test_fingerprints_are_normalized():
+def test_fingerprints_are_normalized() -> None:
     sec = _security(
         signing_key={
             "url": "https://x/k.asc",
@@ -144,14 +148,16 @@ def test_fingerprints_are_normalized():
 
 
 @pytest.mark.django_db
-def test_pages_are_404_without_config(settings):
+def test_pages_are_404_without_config(settings: SettingsWrapper) -> None:
     settings.SECURITY_DISCLOSURE = None
     assert Client().get("/lok/security/").status_code == 404
     assert Client().get("/lok/security/policy").status_code == 404
 
 
 @pytest.mark.django_db
-def test_report_page_carries_everything_without_javascript(security):
+def test_report_page_carries_everything_without_javascript(
+    security: SecuritySettings,
+) -> None:
     response = Client().get("/lok/security/")
     assert response.status_code == 200
     html = response.content.decode()
@@ -184,14 +190,14 @@ def test_report_page_carries_everything_without_javascript(security):
         "/lok/security/thanks",
     ],
 )
-def test_the_other_pages_render(security, path):
+def test_the_other_pages_render(security: SecuritySettings, path: str) -> None:
     response = Client().get(path)
     assert response.status_code == 200
     assert "<script" not in response.content.decode()
 
 
 @pytest.mark.django_db
-def test_policy_shows_its_date_and_vendor(security):
+def test_policy_shows_its_date_and_vendor(security: SecuritySettings) -> None:
     html = Client().get("/lok/security/policy").content.decode()
     assert "16 November 2026" in html
     assert "Example" in html
@@ -203,7 +209,9 @@ def test_policy_shows_its_date_and_vendor(security):
 
 
 @pytest.mark.django_db
-def test_an_anonymous_report_is_stored_without_any_trace(security):
+def test_an_anonymous_report_is_stored_without_any_trace(
+    security: SecuritySettings,
+) -> None:
     response = Client(REMOTE_ADDR="203.0.113.9").post(
         "/lok/security/", _report(contact="")
     )
@@ -218,7 +226,9 @@ def test_an_anonymous_report_is_stored_without_any_trace(security):
 
 
 @pytest.mark.django_db
-def test_psirt_is_notified_without_the_report_content(security):
+def test_psirt_is_notified_without_the_report_content(
+    security: SecuritySettings,
+) -> None:
     Client().post("/lok/security/", _report())
     report = VulnerabilityReport.objects.get()
     assert report.contact == "+49 30 1234567"  # a phone number is a valid contact
@@ -230,27 +240,27 @@ def test_psirt_is_notified_without_the_report_content(security):
 
 
 @pytest.mark.django_db
-def test_credit_is_only_kept_when_asked(security):
+def test_credit_is_only_kept_when_asked(security: SecuritySettings) -> None:
     Client().post("/lok/security/", _report(credit_name="alice"))
     assert VulnerabilityReport.objects.get().credit_name == ""
 
 
 @pytest.mark.django_db
-def test_invalid_report_is_shown_again(security):
+def test_invalid_report_is_shown_again(security: SecuritySettings) -> None:
     response = Client().post("/lok/security/", _report(title=""))
     assert response.status_code == 400
     assert VulnerabilityReport.objects.count() == 0
 
 
 @pytest.mark.django_db
-def test_the_honeypot_files_nothing(security):
+def test_the_honeypot_files_nothing(security: SecuritySettings) -> None:
     response = Client().post("/lok/security/", _report(website="http://spam"))
     assert response.status_code in (302, 303)
     assert VulnerabilityReport.objects.count() == 0
 
 
 @pytest.mark.django_db
-def test_bulk_submissions_are_throttled(security):
+def test_bulk_submissions_are_throttled(security: SecuritySettings) -> None:
     client = Client(REMOTE_ADDR="198.51.100.4")
     from cvd.views import REPORT_LIMIT_PER_MINUTE
 
@@ -263,7 +273,7 @@ def test_bulk_submissions_are_throttled(security):
 
 
 @pytest.mark.django_db
-def test_thanks_page_ignores_a_forged_reference(security):
+def test_thanks_page_ignores_a_forged_reference(security: SecuritySettings) -> None:
     html = Client().get("/lok/security/thanks?ref=<b>x</b>").content.decode()
     assert "<b>x</b>" not in html and "Your reference" not in html
 
@@ -272,7 +282,7 @@ def test_thanks_page_ignores_a_forged_reference(security):
 
 
 @pytest.mark.django_db
-def test_one_analyst_cannot_close_a_report_alone(django_user_model):
+def test_one_analyst_cannot_close_a_report_alone(django_user_model: type[User]) -> None:
     a = django_user_model.objects.create(username="a")
     b = django_user_model.objects.create(username="b")
     report = VulnerabilityReport.objects.create(
@@ -292,7 +302,9 @@ def test_one_analyst_cannot_close_a_report_alone(django_user_model):
 
 
 @pytest.mark.django_db
-def test_admin_binds_the_close_to_the_logged_in_user(django_user_model):
+def test_admin_binds_the_close_to_the_logged_in_user(
+    django_user_model: type[User],
+) -> None:
     from django.contrib.admin.sites import site
     from django.contrib.messages.storage.fallback import FallbackStorage
     from django.test import RequestFactory
@@ -304,7 +316,7 @@ def test_admin_binds_the_close_to_the_logged_in_user(django_user_model):
         title="t", affected="x", description="d"
     )
 
-    def save_as(user, status):
+    def save_as(user: User, status: str) -> VulnerabilityReport:
         request = RequestFactory().post("/")
         request.user = user
         request.session = {}

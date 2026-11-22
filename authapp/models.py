@@ -1,4 +1,5 @@
 import time
+from typing import TYPE_CHECKING
 
 from authlib.oauth2.rfc6749 import AuthorizationCodeMixin, TokenMixin
 from django.contrib.auth import get_user_model
@@ -6,10 +7,13 @@ from django.db import models
 
 from karakter.models import Membership
 
+if TYPE_CHECKING:
+    from fakts.models import Client
+
 User = get_user_model()
 
 
-def now_timestamp():
+def now_timestamp() -> int:
     return int(time.time())
 
 
@@ -41,22 +45,22 @@ class OAuth2Token(models.Model, TokenMixin):
         "dies at the absolute cap and a human must re-authorize.",
     )
 
-    def check_client(self, client):
+    def check_client(self, client: "Client") -> bool:
         return self.client_id == client.client_id
 
-    def get_client_id(self):
+    def get_client_id(self) -> str:
         return self.client_id
 
-    def get_scope(self):
+    def get_scope(self) -> str:
         return self.scope
 
-    def get_expires_in(self):
+    def get_expires_in(self) -> int:
         return self.expires_in
 
-    def get_expires_at(self):
+    def get_expires_at(self) -> int:
         return self.issued_at + self.expires_in
 
-    def validate(self):
+    def validate(self) -> bool:
         if self.revoked:
             return False
         if self.get_expires_at() < now_timestamp():
@@ -86,7 +90,7 @@ class OAuth2Token(models.Model, TokenMixin):
     def is_expired(self) -> bool:
         return self.get_expires_at() < now_timestamp()
 
-    def get(self, key: str, default=None):
+    def get(self, key: str, default: object = None) -> object:
         return getattr(self, key, default)
 
 
@@ -121,34 +125,34 @@ class AuthorizationCode(models.Model, AuthorizationCodeMixin):
     # ... other fields and methods ...
 
     @property
-    def user(self):
+    def user(self) -> Membership:
         """Return the membership associated with this authorization code."""
         return self.membership
 
-    def get_user_id(self):
+    def get_user_id(self) -> str:
         return str(self.membership.id)
 
-    def is_expired(self):
+    def is_expired(self) -> bool:
         # Authorization code is valid for 10 minutes
         expiration_time = self.auth_time + 600
         return now_timestamp() > expiration_time
 
-    def get_redirect_uri(self):
+    def get_redirect_uri(self) -> str | None:
         return self.redirect_uri
 
-    def get_scope(self):
+    def get_scope(self) -> str:
         return self.scope or ""
 
-    def get_auth_time(self):
+    def get_auth_time(self) -> int:
         return self.auth_time
 
-    def get_nonce(self):
+    def get_nonce(self) -> str | None:
         return self.nonce
 
-    def get_acr(self):
+    def get_acr(self) -> str:
         return "1"  # Authentication Context Class Reference (check what this should be)
 
-    def get_amr(self):
+    def get_amr(self) -> list[str]:
         return ["pwd"]  # Authentication Methods References (check what this should be)
 
 
@@ -173,5 +177,5 @@ class UsedNonce(models.Model):
     class Meta:
         unique_together = ("client_id", "nonce")
 
-    def __str__(self):
+    def __str__(self) -> str:
         return f"{self.client_id}:{self.nonce}"

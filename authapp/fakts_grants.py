@@ -39,6 +39,8 @@ fakts imports are deliberately lazy — ``fakts.models`` imports
 
 import json
 import logging
+from collections.abc import Collection
+from typing import TYPE_CHECKING, TypeAlias
 
 from authlib.oauth2 import OAuth2Error
 from authlib.oauth2.rfc6749 import BaseGrant, TokenEndpointMixin
@@ -50,9 +52,16 @@ from authlib.oauth2.rfc8628 import DeviceCodeGrant
 from django.conf import settings
 from django.utils import timezone
 
+if TYPE_CHECKING:
+    from fakts.models import DeviceCode, IonscaleAuthKey
+    from karakter.models import Membership
+
 logger = logging.getLogger(__name__)
 
 FAKTS_MANDATE_KEY_GRANT_TYPE = "urn:fakts:grant-type:mandate-key"
+
+#: What authlib's ``create_token_response`` hands back: status, token body, headers.
+TokenResponse: TypeAlias = tuple[int, dict, Collection[tuple[str, str]]]
 
 
 class FaktsEnvelopeMixin:
@@ -116,7 +125,7 @@ class FaktsEnvelopeMixin:
         return token
 
     @staticmethod
-    def append_mesh_key(token: dict, key) -> dict:
+    def append_mesh_key(token: dict, key: "IonscaleAuthKey | None") -> dict:
         """Hand an app or hub its mesh key (``request_auth_key``), exactly once.
 
         The device-code grant hands out the key minted at accept (the code is
@@ -149,7 +158,7 @@ class FaktsDeviceCodeGrant(FaktsEnvelopeMixin, DeviceCodeGrant):
     # Public clients only: fakts clients have no secret.
     TOKEN_ENDPOINT_AUTH_METHODS = ["none"]
 
-    def query_device_credential(self, device_code):
+    def query_device_credential(self, device_code: str) -> "DeviceCode | None":
         """The polled `device_code` is the staged authorization's full-entropy
         secret — one model serves the app and hub flows alike."""
         from fakts import models as fakts_models
@@ -159,7 +168,9 @@ class FaktsDeviceCodeGrant(FaktsEnvelopeMixin, DeviceCodeGrant):
         except fakts_models.DeviceCode.DoesNotExist:
             return None
 
-    def query_user_grant(self, user_code):
+    def query_user_grant(
+        self, user_code: str
+    ) -> "tuple[Membership | None, bool] | None":
         """`user_code` is the staged authorization's short human code (what the
         configure URL carries). The staged client always exists (it was
         registered at start); approval is it having been *bound* to a
@@ -179,7 +190,7 @@ class FaktsDeviceCodeGrant(FaktsEnvelopeMixin, DeviceCodeGrant):
             return device_code.client.membership, True
         return None
 
-    def should_slow_down(self, credential):
+    def should_slow_down(self, credential: "DeviceCode") -> bool:
         """RFC 8628 §3.5: polling faster than ``interval`` earns a slow_down."""
         now = timezone.now()
         last = credential.last_polled_at
@@ -189,7 +200,7 @@ class FaktsDeviceCodeGrant(FaktsEnvelopeMixin, DeviceCodeGrant):
             return False
         return (now - last).total_seconds() < credential.interval
 
-    def create_token_response(self):
+    def create_token_response(self) -> TokenResponse:
         client = self.request.client
         credential = self.request.credential
         try:
@@ -210,7 +221,7 @@ class FaktsDeviceCodeGrant(FaktsEnvelopeMixin, DeviceCodeGrant):
                 "Device-code grant failed to mint tokens for client %s",
                 client.client_id,
             )
-            raise InvalidGrantError(description=str(e))
+            raise InvalidGrantError(description=str(e)) from e
         self.append_fakts_envelope(token)
         self.append_mesh_key(token, credential.auth_key)
         # Single-use: burn the code once it has yielded its tokens. Continuity
@@ -231,7 +242,7 @@ class FaktsMandateKeyGrant(FaktsEnvelopeMixin, BaseGrant, TokenEndpointMixin):
     GRANT_TYPE = FAKTS_MANDATE_KEY_GRANT_TYPE
     TOKEN_ENDPOINT_AUTH_METHODS = ["none"]
 
-    def validate_token_request(self):
+    def validate_token_request(self) -> None:
         from pydantic import ValidationError
 
         from fakts.base_models import MandateKeyGrantRequest, MandatePinMismatch
@@ -264,9 +275,9 @@ class FaktsMandateKeyGrant(FaktsEnvelopeMixin, BaseGrant, TokenEndpointMixin):
                 f"{'.'.join(str(p) for p in err['loc']) or 'request'}: {err['msg']}"
                 for err in e.errors()
             )
-            raise InvalidRequestError(f"Malformed request: {problems}")
+            raise InvalidRequestError(f"Malformed request: {problems}") from e
         except ValueError as e:
-            raise InvalidRequestError(f"Malformed 'manifest': {e}")
+            raise InvalidRequestError(f"Malformed 'manifest': {e}") from e
 
         try:
             grant = mandates.authenticate_key(request)
@@ -275,7 +286,7 @@ class FaktsMandateKeyGrant(FaktsEnvelopeMixin, BaseGrant, TokenEndpointMixin):
             MandatePinMismatch,
             client_services.DeviceAuthRequired,
         ) as e:
-            raise InvalidGrantError(description=str(e))
+            raise InvalidGrantError(description=str(e)) from e
         except OAuth2Error:
             raise
         except Exception as e:
@@ -284,13 +295,13 @@ class FaktsMandateKeyGrant(FaktsEnvelopeMixin, BaseGrant, TokenEndpointMixin):
             logger.exception(
                 "Mandate-key grant failed for manifest %s", request.manifest.identifier
             )
-            raise InvalidGrantError(description=str(e))
+            raise InvalidGrantError(description=str(e)) from e
 
         self.request.client = grant.client
         self.request.user = grant.client.membership
         self.mesh_key = grant.mesh_key
 
-    def create_token_response(self):
+    def create_token_response(self) -> TokenResponse:
         from authapp.models import OAuth2Token
         from authapp.server import MAX_ACCESS_TOKEN_EXPIRES_IN
 

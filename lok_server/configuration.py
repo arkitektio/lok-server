@@ -1079,7 +1079,7 @@ class Settings(ServiceSettings):
                 apps.append(cfg.APP)
             return apps
 
-        def is_domain_list(value: Any) -> bool:
+        def is_domain_list(value: object) -> bool:
             return isinstance(value, list) and len(value) > 0
 
         untrusted: list[str] = []

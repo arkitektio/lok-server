@@ -17,6 +17,7 @@ from api.management.authz import (
 from api.management.device_code_authz import resolve_device_code_with_proof
 from fakts import logic
 from fakts import models as fakts_models
+from fakts.base_models import HubManifest
 from fakts.services import aliases as alias_services
 from fakts.services import hubs as hub_services
 from fakts.services import versions
@@ -76,29 +77,31 @@ def accept_hub_device_code(
 
     try:
         manifest = device_code.hub_manifest_as_model
-    except (PydanticValidationError, TypeError):
-        raise GraphQLError("The staged hub manifest of this device code is malformed.")
+    except (PydanticValidationError, TypeError) as exc:
+        raise GraphQLError(
+            "The staged hub manifest of this device code is malformed."
+        ) from exc
 
     try:
         with transaction.atomic():
             return _provision_hub(
                 info, input, device_code, organization, manifest, user
             )
-    except IntegrityError:
+    except IntegrityError as exc:
         # A concurrent accept of the same identifier, or a duplicate further down
         # the manifest; the transaction leaves no half-built hub behind.
         raise GraphQLError(
             "Could not provision the hub: the manifest conflicts with existing objects in this organization."
-        )
+        ) from exc
 
 
 def _provision_hub(
     info: Info,
     input: AcceptHubDeviceCodeInput,
-    device_code,
-    organization,
-    manifest,
-    user,
+    device_code: fakts_models.DeviceCode,
+    organization: models.Organization,
+    manifest: HubManifest,
+    user: models.User,
 ) -> fakts_models.Hub:
     # The hub names itself: authorized again under the same uid, it is the same hub, and what it
     # says now replaces what was known of it (its label, its services and their keys).
@@ -224,7 +227,7 @@ def _provision_hub(
 
 
 def _grant_hub_mesh_key(
-    device_code: fakts_models.DeviceCode, user, hub: fakts_models.Hub
+    device_code: fakts_models.DeviceCode, user: models.User, hub: fakts_models.Hub
 ) -> None:
     """Mint (or rotate) the hub's mesh key onto the code; the token response hands
     it out once, exactly like an app's.

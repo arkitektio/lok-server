@@ -5,15 +5,16 @@ from django.conf import settings
 
 from authapp.token_generators import MyJWTBearerTokenGenerator
 from fakts.enums import ClientRoleChoices
+from karakter.models import Membership
 from tests import factories
 
 
-def _generator():
+def _generator() -> MyJWTBearerTokenGenerator:
     return MyJWTBearerTokenGenerator(issuer=settings.OIDC_ISSUER)
 
 
 @pytest.mark.django_db
-def test_get_extra_claims_includes_client_role_and_org():
+def test_get_extra_claims_includes_client_role_and_org() -> None:
     membership = factories.make_membership()
     oauth2 = factories.make_oauth2_client(membership=membership)
     factories.make_client(
@@ -32,7 +33,7 @@ def test_get_extra_claims_includes_client_role_and_org():
 
 
 @pytest.mark.django_db
-def test_get_extra_claims_defaults_role_to_interface():
+def test_get_extra_claims_defaults_role_to_interface() -> None:
     membership = factories.make_membership()
     oauth2 = factories.make_oauth2_client(membership=membership)
     factories.make_client(membership=membership, oauth2_client=oauth2)
@@ -44,7 +45,7 @@ def test_get_extra_claims_defaults_role_to_interface():
 
 
 @pytest.mark.django_db
-def test_get_audiences_for_non_fakts_client_is_the_client():
+def test_get_audiences_for_non_fakts_client_is_the_client() -> None:
     """Plain OIDC relying parties get themselves as the audience (RFC 9068)."""
     membership = factories.make_membership()
     oauth2 = factories.make_oauth2_client(membership=membership)
@@ -53,7 +54,7 @@ def test_get_audiences_for_non_fakts_client_is_the_client():
 
 
 @pytest.mark.django_db
-def test_get_audiences_for_fakts_client_names_its_services_as_their_hub_does():
+def test_get_audiences_for_fakts_client_names_its_services_as_their_hub_does() -> None:
     """A fakts client's audiences are the *names* of the services it was composed with, plus lok:
     a name is unique within its hub, and the token's ``hub`` says which hub."""
     membership = factories.make_membership()
@@ -74,7 +75,7 @@ def test_get_audiences_for_fakts_client_names_its_services_as_their_hub_does():
     )["hub"] == str(instance.hub.uid)
 
 
-def test_get_jwks_exposes_signing_key():
+def test_get_jwks_exposes_signing_key() -> None:
     jwks = _generator().get_jwks()
     # get_jwks returns a JWK *set* so joserfc can stamp the key's kid into the
     # JWT header; the signing key is the sole entry under "keys".
@@ -87,7 +88,7 @@ def test_get_jwks_exposes_signing_key():
 
 
 @pytest.mark.django_db
-def test_openid_user_info_contains_subject():
+def test_openid_user_info_contains_subject() -> None:
     from authapp.grants import OpenIDCode
 
     membership = factories.make_membership()
@@ -99,7 +100,7 @@ def test_openid_user_info_contains_subject():
 
 
 @pytest.mark.django_db
-def test_audiences_distinguish_two_tenants_running_the_same_service():
+def test_audiences_distinguish_two_tenants_running_the_same_service() -> None:
     """The bug the instance-id switch closes.
 
     `Service.identifier` is unique only *per organization* ("Only one service
@@ -110,7 +111,9 @@ def test_audiences_distinguish_two_tenants_running_the_same_service():
     """
     from fakts import models as fmodels
 
-    def _client_with_instance(identifier):
+    def _client_with_instance(
+        identifier: str,
+    ) -> tuple[fmodels.Client, Membership, str]:
         membership = factories.make_membership()
         oauth2 = factories.make_oauth2_client(membership=membership)
         fakts_client = factories.make_client(

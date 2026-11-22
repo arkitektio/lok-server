@@ -3,6 +3,7 @@ checks, and the anonymous-endpoint throttle."""
 
 import json
 import time
+from typing import TYPE_CHECKING, Any
 
 import pytest
 from django.urls import reverse
@@ -13,8 +14,12 @@ from fakts import models
 from tests import factories
 from tests.test_fakts_flows import _accept, _poll, _start
 
+if TYPE_CHECKING:
+    from django.test.client import _MonkeyPatchedWSGIResponse as TestResponse
+from django.test import Client
 
-def _granted_session(client):
+
+def _granted_session(client: Client) -> tuple[dict[str, Any], dict[str, Any]]:
     """Run the device-code grant end to end, returning (start body, token body)."""
     body = _start(client)
     _accept(models.DeviceCode.objects.get(secret=body["device_code"]))
@@ -22,7 +27,7 @@ def _granted_session(client):
     return body, token
 
 
-def _refresh(client, token, client_id):
+def _refresh(client: Client, token: str, client_id: str) -> "TestResponse":
     return client.post(
         reverse("token"),
         data={
@@ -40,7 +45,7 @@ def _refresh(client, token, client_id):
 
 
 @pytest.mark.django_db
-def test_revoke_endpoint_kills_the_refresh_chain(client):
+def test_revoke_endpoint_kills_the_refresh_chain(client: Client) -> None:
     body, token = _granted_session(client)
 
     resp = client.post(
@@ -62,7 +67,7 @@ def test_revoke_endpoint_kills_the_refresh_chain(client):
 
 
 @pytest.mark.django_db
-def test_revoke_refuses_another_clients_token(client):
+def test_revoke_refuses_another_clients_token(client: Client) -> None:
     """A token can only be revoked by the client it was issued to."""
     body, token = _granted_session(client)
     other, _other_token = _granted_session(client)
@@ -81,7 +86,7 @@ def test_revoke_refuses_another_clients_token(client):
 
 
 @pytest.mark.django_db
-def test_revoke_client_sessions_mutation(client):
+def test_revoke_client_sessions_mutation(client: Client) -> None:
     from types import SimpleNamespace
 
     from api.management.mutations.revoke import (
@@ -114,7 +119,7 @@ def test_revoke_client_sessions_mutation(client):
 
 
 @pytest.mark.django_db
-def test_rotation_carries_the_chain_start(client):
+def test_rotation_carries_the_chain_start(client: Client) -> None:
     body, token = _granted_session(client)
     first = OAuth2Token.objects.get(access_token=token["access_token"])
 
@@ -125,7 +130,7 @@ def test_rotation_carries_the_chain_start(client):
 
 
 @pytest.mark.django_db
-def test_chain_older_than_the_absolute_cap_is_dead(client):
+def test_chain_older_than_the_absolute_cap_is_dead(client: Client) -> None:
     body, token = _granted_session(client)
 
     OAuth2Token.objects.filter(access_token=token["access_token"]).update(
@@ -142,7 +147,7 @@ def test_chain_older_than_the_absolute_cap_is_dead(client):
 # --------------------------------------------------------------------------- #
 
 
-def _report(client, headers):
+def _report(client: Client, headers: dict[str, str]) -> "TestResponse":
     return client.post(
         reverse("fakts:report"),
         data=json.dumps({"functional": True, "alias_reports": {}}),
@@ -152,7 +157,7 @@ def _report(client, headers):
 
 
 @pytest.mark.django_db
-def test_report_rejects_wrong_issuer(client):
+def test_report_rejects_wrong_issuer(client: Client) -> None:
     from tests.test_fakts_views_errors import _bearer_headers
 
     fakts_client = factories.make_client()
@@ -163,7 +168,7 @@ def test_report_rejects_wrong_issuer(client):
 
 
 @pytest.mark.django_db
-def test_report_rejects_wrong_audience(client):
+def test_report_rejects_wrong_audience(client: Client) -> None:
     from tests.test_fakts_views_errors import _bearer_headers
 
     fakts_client = factories.make_client()
@@ -177,7 +182,9 @@ def test_report_rejects_wrong_audience(client):
 
 
 @pytest.mark.django_db
-def test_authorization_endpoint_throttles_past_the_limit(client, monkeypatch):
+def test_authorization_endpoint_throttles_past_the_limit(
+    client: Client, monkeypatch: pytest.MonkeyPatch
+) -> None:
     import fakts.views as fakts_views
 
     monkeypatch.setattr(fakts_views, "AUTHORIZATION_LIMIT_PER_MINUTE", 2)
@@ -215,7 +222,9 @@ def test_authorization_endpoint_throttles_past_the_limit(client, monkeypatch):
 # order, and pin both the secure default and the opt-out.
 
 
-def _poll_plain_http(client, device_code, client_id):
+def _poll_plain_http(
+    client: Client, device_code: str, client_id: str
+) -> "TestResponse":
     from tests.test_fakts_flows import DEVICE_CODE_GRANT
 
     return client.post(
@@ -230,7 +239,9 @@ def _poll_plain_http(client, device_code, client_id):
 
 
 @pytest.mark.django_db
-def test_token_endpoint_rejects_plain_http_by_default(client, monkeypatch):
+def test_token_endpoint_rejects_plain_http_by_default(
+    client: Client, monkeypatch: pytest.MonkeyPatch
+) -> None:
     monkeypatch.delenv("AUTHLIB_INSECURE_TRANSPORT", raising=False)
     body = _start(client)
     _accept(models.DeviceCode.objects.get(secret=body["device_code"]))
@@ -240,7 +251,9 @@ def test_token_endpoint_rejects_plain_http_by_default(client, monkeypatch):
 
 
 @pytest.mark.django_db
-def test_token_endpoint_accepts_plain_http_when_opted_out(client, monkeypatch):
+def test_token_endpoint_accepts_plain_http_when_opted_out(
+    client: Client, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """What `django.allow_insecure_transport: true` turns on for lok servers
     deliberately running without TLS."""
     monkeypatch.setenv("AUTHLIB_INSECURE_TRANSPORT", "1")

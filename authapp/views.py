@@ -18,6 +18,7 @@ contributors and to clarify security-related decorators (CSRF, allowed
 methods).
 """
 
+from typing import TYPE_CHECKING
 from urllib.parse import urljoin, urlsplit, urlunsplit
 
 from authlib.oauth2 import OAuth2Error
@@ -34,6 +35,10 @@ from django.views.decorators.http import require_http_methods
 
 from authapp.server import resource_protector, server
 from authapp.token_generators import public_jwks
+
+if TYPE_CHECKING:
+    from fakts.models import Client
+    from karakter.models import Membership
 
 
 @csrf_exempt
@@ -297,7 +302,7 @@ def authorize(request: HttpRequest) -> HttpResponse:
     return server.create_authorization_response(request, grant_user=membership)
 
 
-def _may_authorize_into(client, membership) -> bool:
+def _may_authorize_into(client: "Client", membership: "Membership") -> bool:
     """Whether ``client`` may be granted an authorization code for ``membership``.
 
     Relying parties (``ensureopenid``, no organization) serve every organization.

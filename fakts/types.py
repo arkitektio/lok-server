@@ -1,13 +1,14 @@
 import datetime
-from typing import Optional
+from typing import Any, Optional
 
 import strawberry
 import strawberry_django
-from django.db.models import Count, Q
+from django.db.models import Count, Q, QuerySet
 from kante.types import Info
 from strawberry.scalars import JSON
 
 from fakts import enums, filters, models, scalars
+from karakter import models as karakter_models
 from karakter import types
 
 # `DENIED` is re-exported for `fakts.graphql.mutations.render`; the single source
@@ -71,7 +72,9 @@ class Layer:
     )
 
     @classmethod
-    def get_queryset(cls, queryset, info: Info, **kwargs):
+    def get_queryset(
+        cls, queryset: QuerySet[models.Layer], info: Info, **kwargs: Any
+    ) -> QuerySet[models.Layer]:
         return build_prescoped_queryset(info, queryset)
 
 
@@ -131,11 +134,17 @@ class Hub:
         return self.health_snapshots.first()
 
     @classmethod
-    def get_queryset(cls, queryset, info: Info, **kwargs):
+    def get_queryset(
+        cls, queryset: QuerySet[models.Hub], info: Info, **kwargs: Any
+    ) -> QuerySet[models.Hub]:
         return build_prescoped_queryset(info, queryset, guest=_granted_hubs)
 
 
-def _granted_hubs(queryset, user, membership):
+def _granted_hubs(
+    queryset: QuerySet[models.Hub],
+    user: karakter_models.User,
+    membership: karakter_models.Membership,
+) -> QuerySet[models.Hub]:
     """A guest sees the hubs their live collaborations run on, as on the management schema."""
     from karakter.collaboration_grants import live_grants
 
@@ -215,7 +224,9 @@ class Service:
     )
 
     @classmethod
-    def get_queryset(cls, queryset, info: Info, **kwargs):
+    def get_queryset(
+        cls, queryset: QuerySet[models.Service], info: Info, **kwargs: Any
+    ) -> QuerySet[models.Service]:
         return build_prescoped_queryset(info, queryset)
 
 
@@ -239,7 +250,9 @@ class ServiceRelease:
     )
 
     @classmethod
-    def get_queryset(cls, queryset, info: Info, **kwargs):
+    def get_queryset(
+        cls, queryset: QuerySet[models.ServiceRelease], info: Info, **kwargs: Any
+    ) -> QuerySet[models.ServiceRelease]:
         return build_prescoped_queryset(info, queryset, field="service__organization")
 
 
@@ -289,7 +302,9 @@ class ServiceInstance:
     )
 
     @classmethod
-    def get_queryset(cls, queryset, info: Info, **kwargs):
+    def get_queryset(
+        cls, queryset: QuerySet[models.ServiceInstance], info: Info, **kwargs: Any
+    ) -> QuerySet[models.ServiceInstance]:
         return build_prescoped_queryset(info, queryset)
 
 
@@ -329,7 +344,9 @@ class InstanceAlias:
     )
 
     @classmethod
-    def get_queryset(cls, queryset, info: Info, **kwargs):
+    def get_queryset(
+        cls, queryset: QuerySet[models.InstanceAlias], info: Info, **kwargs: Any
+    ) -> QuerySet[models.InstanceAlias]:
         return build_prescoped_queryset(info, queryset, field="instance__organization")
 
 
@@ -354,7 +371,12 @@ class ServiceInstanceMapping:
     )
 
     @classmethod
-    def get_queryset(cls, queryset, info: Info, **kwargs):
+    def get_queryset(
+        cls,
+        queryset: QuerySet[models.ServiceInstanceMapping],
+        info: Info,
+        **kwargs: Any,
+    ) -> QuerySet[models.ServiceInstanceMapping]:
         return build_prescoped_queryset(info, queryset, field="instance__organization")
 
 
@@ -397,7 +419,9 @@ class App:
     )
 
     @classmethod
-    def get_queryset(cls, queryset, info: Info, **kwargs):
+    def get_queryset(
+        cls, queryset: QuerySet[models.App], info: Info, **kwargs: Any
+    ) -> QuerySet[models.App]:
         return build_prescoped_queryset(info, queryset)
 
 
@@ -447,7 +471,9 @@ class Release:
         return list(raw or [])
 
     @classmethod
-    def get_queryset(cls, queryset, info: Info, **kwargs):
+    def get_queryset(
+        cls, queryset: QuerySet[models.Release], info: Info, **kwargs: Any
+    ) -> QuerySet[models.Release]:
         return build_prescoped_queryset(info, queryset, field="app__organization")
 
 
@@ -597,7 +623,9 @@ class Client:
         return sources
 
     @classmethod
-    def get_queryset(cls, queryset, info: Info, **kwargs):
+    def get_queryset(
+        cls, queryset: QuerySet[models.Client], info: Info, **kwargs: Any
+    ) -> QuerySet[models.Client]:
         """Restrict clients to the caller's active organization.
 
         Client rows are tenant-private (instance mappings, manifests, health);
@@ -697,7 +725,9 @@ class BugReport:
         return f"data:{self.screenshot_content_type};base64,{base64.b64encode(bytes(self.screenshot)).decode('ascii')}"
 
     @classmethod
-    def get_queryset(cls, queryset, info: Info, **kwargs):
+    def get_queryset(
+        cls, queryset: QuerySet[models.BugReport], info: Info, **kwargs: Any
+    ) -> QuerySet[models.BugReport]:
         return models.BugReport.visible_to(
             build_prescoped_queryset(info, queryset), info.context.request.user
         )
@@ -718,7 +748,9 @@ class DeviceGroup:
     )
 
     @classmethod
-    def get_queryset(cls, queryset, info: Info, **kwargs):
+    def get_queryset(
+        cls, queryset: QuerySet[models.DeviceGroup], info: Info, **kwargs: Any
+    ) -> QuerySet[models.DeviceGroup]:
         return build_prescoped_queryset(info, queryset)
 
 
@@ -754,7 +786,9 @@ class Device:
     )
 
     @classmethod
-    def get_queryset(cls, queryset, info: Info, **kwargs):
+    def get_queryset(
+        cls, queryset: QuerySet[models.Device], info: Info, **kwargs: Any
+    ) -> QuerySet[models.Device]:
         return build_prescoped_queryset(info, queryset)
 
 
@@ -908,7 +942,9 @@ class Mandate:
         return self.is_live()
 
     @classmethod
-    def get_queryset(cls, queryset, info: Info, **kwargs):
+    def get_queryset(
+        cls, queryset: QuerySet[models.Mandate], info: Info, **kwargs: Any
+    ) -> QuerySet[models.Mandate]:
         """Visible to its grantor, to org admins, to the app that issued it, and to the agent it names or was issued by."""
         from fakts.services.mandates import is_org_admin
         from karakter.models import Membership

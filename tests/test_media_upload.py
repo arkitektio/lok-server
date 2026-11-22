@@ -21,10 +21,14 @@ import uuid
 import pytest
 import requests
 from asgiref.sync import sync_to_async
+from botocore.client import BaseClient
 from django.conf import settings
+from kante.context import HttpContext
+from strawberry.types import ExecutionResult
 
 from api.management.schema import schema as management_schema
 from fakts import models
+from karakter.models import Membership, Organization, User
 from tests import factories
 from tests.conftest import build_auth_context
 
@@ -45,7 +49,7 @@ REQUEST_MEDIA_UPLOAD = """
 """
 
 
-def _setup():
+def _setup() -> tuple[User, Organization, models.Client]:
     """Sync DB setup (must not run inside the async event loop)."""
     membership = factories.make_membership()
     request_client = factories.make_client(membership=membership)
@@ -65,7 +69,9 @@ def _form(creds: dict, key: str, content_type: str | None = None) -> dict:
     }
 
 
-async def _execute_upload(context, key: str, content_type: str | None = None):
+async def _execute_upload(
+    context: HttpContext, key: str, content_type: str | None = None
+) -> ExecutionResult:
     variables = {"key": key, "datalayer": "default"}
     if content_type is not None:
         variables["contentType"] = content_type
@@ -76,13 +82,17 @@ async def _execute_upload(context, key: str, content_type: str | None = None):
     )
 
 
-async def _request_upload(context, key: str, content_type: str | None = None) -> dict:
+async def _request_upload(
+    context: HttpContext, key: str, content_type: str | None = None
+) -> dict:
     result = await _execute_upload(context, key, content_type)
     assert not result.errors, result.errors
     return result.data["requestMediaUpload"]
 
 
-async def _post(creds: dict, body: bytes, content_type: str | None = None):
+async def _post(
+    creds: dict, body: bytes, content_type: str | None = None
+) -> requests.Response:
     return await sync_to_async(requests.post)(
         f"{settings.AWS_S3_ENDPOINT_URL}/{creds['bucket']}",
         data=_form(creds, creds["key"], content_type),
@@ -91,7 +101,7 @@ async def _post(creds: dict, body: bytes, content_type: str | None = None):
     )
 
 
-def test_initc_provisioned_the_media_bucket(s3_client):
+def test_initc_provisioned_the_media_bucket(s3_client: BaseClient) -> None:
     """`initc` ran and created the bucket settings_test points at."""
     assert settings.MEDIA_BUCKET in {
         b["Name"] for b in s3_client.list_buckets()["Buckets"]
@@ -100,7 +110,9 @@ def test_initc_provisioned_the_media_bucket(s3_client):
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_presigned_post_upload_is_accepted_by_the_store(s3_client):
+async def test_presigned_post_upload_is_accepted_by_the_store(
+    s3_client: BaseClient,
+) -> None:
     """`requestMediaUpload` mints a POST form the store actually honours.
 
     RustFS verifies the policy and signature, so a wrong field comes back as a 4xx.
@@ -130,7 +142,7 @@ async def test_presigned_post_upload_is_accepted_by_the_store(s3_client):
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_upload_key_is_namespaced_under_the_calling_user():
+async def test_upload_key_is_namespaced_under_the_calling_user() -> None:
     """The presigned POST may only write under ``users/<id>/``.
 
     `_scoped_key` exists because an unnamespaced key let any authenticated caller
@@ -154,7 +166,7 @@ async def test_upload_key_is_namespaced_under_the_calling_user():
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_presigned_post_cannot_write_a_different_key():
+async def test_presigned_post_cannot_write_a_different_key() -> None:
     """The grant is bound to one key: reusing the form for another is refused.
 
     Verified by the store, which is the only thing that can enforce it -- the
@@ -178,7 +190,7 @@ async def test_presigned_post_cannot_write_a_different_key():
 
 
 @pytest.mark.django_db(transaction=True)
-def test_media_store_presigned_url_downloads_the_object(s3_client):
+def test_media_store_presigned_url_downloads_the_object(s3_client: BaseClient) -> None:
     """`MediaStore.get_presigned_url` produces a URL the store honours."""
     from api.management.datalayer import get_current_datalayer
 
@@ -205,7 +217,7 @@ def test_media_store_presigned_url_downloads_the_object(s3_client):
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_reuploading_the_same_filename_gets_a_fresh_key_and_store():
+async def test_reuploading_the_same_filename_gets_a_fresh_key_and_store() -> None:
     """The gateway caches media as immutable, so a re-upload must not reuse the key."""
     user, organization, request_client = await sync_to_async(_setup)()
     context = build_auth_context(user, organization, request_client)
@@ -229,7 +241,7 @@ async def test_reuploading_the_same_filename_gets_a_fresh_key_and_store():
         ("x.png", "text/html"),
     ],
 )
-async def test_non_raster_image_types_are_refused(key, content_type):
+async def test_non_raster_image_types_are_refused(key: str, content_type: str) -> None:
     """Script-capable types (SVG, HTML) must never be presigned into the public bucket."""
     user, organization, request_client = await sync_to_async(_setup)()
     result = await _execute_upload(
@@ -240,7 +252,7 @@ async def test_non_raster_image_types_are_refused(key, content_type):
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_store_rejects_a_content_type_other_than_the_signed_one():
+async def test_store_rejects_a_content_type_other_than_the_signed_one() -> None:
     """The policy pins Content-Type exactly, so the form cannot switch it to text/html."""
     user, organization, request_client = await sync_to_async(_setup)()
     creds = await _request_upload(
@@ -255,7 +267,7 @@ async def test_store_rejects_a_content_type_other_than_the_signed_one():
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_store_rejects_an_oversized_upload():
+async def test_store_rejects_an_oversized_upload() -> None:
     """The policy caps size at UPLOAD_MAX_BYTES, on the management surface too."""
     from karakter.graphql.mutations.upload import UPLOAD_MAX_BYTES
 
@@ -269,10 +281,10 @@ async def test_store_rejects_an_oversized_upload():
 
 
 @pytest.mark.django_db(transaction=True)
-def test_user_avatar_reads_from_the_profile():
+def test_user_avatar_reads_from_the_profile() -> None:
     """`User.avatar` delegates to `Profile.avatar` (it used to always return None)."""
     membership = factories.make_membership()
-    user, org = membership.user, membership.organization
+    user = membership.user
     store = models.MediaStore.objects.create(
         path=f"s3://{settings.MEDIA_BUCKET}/users/{user.id}/x.png",
         key=f"users/{user.id}/x.png",
@@ -287,7 +299,7 @@ def test_user_avatar_reads_from_the_profile():
     assert user.avatar == store
 
 
-def _owner_setup():
+def _owner_setup() -> tuple[Organization, HttpContext]:
     organization = factories.make_organization()
     membership = factories.make_membership(
         user=organization.owner, organization=organization
@@ -300,7 +312,7 @@ def _owner_setup():
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_update_organization_avatar_lands_on_the_organization_profile():
+async def test_update_organization_avatar_lands_on_the_organization_profile() -> None:
     """`OrganizationProfile.avatar` is the one canonical org logo; `Organization.avatar` is deprecated."""
     from karakter.models import OrganizationProfile
 
@@ -322,7 +334,7 @@ async def test_update_organization_avatar_lands_on_the_organization_profile():
     assert str(profile.avatar_id) == str(creds["store"])
 
 
-def _attach_avatars():
+def _attach_avatars() -> tuple[Organization, HttpContext, models.MediaStore]:
     """An owner with a profile avatar and an organization whose profile carries a logo."""
     organization, context = _owner_setup()
     owner = organization.owner
@@ -336,7 +348,7 @@ def _attach_avatars():
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_user_avatar_resolves_through_the_management_schema():
+async def test_user_avatar_resolves_through_the_management_schema() -> None:
     """kontrol's ListUser/DetailUser select `avatar`; the sync resolver must run under async execution."""
     organization, context, store = await sync_to_async(_attach_avatars)()
     query = "query { me { id avatar } }"
@@ -345,7 +357,7 @@ async def test_user_avatar_resolves_through_the_management_schema():
     assert not result.errors, result.errors
     assert result.data["me"]["avatar"] is None
 
-    def _set():
+    def _set() -> None:
         profile = organization.owner.profile
         profile.avatar = store
         profile.save()
@@ -360,7 +372,9 @@ async def test_user_avatar_resolves_through_the_management_schema():
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_organization_avatar_resolves_from_the_profile_on_the_main_schema():
+async def test_organization_avatar_resolves_from_the_profile_on_the_main_schema() -> (
+    None
+):
     from karakter.models import OrganizationProfile
     from lok_server.schema import schema as main_schema
 
@@ -386,7 +400,9 @@ async def test_organization_avatar_resolves_from_the_profile_on_the_main_schema(
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_profile_bio_can_be_set_and_cleared_through_the_management_schema():
+async def test_profile_bio_can_be_set_and_cleared_through_the_management_schema() -> (
+    None
+):
     """kontrol's Profile page sends `bio` on create and update; the inputs used to reject it."""
     organization, context = await sync_to_async(_owner_setup)()
     owner = organization.owner
@@ -415,10 +431,10 @@ async def test_profile_bio_can_be_set_and_cleared_through_the_management_schema(
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_membership_is_owner_marks_only_the_owner():
+async def test_membership_is_owner_marks_only_the_owner() -> None:
     """kontrol hides "Remove from organization" on the owner's membership, which lok refuses to delete."""
 
-    def _setup_two():
+    def _setup_two() -> tuple[HttpContext, Membership, Membership]:
         organization, context = _owner_setup()
         member = factories.make_membership(organization=organization)
         owner_membership = organization.memberships.get(user=organization.owner)

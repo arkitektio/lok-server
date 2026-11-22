@@ -1,6 +1,8 @@
 import logging
 import threading
+from collections.abc import Iterable
 from datetime import timedelta
+from typing import Protocol
 
 import kante
 import strawberry
@@ -30,7 +32,13 @@ class RequestMembershipInput:
     reason: str | None = None
 
 
-def _notify(recipients, title: str, message: str) -> None:
+class Notifiable(Protocol):
+    """A membership or a user: anything a push goes to."""
+
+    def notify(self, title: str, message: str) -> list[tuple[int | None, str]]: ...
+
+
+def _notify(recipients: Iterable[Notifiable], title: str, message: str) -> None:
     """Push to memberships (or users) off the request thread.
 
     Delivery is an HTTP call per device; done inline it would make a stored
@@ -38,7 +46,7 @@ def _notify(recipients, title: str, message: str) -> None:
     their channels prefetched, so the thread never touches the database.
     """
 
-    def run():
+    def run() -> None:
         for recipient in recipients:
             try:
                 recipient.notify(title, message)
@@ -49,7 +57,9 @@ def _notify(recipients, title: str, message: str) -> None:
     threading.Thread(target=run, daemon=True).start()
 
 
-def _store_request(user, organization_id, reason) -> None:
+def _store_request(
+    user: models.User, organization_id: object, reason: str | None
+) -> None:
     try:
         organization = models.Organization.objects.get(pk=organization_id)
     except (models.Organization.DoesNotExist, ValueError, TypeError):
@@ -132,7 +142,7 @@ class DeclineMembershipRequestInput:
     id: strawberry.ID
 
 
-def _pending_request(info: Info, id) -> models.MembershipRequest:
+def _pending_request(info: Info, id: strawberry.ID) -> models.MembershipRequest:
     """A pending request of the caller's organization, for its owner or admins.
 
     Scoped in the lookup, and a member who may not answer gets the same denial

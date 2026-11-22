@@ -1,18 +1,29 @@
+from collections.abc import Callable, Iterator, Sequence
+from contextlib import AbstractContextManager
+
 import pytest
 from authentikate.base_models import StaticToken
 from authentikate.settings import get_settings
 from django.conf import settings as django_settings
-from kante.context import HttpContext, TemporalResponse, UniversalRequest
+from kante.context import HttpContext, UniversalRequest
+from pytest_django.fixtures import DjangoCaptureOnCommitCallbacks
+from strawberry.http.temporal_response import TemporalResponse
 
+from fakts.models import Client
+from ionscale.testing import FakeIonscaleRepository
 from karakter.managers import create_role
 from karakter.models import Membership, Organization, User
 
 # Make the factories importable as `pytest` fixtures-adjacent helpers.
 from tests import factories  # noqa: F401
 
+#: What the ``commit_callbacks`` fixture hands a test: call it to open a block
+#: whose ``transaction.on_commit`` hooks run when the block exits.
+CommitCallbacks = Callable[[], AbstractContextManager[list[Callable[[], object]]]]
+
 
 @pytest.fixture(autouse=True)
-def _clear_cache():
+def _clear_cache() -> Iterator[None]:
     """The OAuth throttle (authapp/throttle.py) counts per-IP requests in the
     default LocMem cache, which persists for the whole test process — without
     clearing it, the suite itself trips the rate limit."""
@@ -23,7 +34,7 @@ def _clear_cache():
 
 
 @pytest.fixture(autouse=True)
-def _restore_static_tokens():
+def _restore_static_tokens() -> Iterator[None]:
     """Undo any per-test static tokens registered via ``build_auth_context``.
 
     ``get_settings()`` caches a single ``AuthentikateSettings`` for the process,
@@ -38,7 +49,11 @@ def _restore_static_tokens():
 
 
 def build_auth_context(
-    user, organization, oauth2_client, roles=("admin",), scope="openid lok_all"
+    user: User,
+    organization: Organization,
+    oauth2_client: Client,
+    roles: Sequence[str] = ("admin",),
+    scope: str = "openid lok_all",
 ) -> HttpContext:
     """Build an authenticated ``HttpContext`` via a static token.
 
@@ -85,7 +100,7 @@ def build_auth_context(
 
 
 @pytest.fixture(autouse=True)
-def _reset_ionscale_repo():
+def _reset_ionscale_repo() -> Iterator[None]:
     """Give every test a fresh ionscale repository with no leaked state.
 
     The test settings point ``IONSCALE_REPOSITORY`` at ``FakeIonscaleRepository``,
@@ -99,15 +114,20 @@ def _reset_ionscale_repo():
 
 
 @pytest.fixture
-def ionscale_repo():
+def ionscale_repo() -> FakeIonscaleRepository:
     """The active (fake) ionscale repository, for seeding data and asserting calls."""
     from ionscale.repo import get_ionscale_repo
 
-    return get_ionscale_repo()
+    repo = get_ionscale_repo()
+    # The test settings point IONSCALE_REPOSITORY at the in-memory fake.
+    assert isinstance(repo, FakeIonscaleRepository)
+    return repo
 
 
 @pytest.fixture
-def commit_callbacks(django_capture_on_commit_callbacks):
+def commit_callbacks(
+    django_capture_on_commit_callbacks: DjangoCaptureOnCommitCallbacks,
+) -> CommitCallbacks:
     """Run ``transaction.on_commit`` hooks for a block of test code.
 
     ``ionscale.sync`` only talks to the control plane after the surrounding
@@ -119,14 +139,14 @@ def commit_callbacks(django_capture_on_commit_callbacks):
         assert ionscale_repo.updated_policies == [...]
     """
 
-    def _capture():
+    def _capture() -> AbstractContextManager[list[Callable[[], object]]]:
         return django_capture_on_commit_callbacks(execute=True)
 
     return _capture
 
 
 @pytest.fixture
-def testing_org(db):
+def testing_org(db: None) -> Organization:
     """An organization owned by ``testuser`` with the default roles.
 
     Creating the ``User`` triggers the signal that builds a personal default
@@ -143,7 +163,7 @@ def testing_org(db):
 
 
 @pytest.fixture
-def authenticated_context(db, testing_org) -> HttpContext:
+def authenticated_context(db: None, testing_org: Organization) -> HttpContext:
     user = User.objects.create(username="fart", password="123456789")
     membership, _ = Membership.objects.get_or_create(
         user=user, organization=testing_org

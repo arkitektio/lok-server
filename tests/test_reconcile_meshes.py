@@ -5,11 +5,13 @@ import io
 import pytest
 from django.core.management import call_command
 from django.core.management.base import CommandError
+from pytest_django.fixtures import SettingsWrapper
 
 from fakts import models as fakts_models
 from ionscale.base_models import Tailnet, TailnetUser
 from ionscale.errors import IonscaleError
 from ionscale.reconcile import orphaned_tailnets, reconcile_layer
+from ionscale.testing import FakeIonscaleRepository
 from karakter.models import Membership, Organization, User
 
 
@@ -29,7 +31,10 @@ def _mesh(slug: str, *, tailnet_name: str | None = None) -> fakts_models.Ionscal
 
 
 def _seed_tailnet(
-    ionscale_repo, layer, name: str | None = None, tailnet_id: str = "1"
+    ionscale_repo: FakeIonscaleRepository,
+    layer: fakts_models.IonscaleLayer,
+    name: str | None = None,
+    tailnet_id: str = "1",
 ) -> Tailnet:
     tailnet = Tailnet(
         id=tailnet_id,
@@ -42,7 +47,9 @@ def _seed_tailnet(
 
 
 @pytest.mark.django_db
-def test_in_sync_mesh_only_repushes_members_and_dns(ionscale_repo):
+def test_in_sync_mesh_only_repushes_members_and_dns(
+    ionscale_repo: FakeIonscaleRepository,
+) -> None:
     layer = _mesh("steady")
     _seed_tailnet(ionscale_repo, layer)
 
@@ -54,12 +61,15 @@ def test_in_sync_mesh_only_repushes_members_and_dns(ionscale_repo):
     assert ionscale_repo.updated_tailnets == []
     assert len(ionscale_repo.updated_policies) == 1
     _, policy = ionscale_repo.updated_policies[0]
+    assert isinstance(policy, dict)
     assert policy["subs"] == [str(layer.organization.owner.pk)]
     assert [t for t, _ in ionscale_repo.dns_configs] == [str(layer.organization.pk)]
 
 
 @pytest.mark.django_db
-def test_missing_tailnet_is_created_and_bound_to_the_organization(ionscale_repo):
+def test_missing_tailnet_is_created_and_bound_to_the_organization(
+    ionscale_repo: FakeIonscaleRepository,
+) -> None:
     layer = _mesh("fresh")
 
     report = reconcile_layer(layer)
@@ -72,7 +82,7 @@ def test_missing_tailnet_is_created_and_bound_to_the_organization(ionscale_repo)
 
 
 @pytest.mark.django_db
-def test_dry_run_reports_without_writing(ionscale_repo):
+def test_dry_run_reports_without_writing(ionscale_repo: FakeIonscaleRepository) -> None:
     layer = _mesh("plan-only")
     out = io.StringIO()
 
@@ -87,7 +97,9 @@ def test_dry_run_reports_without_writing(ionscale_repo):
 
 
 @pytest.mark.django_db
-def test_a_tailnet_not_named_by_the_organizations_id_is_renamed(ionscale_repo):
+def test_a_tailnet_not_named_by_the_organizations_id_is_renamed(
+    ionscale_repo: FakeIonscaleRepository,
+) -> None:
     """A tailnet once named after the slug: renaming the slug never moves it again."""
     layer = _mesh("renamed", tailnet_name="old-slug")
     _seed_tailnet(ionscale_repo, layer, name="old-slug")
@@ -105,7 +117,9 @@ def test_a_tailnet_not_named_by_the_organizations_id_is_renamed(ionscale_repo):
 
 
 @pytest.mark.django_db
-def test_rename_collision_keeps_current_name_with_a_warning(ionscale_repo):
+def test_rename_collision_keeps_current_name_with_a_warning(
+    ionscale_repo: FakeIonscaleRepository,
+) -> None:
     layer = _mesh("taken", tailnet_name="taken-old")
     _seed_tailnet(ionscale_repo, layer, name="taken-old")
     # an unrelated tailnet already owns the wanted name
@@ -124,7 +138,9 @@ def test_rename_collision_keeps_current_name_with_a_warning(ionscale_repo):
 
 
 @pytest.mark.django_db
-def test_layer_follows_tailnet_name_when_only_lok_drifted(ionscale_repo):
+def test_layer_follows_tailnet_name_when_only_lok_drifted(
+    ionscale_repo: FakeIonscaleRepository,
+) -> None:
     """ionscale already carries the right name; only the layer is stale."""
     layer = _mesh("correct", tailnet_name="stale")
     _seed_tailnet(ionscale_repo, layer, name=str(layer.organization.pk))
@@ -137,7 +153,9 @@ def test_layer_follows_tailnet_name_when_only_lok_drifted(ionscale_repo):
 
 
 @pytest.mark.django_db
-def test_create_race_falls_back_to_lookup(ionscale_repo):
+def test_create_race_falls_back_to_lookup(
+    ionscale_repo: FakeIonscaleRepository,
+) -> None:
     layer = _mesh("raced")
     tailnet = _seed_tailnet(ionscale_repo, layer)
     # the org lookup misses (an ionscale that lost the binding), the create then
@@ -145,7 +163,7 @@ def test_create_race_falls_back_to_lookup(ionscale_repo):
     calls = {"n": 0}
     real = ionscale_repo.get_tailnet_by_organization
 
-    def flaky(org):
+    def flaky(org: str) -> Tailnet | None:
         calls["n"] += 1
         return None if calls["n"] == 1 else real(org)
 
@@ -160,7 +178,9 @@ def test_create_race_falls_back_to_lookup(ionscale_repo):
 
 
 @pytest.mark.django_db
-def test_revoke_orphans_only_touches_non_members(ionscale_repo):
+def test_revoke_orphans_only_touches_non_members(
+    ionscale_repo: FakeIonscaleRepository,
+) -> None:
     layer = _mesh("orphans")
     _seed_tailnet(ionscale_repo, layer)
     member = User.objects.create(username="member")
@@ -183,7 +203,9 @@ def test_revoke_orphans_only_touches_non_members(ionscale_repo):
 
 
 @pytest.mark.django_db
-def test_revoke_orphans_refuses_to_guess_without_external_ids(ionscale_repo):
+def test_revoke_orphans_refuses_to_guess_without_external_ids(
+    ionscale_repo: FakeIonscaleRepository,
+) -> None:
     layer = _mesh("blind")
     _seed_tailnet(ionscale_repo, layer)
     ionscale_repo.users_by_tailnet[layer.tailnet_name] = [
@@ -198,7 +220,9 @@ def test_revoke_orphans_refuses_to_guess_without_external_ids(ionscale_repo):
 
 
 @pytest.mark.django_db
-def test_control_plane_errors_propagate_to_the_caller(ionscale_repo):
+def test_control_plane_errors_propagate_to_the_caller(
+    ionscale_repo: FakeIonscaleRepository,
+) -> None:
     layer = _mesh("down")
     ionscale_repo.fail_with["get_tailnet_by_organization"] = IonscaleError(
         "unavailable", "refused"
@@ -209,7 +233,9 @@ def test_control_plane_errors_propagate_to_the_caller(ionscale_repo):
 
 
 @pytest.mark.django_db
-def test_orphaned_tailnets_are_bound_tailnets_without_a_layer(ionscale_repo):
+def test_orphaned_tailnets_are_bound_tailnets_without_a_layer(
+    ionscale_repo: FakeIonscaleRepository,
+) -> None:
     layer = _mesh("kept")
     _seed_tailnet(ionscale_repo, layer)
     ionscale_repo.tailnets.append(
@@ -228,7 +254,9 @@ def test_orphaned_tailnets_are_bound_tailnets_without_a_layer(ionscale_repo):
 
 
 @pytest.mark.django_db
-def test_command_reconciles_every_mesh_and_reports_orphans(ionscale_repo):
+def test_command_reconciles_every_mesh_and_reports_orphans(
+    ionscale_repo: FakeIonscaleRepository,
+) -> None:
     a = _mesh("cmd-a")
     b = _mesh("cmd-b")  # missing on ionscale -> created
     _seed_tailnet(ionscale_repo, a)
@@ -248,7 +276,7 @@ def test_command_reconciles_every_mesh_and_reports_orphans(ionscale_repo):
 
 
 @pytest.mark.django_db
-def test_command_dry_run_writes_nothing(ionscale_repo):
+def test_command_dry_run_writes_nothing(ionscale_repo: FakeIonscaleRepository) -> None:
     _mesh("cmd-dry")
     out = io.StringIO()
 
@@ -260,7 +288,9 @@ def test_command_dry_run_writes_nothing(ionscale_repo):
 
 
 @pytest.mark.django_db
-def test_command_scopes_to_one_organization(ionscale_repo):
+def test_command_scopes_to_one_organization(
+    ionscale_repo: FakeIonscaleRepository,
+) -> None:
     one = _mesh("cmd-one")
     other = _mesh("cmd-other")
     out = io.StringIO()
@@ -283,7 +313,9 @@ def test_command_scopes_to_one_organization(ionscale_repo):
 
 
 @pytest.mark.django_db
-def test_command_keeps_going_and_exits_nonzero_on_failure(ionscale_repo):
+def test_command_keeps_going_and_exits_nonzero_on_failure(
+    ionscale_repo: FakeIonscaleRepository,
+) -> None:
     _mesh("cmd-broken")
     _mesh("cmd-fine")
     ionscale_repo.fail_with["create_tailnet"] = IonscaleError("unavailable", "refused")
@@ -298,7 +330,9 @@ def test_command_keeps_going_and_exits_nonzero_on_failure(ionscale_repo):
 
 
 @pytest.mark.django_db
-def test_command_refuses_when_ionscale_is_not_configured(settings):
+def test_command_refuses_when_ionscale_is_not_configured(
+    settings: SettingsWrapper,
+) -> None:
     settings.IONSCALE_REPOSITORY = None
     settings.IONSCALE_SERVER_URL = None
     with pytest.raises(CommandError, match="not configured"):

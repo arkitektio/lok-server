@@ -18,24 +18,31 @@ Covers the browser- and machine-facing surface hardened in one pass:
 
 import json
 import re
+from typing import TYPE_CHECKING, Any, Never
 
 import pytest
 from django.conf import settings
-from django.test import override_settings
+from django.test import Client, override_settings
 from django.urls import reverse
 from django.utils import timezone
 
 from fakts import base_models, models
 from fakts.services import clients, device_codes
+from ionscale.testing import FakeIonscaleRepository
 from lok_server.configuration import Settings
 from tests import factories
+
+if TYPE_CHECKING:
+    from django.test.client import _MonkeyPatchedWSGIResponse as TestResponse
 
 DEVICE_CODE_GRANT = "urn:ietf:params:oauth:grant-type:device_code"
 MANDATE_KEY_GRANT = "urn:fakts:grant-type:mandate-key"
 PRIVATE_JWK_MEMBERS = {"d", "p", "q", "dp", "dq", "qi", "oth"}
 
 
-def _post(client, name, payload, **kw):
+def _post(
+    client: Client, name: str, payload: dict[str, object], **kw: Any
+) -> "TestResponse":
     return client.post(
         reverse(name), data=json.dumps(payload), content_type="application/json", **kw
     )
@@ -53,7 +60,7 @@ def _prefixed(path: str) -> str:
 
 
 @pytest.mark.django_db
-def test_claimhub_unknown_token_is_400_invalid_grant(client):
+def test_claimhub_unknown_token_is_400_invalid_grant(client: Client) -> None:
     resp = _post(client, "fakts:hubclaim", {"token": "not-a-hub-token"})
     assert resp.status_code == 400
     body = resp.json()
@@ -63,7 +70,7 @@ def test_claimhub_unknown_token_is_400_invalid_grant(client):
 
 
 @pytest.mark.django_db
-def test_claimhub_throttles_past_the_limit(client):
+def test_claimhub_throttles_past_the_limit(client: Client) -> None:
     from authapp.throttle import AUTHORIZATION_LIMIT_PER_MINUTE
 
     # The first `limit` requests go through (to a 400 — unknown token), the
@@ -78,7 +85,7 @@ def test_claimhub_throttles_past_the_limit(client):
 
 
 @pytest.mark.django_db
-def test_claimhub_malformed_body_is_400_invalid_request(client):
+def test_claimhub_malformed_body_is_400_invalid_request(client: Client) -> None:
     resp = client.post(
         reverse("fakts:hubclaim"), data="{nope", content_type="application/json"
     )
@@ -89,7 +96,7 @@ def test_claimhub_malformed_body_is_400_invalid_request(client):
     assert body["message"].startswith("Malformed request")
 
 
-def test_hub_token_is_unique():
+def test_hub_token_is_unique() -> None:
     """The hub token is a bearer secret looked up by value: it must identify one hub."""
     assert models.Hub._meta.get_field("token").unique is True
 
@@ -100,7 +107,9 @@ def test_hub_token_is_unique():
 
 
 @pytest.mark.django_db
-def test_mesh_start_is_throttled(client, monkeypatch):
+def test_mesh_start_is_throttled(
+    client: Client, monkeypatch: pytest.MonkeyPatch
+) -> None:
     import fakts.views as fakts_views
 
     monkeypatch.setattr(fakts_views, "AUTHORIZATION_LIMIT_PER_MINUTE", 2)
@@ -116,7 +125,9 @@ def test_mesh_start_is_throttled(client, monkeypatch):
 
 
 @pytest.mark.django_db
-def test_mesh_challenge_is_throttled(client, monkeypatch):
+def test_mesh_challenge_is_throttled(
+    client: Client, monkeypatch: pytest.MonkeyPatch
+) -> None:
     import fakts.views as fakts_views
 
     monkeypatch.setattr(fakts_views, "AUTHORIZATION_LIMIT_PER_MINUTE", 1)
@@ -128,7 +139,7 @@ def test_mesh_challenge_is_throttled(client, monkeypatch):
 
 
 @pytest.mark.django_db
-def test_mesh_start_rejects_invalid_body_with_400(client):
+def test_mesh_start_rejects_invalid_body_with_400(client: Client) -> None:
     resp = client.post(
         reverse("fakts:meshstart"), data="nope", content_type="application/json"
     )
@@ -137,8 +148,10 @@ def test_mesh_start_rejects_invalid_body_with_400(client):
 
 
 @pytest.mark.django_db
-def test_mesh_start_domain_error_is_400_not_500(client, monkeypatch):
-    def _boom(*a, **kw):
+def test_mesh_start_domain_error_is_400_not_500(
+    client: Client, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def _boom(*a: Any, **kw: Any) -> Never:
         raise RuntimeError("ionscale is unhappy")
 
     monkeypatch.setattr(device_codes, "start_mesh_device_code", _boom)
@@ -150,7 +163,9 @@ def test_mesh_start_domain_error_is_400_not_500(client, monkeypatch):
     assert "ionscale is unhappy" in body["error_description"]
 
 
-def _mesh_code_and_key(ionscale_repo):
+def _mesh_code_and_key(
+    ionscale_repo: FakeIonscaleRepository,
+) -> tuple[models.MeshDeviceCode, models.IonscaleAuthKey]:
     """A staged mesh code plus a minted auth key in the org's mesh (the accept
     mutation's effect, without going through the GraphQL layer)."""
     from ionscale.manager import ensure_org_mesh
@@ -167,7 +182,9 @@ def _mesh_code_and_key(ionscale_repo):
 
 
 @pytest.mark.django_db
-def test_mesh_challenge_speaks_rfc8628_while_pending(client, ionscale_repo):
+def test_mesh_challenge_speaks_rfc8628_while_pending(
+    client: Client, ionscale_repo: FakeIonscaleRepository
+) -> None:
     dc, _ = _mesh_code_and_key(ionscale_repo)
     resp = _post(client, "fakts:meshchallenge", {"code": dc.challenge_code})
     assert resp.status_code == 400
@@ -177,14 +194,16 @@ def test_mesh_challenge_speaks_rfc8628_while_pending(client, ionscale_repo):
 
 
 @pytest.mark.django_db
-def test_mesh_challenge_unknown_code_is_invalid_grant(client):
+def test_mesh_challenge_unknown_code_is_invalid_grant(client: Client) -> None:
     resp = _post(client, "fakts:meshchallenge", {"code": "never-issued"})
     assert resp.status_code == 400
     assert resp.json()["error"] == "invalid_grant"
 
 
 @pytest.mark.django_db
-def test_mesh_challenge_grant_is_single_use(client, ionscale_repo):
+def test_mesh_challenge_grant_is_single_use(
+    client: Client, ionscale_repo: FakeIonscaleRepository
+) -> None:
     dc, key = _mesh_code_and_key(ionscale_repo)
     dc.auth_key = key
     dc.machine_name = "gpu-01"
@@ -208,7 +227,9 @@ def test_mesh_challenge_grant_is_single_use(client, ionscale_repo):
 
 
 @pytest.mark.django_db
-def test_mesh_challenge_expired_and_denied_vocabulary(client, ionscale_repo):
+def test_mesh_challenge_expired_and_denied_vocabulary(
+    client: Client, ionscale_repo: FakeIonscaleRepository
+) -> None:
     dc, _ = _mesh_code_and_key(ionscale_repo)
     dc.denied = True
     dc.save()
@@ -233,7 +254,7 @@ def test_mesh_challenge_expired_and_denied_vocabulary(client, ionscale_repo):
 
 
 @pytest.mark.django_db
-def test_report_client_ignores_alias_from_another_organization():
+def test_report_client_ignores_alias_from_another_organization() -> None:
     reporter = factories.make_client()  # its own organization
     foreign_instance = (
         factories.make_service_instance()
@@ -260,7 +281,7 @@ def test_report_client_ignores_alias_from_another_organization():
 
 
 @pytest.mark.django_db
-def test_report_client_applies_alias_from_own_organization():
+def test_report_client_applies_alias_from_own_organization() -> None:
     reporter = factories.make_client()
     hub = factories.make_hub(organization=reporter.organization)
     instance = factories.make_service_instance(hub=hub)
@@ -281,7 +302,7 @@ def test_report_client_applies_alias_from_own_organization():
 
 
 @pytest.mark.django_db
-def test_report_client_ignores_unknown_alias_id():
+def test_report_client_ignores_unknown_alias_id() -> None:
     reporter = factories.make_client()
     clients.report_client(
         reporter,
@@ -303,7 +324,9 @@ def test_report_client_ignores_unknown_alias_id():
 # --------------------------------------------------------------------------- #
 
 
-def _login(client, key, manifest, **extra):
+def _login(
+    client: Client, key: str, manifest: dict[str, object], **extra: Any
+) -> "TestResponse":
     return client.post(
         reverse("token"),
         data={
@@ -318,8 +341,8 @@ def _login(client, key, manifest, **extra):
 
 @pytest.mark.django_db
 def test_a_key_login_asking_for_a_scope_the_organization_lacks_is_granted_what_it_has(
-    client,
-):
+    client: Client,
+) -> None:
     """An app that knows many services logs in where only some run: what is absent is not granted."""
     from fakts.models import Client
 
@@ -337,7 +360,7 @@ def test_a_key_login_asking_for_a_scope_the_organization_lacks_is_granted_what_i
 
 
 @pytest.mark.django_db
-def test_a_key_login_the_organization_refuses_is_invalid_grant(client):
+def test_a_key_login_the_organization_refuses_is_invalid_grant(client: Client) -> None:
     mandate, key = factories.make_mandate_key()
     mandate.organization.require_device_auth = True
     mandate.organization.save(update_fields=["require_device_auth"])
@@ -357,7 +380,9 @@ def test_a_key_login_the_organization_refuses_is_invalid_grant(client):
 
 
 @pytest.mark.django_db
-def test_a_key_login_with_a_bogus_client_role_is_invalid_request(client):
+def test_a_key_login_with_a_bogus_client_role_is_invalid_request(
+    client: Client,
+) -> None:
     mandate, key = factories.make_mandate_key()
     manifest = {
         "identifier": "com.example.role",
@@ -375,7 +400,9 @@ def test_a_key_login_with_a_bogus_client_role_is_invalid_request(client):
 
 
 @pytest.mark.django_db
-def test_app_authorization_with_bogus_client_role_is_invalid_request(client):
+def test_app_authorization_with_bogus_client_role_is_invalid_request(
+    client: Client,
+) -> None:
     resp = _post(
         client,
         "app_authorization",
@@ -402,7 +429,7 @@ def test_app_authorization_with_bogus_client_role_is_invalid_request(client):
 # --------------------------------------------------------------------------- #
 
 
-def _assert_public_only(jwks: dict):
+def _assert_public_only(jwks: dict) -> None:
     assert jwks["keys"], "empty JWKS"
     for key in jwks["keys"]:
         assert key["kty"] == "RSA"
@@ -412,13 +439,13 @@ def _assert_public_only(jwks: dict):
 
 
 @pytest.mark.django_db
-def test_jwks_endpoint_has_no_private_members(client):
+def test_jwks_endpoint_has_no_private_members(client: Client) -> None:
     resp = client.get(reverse("jwks"))
     assert resp.status_code == 200
     _assert_public_only(resp.json())
 
 
-def test_bearer_validator_jwks_has_no_private_members():
+def test_bearer_validator_jwks_has_no_private_members() -> None:
     from authapp.server import MyBearerTokenValidator
 
     validator = MyBearerTokenValidator(
@@ -427,7 +454,7 @@ def test_bearer_validator_jwks_has_no_private_members():
     _assert_public_only(validator.get_jwks())
 
 
-def test_signing_key_still_private():
+def test_signing_key_still_private() -> None:
     """The generator must keep signing with the private key — only *published*
     sets are public."""
     from authapp.token_generators import jwk_dict, public_jwk_dict
@@ -442,7 +469,7 @@ def test_signing_key_still_private():
 # --------------------------------------------------------------------------- #
 
 
-def test_cors_is_wired_first_and_regex_covers_only_api_surfaces():
+def test_cors_is_wired_first_and_regex_covers_only_api_surfaces() -> None:
     assert "corsheaders" in settings.INSTALLED_APPS
     assert settings.MIDDLEWARE[0] == "corsheaders.middleware.CorsMiddleware"
     assert "authorization" in settings.CORS_ALLOW_HEADERS
@@ -470,7 +497,7 @@ def test_cors_is_wired_first_and_regex_covers_only_api_surfaces():
 
 @pytest.mark.django_db
 @override_settings(CORS_ALLOWED_ORIGINS=["https://app.example"])
-def test_cors_headers_on_well_known_for_allowed_origin(client):
+def test_cors_headers_on_well_known_for_allowed_origin(client: Client) -> None:
     resp = client.get(
         _prefixed("/.well-known/fakts"), HTTP_ORIGIN="https://app.example"
     )
@@ -490,7 +517,9 @@ def test_cors_headers_on_well_known_for_allowed_origin(client):
 
 @pytest.mark.django_db
 @override_settings(CORS_ALLOWED_ORIGINS=["https://app.example"])
-def test_cors_headers_on_token_endpoint_but_not_for_unlisted_origin(client):
+def test_cors_headers_on_token_endpoint_but_not_for_unlisted_origin(
+    client: Client,
+) -> None:
     resp = client.options(
         reverse("token"),
         HTTP_ORIGIN="https://app.example",
@@ -508,7 +537,7 @@ def test_cors_headers_on_token_endpoint_but_not_for_unlisted_origin(client):
 
 @pytest.mark.django_db
 @override_settings(CORS_ALLOWED_ORIGINS=["https://app.example"])
-def test_cors_headers_absent_on_graphql(client):
+def test_cors_headers_absent_on_graphql(client: Client) -> None:
     resp = client.options(
         _prefixed("/managementgraphql/"),
         HTTP_ORIGIN="https://app.example",
@@ -519,7 +548,7 @@ def test_cors_headers_absent_on_graphql(client):
 
 @pytest.mark.django_db
 @override_settings(CORS_ALLOW_ALL_ORIGINS=True, CORS_ALLOWED_ORIGINS=[])
-def test_cors_allow_all_origins_answers_any_origin(client):
+def test_cors_allow_all_origins_answers_any_origin(client: Client) -> None:
     resp = client.get(
         _prefixed("/.well-known/fakts"), HTTP_ORIGIN="https://anything.example"
     )
@@ -527,7 +556,7 @@ def test_cors_allow_all_origins_answers_any_origin(client):
 
 
 @pytest.mark.django_db
-def test_cors_default_config_sends_no_headers(client):
+def test_cors_default_config_sends_no_headers(client: Client) -> None:
     """With the config defaults (no allowed origins, allow-all off) nothing is
     served cross-origin — the pre-CORS behaviour."""
     with override_settings(CORS_ALLOWED_ORIGINS=[], CORS_ALLOW_ALL_ORIGINS=False):
@@ -542,13 +571,13 @@ def test_cors_default_config_sends_no_headers(client):
 # --------------------------------------------------------------------------- #
 
 
-def test_cors_config_defaults():
+def test_cors_config_defaults() -> None:
     s = Settings()
     assert s.django.cors_allowed_origins == []
     assert s.django.cors_allow_all_origins is False
 
 
-def test_cors_config_env_override(monkeypatch):
+def test_cors_config_env_override(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("DJANGO__CORS_ALLOW_ALL_ORIGINS", "true")
     monkeypatch.setenv(
         "DJANGO__CORS_ALLOWED_ORIGINS",
@@ -562,7 +591,7 @@ def test_cors_config_env_override(monkeypatch):
     ]
 
 
-def test_cors_config_is_documented():
+def test_cors_config_is_documented() -> None:
     """Every django.cors_* key must appear in CONFIG.md's `django` table."""
     from pathlib import Path
 

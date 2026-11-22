@@ -9,9 +9,17 @@ These tests assert the request is refused *before* any socket is opened, so a
 failure here is a real regression and not just a slow test.
 """
 
+import socket
+from typing import Never, TypeAlias
+
 import pytest
 
 from fakts.utils import _assert_public_url, download_logo
+
+# What socket.getaddrinfo answers for one TCP/IPv4 address.
+_AddrInfo: TypeAlias = list[
+    tuple[socket.AddressFamily, socket.SocketKind, int, str, tuple[str, int]]
+]
 
 
 @pytest.mark.parametrize(
@@ -31,16 +39,16 @@ from fakts.utils import _assert_public_url, download_logo
         "https://0.0.0.0/logo.png",
     ],
 )
-def test_non_public_urls_are_refused(url):
+def test_non_public_urls_are_refused(url: str) -> None:
     with pytest.raises(ValueError):
         _assert_public_url(url)
 
 
-def test_internal_service_names_are_refused(monkeypatch):
+def test_internal_service_names_are_refused(monkeypatch: pytest.MonkeyPatch) -> None:
     """The real attack shape: a docker-network service name, not a literal IP."""
     import socket
 
-    def _fake_getaddrinfo(host, port, **kwargs):
+    def _fake_getaddrinfo(host: str, port: int, **kwargs: object) -> _AddrInfo:
         return [
             (
                 socket.AF_INET,
@@ -57,11 +65,13 @@ def test_internal_service_names_are_refused(monkeypatch):
         _assert_public_url("https://minio/logo.png")
 
 
-def test_host_resolving_to_both_public_and_private_is_refused(monkeypatch):
+def test_host_resolving_to_both_public_and_private_is_refused(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """DNS returning a mix must not pass on the strength of the public answer."""
     import socket
 
-    def _fake_getaddrinfo(host, port, **kwargs):
+    def _fake_getaddrinfo(host: str, port: int, **kwargs: object) -> _AddrInfo:
         return [
             (
                 socket.AF_INET,
@@ -85,11 +95,13 @@ def test_host_resolving_to_both_public_and_private_is_refused(monkeypatch):
         _assert_public_url("https://sneaky.example.com/logo.png")
 
 
-def test_download_refuses_internal_url_without_opening_a_socket(monkeypatch):
+def test_download_refuses_internal_url_without_opening_a_socket(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """The guard must run before `requests.get`, not alongside it."""
     import requests
 
-    def _explode(*args, **kwargs):
+    def _explode(*args: object, **kwargs: object) -> Never:
         raise AssertionError("a request was issued for a blocked URL")
 
     monkeypatch.setattr(requests, "get", _explode)
@@ -98,11 +110,11 @@ def test_download_refuses_internal_url_without_opening_a_socket(monkeypatch):
         download_logo("http://minio:9000/some-bucket/")
 
 
-def test_public_https_url_passes_the_guard(monkeypatch):
+def test_public_https_url_passes_the_guard(monkeypatch: pytest.MonkeyPatch) -> None:
     """The guard must not reject legitimate logos."""
     import socket
 
-    def _fake_getaddrinfo(host, port, **kwargs):
+    def _fake_getaddrinfo(host: str, port: int, **kwargs: object) -> _AddrInfo:
         return [
             (
                 socket.AF_INET,
@@ -118,7 +130,7 @@ def test_public_https_url_passes_the_guard(monkeypatch):
     _assert_public_url("https://cdn.example.com/logo.png")
 
 
-def test_timeout_and_no_redirects_are_passed(monkeypatch):
+def test_timeout_and_no_redirects_are_passed(monkeypatch: pytest.MonkeyPatch) -> None:
     """A missing timeout is an unauthenticated DoS; a followed redirect is a bypass."""
     import socket
 
@@ -126,7 +138,7 @@ def test_timeout_and_no_redirects_are_passed(monkeypatch):
 
     from fakts.utils import LOGO_CONNECT_TIMEOUT, LOGO_READ_TIMEOUT
 
-    def _fake_getaddrinfo(host, port, **kwargs):
+    def _fake_getaddrinfo(host: str, port: int, **kwargs: object) -> _AddrInfo:
         return [
             (
                 socket.AF_INET,
@@ -145,13 +157,13 @@ def test_timeout_and_no_redirects_are_passed(monkeypatch):
         status_code = 500
         headers = {"Content-Type": "text/html"}
 
-        def __enter__(self):
+        def __enter__(self) -> "_Response":
             return self
 
-        def __exit__(self, *exc):
+        def __exit__(self, *exc: object) -> bool:
             return False
 
-    def _fake_get(url, **kwargs):
+    def _fake_get(url: str, **kwargs: object) -> _Response:
         captured.update(kwargs)
         return _Response()
 

@@ -11,6 +11,8 @@ the error cannot be used as an existence oracle.
 
 import pytest
 from asgiref.sync import sync_to_async
+from kante.context import HttpContext
+from strawberry.types import ExecutionResult
 
 from karakter.models import Invite, Organization
 from lok_server.schema import schema
@@ -18,7 +20,7 @@ from tests import factories
 from tests.conftest import build_auth_context
 
 
-def _owner_and_outsider():
+def _owner_and_outsider() -> tuple[HttpContext, HttpContext, Organization]:
     """An organization with its owner, plus an unrelated authenticated principal."""
     owner_membership = factories.make_membership()
     owner = owner_membership.user
@@ -38,7 +40,7 @@ def _owner_and_outsider():
     return owner_context, outsider_context, org
 
 
-def _assert_denied(result):
+def _assert_denied(result: ExecutionResult) -> None:
     assert result.errors, f"expected a denial, got data: {result.data}"
     assert "not authorized" in result.errors[0].message, result.errors[0].message
 
@@ -58,7 +60,7 @@ CREATE_INVITE = """
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_outsider_cannot_rename_another_organization():
+async def test_outsider_cannot_rename_another_organization() -> None:
     _owner_context, outsider_context, org = await sync_to_async(_owner_and_outsider)()
     original_slug = org.slug
 
@@ -78,7 +80,7 @@ async def test_outsider_cannot_rename_another_organization():
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_owner_can_still_update_their_organization():
+async def test_owner_can_still_update_their_organization() -> None:
     owner_context, _outsider_context, org = await sync_to_async(_owner_and_outsider)()
 
     result = await schema.execute(
@@ -93,7 +95,7 @@ async def test_owner_can_still_update_their_organization():
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_outsider_cannot_mint_an_invite_for_another_organization():
+async def test_outsider_cannot_mint_an_invite_for_another_organization() -> None:
     """An invite token grants membership and whatever roles it carries, so minting
     one must not be possible just by passing another organization's id."""
     _owner_context, outsider_context, org = await sync_to_async(_owner_and_outsider)()
@@ -110,7 +112,7 @@ async def test_outsider_cannot_mint_an_invite_for_another_organization():
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_owner_can_still_create_an_invite():
+async def test_owner_can_still_create_an_invite() -> None:
     owner_context, _outsider_context, org = await sync_to_async(_owner_and_outsider)()
 
     result = await schema.execute(

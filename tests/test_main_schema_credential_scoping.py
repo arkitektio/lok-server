@@ -16,13 +16,16 @@ regressions for the copies that were not.
 
 import pytest
 from asgiref.sync import sync_to_async
+from kante.context import HttpContext
 
+from fakts.models import Client
+from karakter.models import Invite
 from lok_server.schema import schema
 from tests import factories
 from tests.conftest import build_auth_context
 
 
-def _two_tenants():
+def _two_tenants() -> tuple[HttpContext, Client, HttpContext, Client]:
     """Two unrelated organizations, each with a member, a client and an invite."""
     mine = factories.make_membership()
     my_client = factories.make_client(membership=mine)
@@ -50,7 +53,7 @@ RENDER_HUB = """
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_client_list_does_not_leak_other_tenants_clients():
+async def test_client_list_does_not_leak_other_tenants_clients() -> None:
     my_context, my_client, _their_context, their_client = await sync_to_async(
         _two_tenants
     )()
@@ -65,12 +68,12 @@ async def test_client_list_does_not_leak_other_tenants_clients():
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_invite_list_does_not_leak_other_tenants_tokens():
+async def test_invite_list_does_not_leak_other_tenants_tokens() -> None:
     my_context, _my_client, their_context, _their_client = await sync_to_async(
         _two_tenants
     )()
 
-    def _make_their_invite():
+    def _make_their_invite() -> Invite:
         # An invite belonging to the *other* tenant, carrying the admin role.
         org = their_context.request.organization
         from karakter.models import Invite
@@ -88,7 +91,7 @@ async def test_invite_list_does_not_leak_other_tenants_tokens():
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_render_hub_refuses_another_tenants_client():
+async def test_render_hub_refuses_another_tenants_client() -> None:
     """`renderHub` returns `client_secret`, so it must be owner-scoped."""
     my_context, _my_client, _their_context, their_client = await sync_to_async(
         _two_tenants
@@ -106,7 +109,7 @@ async def test_render_hub_refuses_another_tenants_client():
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_render_hub_denies_before_reaching_the_broken_render_path():
+async def test_render_hub_denies_before_reaching_the_broken_render_path() -> None:
     """The ownership check must run *before* rendering, not after.
 
     `create_fake_linking_context` (fakts/services/rendering.py:229-233) reads
@@ -143,7 +146,7 @@ OWN_CLIENT_TOKEN = """
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_client_token_field_no_longer_exists():
+async def test_client_token_field_no_longer_exists() -> None:
     """The opaque `Client.token` credential is gone — client identity is the
     OAuth2 client_id + refresh chain, so the schema must not expose a `token`
     field on Client at all (including via FK traversal)."""

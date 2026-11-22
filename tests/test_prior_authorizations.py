@@ -8,14 +8,18 @@ is self-asserted, the lookup must be scoped to the caller's own approvals: a
 different user, or an organization the caller is not in, must never show up.
 """
 
+from typing import Any
+
 import pytest
 from asgiref.sync import sync_to_async
+from kante.context import HttpContext
+from strawberry.types import ExecutionResult
 
 from api.management.schema import schema as management_schema
 from authapp.models import OAuth2Token
-from fakts import base_models
+from fakts import base_models, models
 from fakts.services import clients
-from karakter.models import Scope
+from karakter.models import Membership, Scope
 from tests import factories
 from tests.conftest import build_auth_context
 
@@ -38,7 +42,12 @@ query ($code: String!) {
 """
 
 
-def _manifest(device_id=DEVICE_ID, identifier=IDENTIFIER, version="1.0.0", scopes=None):
+def _manifest(
+    device_id: str | None = DEVICE_ID,
+    identifier: str = IDENTIFIER,
+    version: str = "1.0.0",
+    scopes: list[str] | None = None,
+) -> base_models.Manifest:
     return base_models.Manifest(
         identifier=identifier,
         version=version,
@@ -48,14 +57,18 @@ def _manifest(device_id=DEVICE_ID, identifier=IDENTIFIER, version="1.0.0", scope
     )
 
 
-def _approve(membership, hub, manifest=None):
+def _approve(
+    membership: Membership,
+    hub: models.Hub,
+    manifest: base_models.Manifest | None = None,
+) -> models.Client:
     """A bound client for ``manifest`` on ``hub``, as an earlier approval left it."""
     return clients.bind_client(
         clients.create_public_client(), manifest or _manifest(), membership, hub=hub
     )
 
 
-def _token(client, **kw):
+def _token(client: models.Client, **kw: Any) -> OAuth2Token:
     n = OAuth2Token.objects.count()
     kw.setdefault("access_token", f"access-{client.client_id}-{n}")
     kw.setdefault("refresh_token", f"refresh-{client.client_id}-{n}")
@@ -64,13 +77,13 @@ def _token(client, **kw):
     )
 
 
-def _pending(manifest=None):
+def _pending(manifest: base_models.Manifest | None = None) -> models.DeviceCode:
     return factories.make_device_code(
         staging_manifest=(manifest or _manifest()).model_dump()
     )
 
 
-def _context(membership):
+def _context(membership: Membership) -> HttpContext:
     return build_auth_context(
         membership.user,
         membership.organization,
@@ -78,7 +91,7 @@ def _context(membership):
     )
 
 
-async def _query(context, code):
+async def _query(context: HttpContext, code: models.DeviceCode) -> ExecutionResult:
     return await management_schema.execute(
         QUERY, context_value=context, variable_values={"code": code.code}
     )
@@ -88,7 +101,7 @@ async def _query(context, code):
 
 
 @pytest.mark.django_db
-def test_prior_clients_match_same_user_app_and_device():
+def test_prior_clients_match_same_user_app_and_device() -> None:
     membership = factories.make_membership()
     hub = factories.make_hub(organization=membership.organization)
     old = _approve(membership, hub)
@@ -100,7 +113,7 @@ def test_prior_clients_match_same_user_app_and_device():
 
 
 @pytest.mark.django_db
-def test_prior_clients_ignore_other_devices_and_other_apps():
+def test_prior_clients_ignore_other_devices_and_other_apps() -> None:
     membership = factories.make_membership()
     hub = factories.make_hub(organization=membership.organization)
     _approve(membership, hub, _manifest(device_id="another-machine"))
@@ -110,7 +123,7 @@ def test_prior_clients_ignore_other_devices_and_other_apps():
 
 
 @pytest.mark.django_db
-def test_prior_clients_never_reveal_another_users_approval():
+def test_prior_clients_never_reveal_another_users_approval() -> None:
     """Same device id, same app, same organization — but approved by someone else."""
     organization = factories.make_organization()
     theirs = factories.make_membership(organization=organization)
@@ -121,7 +134,7 @@ def test_prior_clients_never_reveal_another_users_approval():
 
 
 @pytest.mark.django_db
-def test_prior_clients_stay_within_the_callers_organizations():
+def test_prior_clients_stay_within_the_callers_organizations() -> None:
     """The hash is per-organization and only the caller's current memberships are
     hashed against, so leaving an organization leaves nothing to match there."""
     user = factories.make_user()
@@ -135,7 +148,7 @@ def test_prior_clients_stay_within_the_callers_organizations():
 
 
 @pytest.mark.django_db
-def test_manifest_without_device_id_matches_nothing():
+def test_manifest_without_device_id_matches_nothing() -> None:
     membership = factories.make_membership()
     _approve(membership, factories.make_hub(organization=membership.organization))
 
@@ -145,7 +158,7 @@ def test_manifest_without_device_id_matches_nothing():
 
 
 @pytest.mark.django_db
-def test_most_recently_seen_client_comes_first():
+def test_most_recently_seen_client_comes_first() -> None:
     membership = factories.make_membership()
     hub_a = factories.make_hub(organization=membership.organization)
     hub_b = factories.make_hub(organization=membership.organization)
@@ -160,7 +173,7 @@ def test_most_recently_seen_client_comes_first():
 
 
 @pytest.mark.django_db
-def test_access_state_distinguishes_expired_revoked_and_active():
+def test_access_state_distinguishes_expired_revoked_and_active() -> None:
     membership = factories.make_membership()
     hub = factories.make_hub(organization=membership.organization)
 
@@ -192,8 +205,8 @@ def test_access_state_distinguishes_expired_revoked_and_active():
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_pending_code_lists_the_callers_earlier_approval():
-    def setup():
+async def test_pending_code_lists_the_callers_earlier_approval() -> None:
+    def setup() -> tuple[HttpContext, models.Hub, models.Client, models.DeviceCode]:
         membership = factories.make_membership()
         Scope.objects.create(identifier="read", organization=membership.organization)
         hub = factories.make_hub(organization=membership.organization)
@@ -218,8 +231,8 @@ async def test_pending_code_lists_the_callers_earlier_approval():
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_another_user_opening_the_same_link_sees_no_prior_authorization():
-    def setup():
+async def test_another_user_opening_the_same_link_sees_no_prior_authorization() -> None:
+    def setup() -> tuple[HttpContext, models.DeviceCode]:
         organization = factories.make_organization()
         approver = factories.make_membership(organization=organization)
         _approve(approver, factories.make_hub(organization=organization))
@@ -236,8 +249,8 @@ async def test_another_user_opening_the_same_link_sees_no_prior_authorization():
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_code_without_device_id_has_no_prior_authorizations():
-    def setup():
+async def test_code_without_device_id_has_no_prior_authorizations() -> None:
+    def setup() -> tuple[HttpContext, models.DeviceCode]:
         membership = factories.make_membership()
         _approve(membership, factories.make_hub(organization=membership.organization))
         return _context(membership), _pending(_manifest(device_id=None))

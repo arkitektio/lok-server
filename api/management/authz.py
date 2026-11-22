@@ -166,9 +166,9 @@ def get_scoped(type_cls: type[T], queryset: QuerySet[Any], info: Info) -> T:
 
     try:
         obj = queryset.first()
-    except (ValueError, ValidationError, TypeError):
+    except (ValueError, ValidationError, TypeError) as exc:
         # A malformed id (``"abc"`` for an integer pk) must not be a 500.
-        raise GraphQLError(DENIED)
+        raise GraphQLError(DENIED) from exc
     if obj is None:
         raise GraphQLError(DENIED)
     return cast(T, obj)
@@ -189,8 +189,8 @@ def get_scoped_lookup(
     """
     try:
         queryset = manager.filter(**lookup)
-    except (ValueError, ValidationError, TypeError):
-        raise GraphQLError(DENIED)
+    except (ValueError, ValidationError, TypeError) as exc:
+        raise GraphQLError(DENIED) from exc
     return get_scoped(type_cls, queryset, info)
 
 
@@ -209,8 +209,8 @@ def get_or_denied(manager: Manager[M] | QuerySet[M], **lookup: object) -> M:
     """
     try:
         return manager.get(**lookup)
-    except (ObjectDoesNotExist, ValueError, ValidationError, TypeError):
-        raise GraphQLError(DENIED)
+    except (ObjectDoesNotExist, ValueError, ValidationError, TypeError) as exc:
+        raise GraphQLError(DENIED) from exc
 
 
 def assert_member_or_guest(info: Info, organization: OrganizationArg) -> Membership:

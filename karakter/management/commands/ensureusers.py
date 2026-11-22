@@ -1,14 +1,14 @@
+from typing import Any
+
 from allauth.account.models import EmailAddress
 from django.conf import settings
-from django.contrib.auth import get_user_model
 from django.core.management.base import BaseCommand
 
 from karakter.base_models import UserConfig
+from karakter.models import User
 
-User = get_user_model()
 
-
-def _ensure_verified_email(user, email: str) -> None:
+def _ensure_verified_email(user: User, email: str) -> None:
     """Register the seeded user's email with allauth as verified + primary.
 
     Under email login with mandatory verification, allauth blocks sign-in until a
@@ -32,7 +32,7 @@ def _ensure_verified_email(user, email: str) -> None:
 class Command(BaseCommand):
     help = "Creates all lok user non-interactively if it doesn't exist"
 
-    def handle(self, *args, **kwargs):
+    def handle(self, *args: Any, **kwargs: Any) -> None:
         lokusers = settings.ENSURED_USERS
 
         for lokuser in lokusers:

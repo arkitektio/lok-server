@@ -179,8 +179,8 @@ class Query:
         # looked up as it is first, and as a raw id second.
         try:
             hashed = hash_device_id(str(id), organization)
-        except Exception:
-            raise GraphQLError(DENIED)
+        except Exception as exc:
+            raise GraphQLError(DENIED) from exc
         return get_scoped_or_denied(
             fakts_models.Device.objects.filter(node_id__in=[str(id), hashed]), info
         )

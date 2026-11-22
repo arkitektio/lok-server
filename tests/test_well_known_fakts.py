@@ -7,14 +7,14 @@ substitute with the device code.
 """
 
 import pytest
-from django.test import override_settings
+from django.test import Client, override_settings
 
 WELL_KNOWN = "/lok/.well-known/fakts"
 
 
 @pytest.mark.django_db
 @override_settings(DEPLOYMENT_CONFIGURE_URL="/configure/{code}")
-def test_root_relative_configure_url_joins_base_domain(client):
+def test_root_relative_configure_url_joins_base_domain(client: Client) -> None:
     data = client.get(WELL_KNOWN).json()
     # The base domain is the configured issuer with lok's script-name stripped.
     # Deliberately *not* the request host: see
@@ -24,14 +24,14 @@ def test_root_relative_configure_url_joins_base_domain(client):
 
 @pytest.mark.django_db
 @override_settings(DEPLOYMENT_CONFIGURE_URL="https://go.arkitekt.live/configure/{code}")
-def test_absolute_configure_url_used_verbatim(client):
+def test_absolute_configure_url_used_verbatim(client: Client) -> None:
     data = client.get(WELL_KNOWN).json()
     assert data["configure"] == "https://go.arkitekt.live/configure/{code}"
 
 
 @pytest.mark.django_db
 @override_settings(DEPLOYMENT_CONFIGURE_URL="go.arkitekt.live/configure/{code}")
-def test_bare_host_configure_url_promoted_to_https(client):
+def test_bare_host_configure_url_promoted_to_https(client: Client) -> None:
     """The exact value the user configures — a host without a scheme — resolves to
     an https absolute URL rather than being treated as a relative path."""
     data = client.get(WELL_KNOWN).json()
@@ -40,14 +40,14 @@ def test_bare_host_configure_url_promoted_to_https(client):
 
 @pytest.mark.django_db
 @override_settings(DEPLOYMENT_CONFIGURE_URL="https://go.arkitekt.live/configure/{code}")
-def test_code_placeholder_is_preserved_literally(client):
+def test_code_placeholder_is_preserved_literally(client: Client) -> None:
     """`{code}` must survive verbatim — the client substitutes it, not the server."""
     data = client.get(WELL_KNOWN).json()
     assert "{code}" in data["configure"]
 
 
 @pytest.mark.django_db
-def test_base_fields_are_present(client):
+def test_base_fields_are_present(client: Client) -> None:
     data = client.get(WELL_KNOWN).json()
     assert set(data) >= {
         "base_url",
@@ -70,7 +70,7 @@ def test_base_fields_are_present(client):
 
 
 @pytest.mark.django_db
-def test_oauth_metadata_is_advertised(client):
+def test_oauth_metadata_is_advertised(client: Client) -> None:
     """The fakts well-known speaks RFC 8414 vocabulary: the app authorization
     (device authorization + dynamic registration) and token endpoints as
     absolute URLs, plus the supported grants and client auth methods."""
@@ -89,7 +89,7 @@ def test_oauth_metadata_is_advertised(client):
 
 
 @pytest.mark.django_db
-def test_oauth_authorization_server_document(client):
+def test_oauth_authorization_server_document(client: Client) -> None:
     """/.well-known/oauth-authorization-server (RFC 8414) serves the same core
     the openid-configuration builds on."""
     rfc8414 = client.get("/lok/.well-known/oauth-authorization-server").json()
@@ -110,7 +110,9 @@ def test_oauth_authorization_server_document(client):
 
 
 @pytest.mark.django_db
-def test_standard_metadata_does_not_advertise_the_private_device_endpoint(client):
+def test_standard_metadata_does_not_advertise_the_private_device_endpoint(
+    client: Client,
+) -> None:
     """The device *grant* is standard; the endpoint that mints device codes is not.
 
     /o/app-authorization/ takes a JSON manifest and doubles as dynamic client
@@ -139,7 +141,7 @@ def test_standard_metadata_does_not_advertise_the_private_device_endpoint(client
 
 @pytest.mark.django_db
 @override_settings(DEPLOYMENT_HUB_CONFIGURE_URL="/hubconfigure/{code}")
-def test_hub_endpoints_are_advertised(client):
+def test_hub_endpoints_are_advertised(client: Client) -> None:
     """The hub authorization, (deprecated) claim, and configure endpoints are
     advertised as absolute URLs (configure resolves the template against the
     base domain with `{code}` preserved)."""
@@ -152,7 +154,7 @@ def test_hub_endpoints_are_advertised(client):
 
 
 @pytest.mark.django_db
-def test_discovery_endpoints_ignore_a_spoofed_forwarded_host(client):
+def test_discovery_endpoints_ignore_a_spoofed_forwarded_host(client: Client) -> None:
     """Regression for the host-header poisoning finding.
 
     Endpoint URLs were built with `request.build_absolute_uri`, and with

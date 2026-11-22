@@ -15,10 +15,17 @@ sender, or reveal who belongs to an organization that wants to stay unseen.
 Everything that is not opted in looks exactly like something that does not exist.
 """
 
+from typing import TYPE_CHECKING
+
 from karakter import models
 
+if TYPE_CHECKING:
+    from api.management.types import ManagementLinkPreview
 
-def build_link_preview(organization_id, user_id=None):
+
+def build_link_preview(
+    organization_id: str | int, user_id: str | int | None = None
+) -> "ManagementLinkPreview":
     # Imported here: the management types import the models' app registry.
     from api.management import types
 
