@@ -92,6 +92,26 @@ class MandateFilter:
         )
         return live if value else ~live
 
+    @strawberry_django.filter_field(description="Only the mandates this claimant may use: KEY (keyed) or AGENT (an agent app issues keys under it).")
+    def claimant(self, value: fakts_enums.MandateClaimant, prefix: str) -> Q:
+        return Q(**{f"{prefix}claimant": fakts_enums.MandateClaimantChoices[value.name]})
+
+    @strawberry_django.filter_field(description="Only the mandates issued under a parent agent mandate (true), or only the top-level ones (false).")
+    def has_parent(self, value: bool, prefix: str) -> Q:
+        return Q(**{f"{prefix}parent__isnull": not value})
+
+    @strawberry_django.filter_field(description="Only the agent mandates this app (by identifier) may issue keys under.")
+    def agent_identifier(self, value: AppIdentifier, prefix: str) -> Q:
+        return Q(**{f"{prefix}agent_identifier": str(value)})
+
+    @strawberry_django.filter_field(description="Only the mandates admitting this app (by identifier, exact).")
+    def subject_identifier(self, value: AppIdentifier, prefix: str) -> Q:
+        return Q(**{f"{prefix}subject_manifest__identifier": str(value)})
+
+    @strawberry_django.filter_field(description="Only the mandates whose clients may (true) or may not (false) ask for a mesh key.")
+    def allow_mesh(self, value: bool, prefix: str) -> Q:
+        return Q(**{f"{prefix}allow_mesh": value})
+
 
 @strawberry_django.filter_type(fakts_models.Service)
 class ServiceFilter:
@@ -188,6 +208,26 @@ class AppOrdering:
 class ReleaseOrdering:
     id: strawberry.auto
     name: strawberry.auto
+
+
+@strawberry_django.filter_type(fakts_models.Release)
+class ReleaseFilter:
+    @strawberry_django.filter_field
+    def ids(self, value: list[strawberry.ID], prefix: str) -> Q:
+        return Q(**{f"{prefix}id__in": value})
+
+    @strawberry_django.filter_field(description="Only the releases of these apps.")
+    def apps(self, value: list[strawberry.ID], prefix: str) -> Q:
+        return Q(**{f"{prefix}app_id__in": value})
+
+    @strawberry_django.filter_field(description="Releases whose version, name or app name or identifier contain this (any case).")
+    def search(self, value: str, prefix: str) -> Q:
+        return (
+            Q(**{f"{prefix}version__icontains": value})
+            | Q(**{f"{prefix}name__icontains": value})
+            | Q(**{f"{prefix}app__name__icontains": value})
+            | Q(**{f"{prefix}app__identifier__icontains": value})
+        )
 
 
 @strawberry_django.order_type(fakts_models.Client)

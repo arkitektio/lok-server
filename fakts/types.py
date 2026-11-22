@@ -8,7 +8,7 @@ from fakts import models, scalars, filters, enums
 from authapp import types as atypes
 from kante.types import Info
 from strawberry.scalars import JSON
-from django.db.models import Q
+from django.db.models import Count, Q
 
 # `DENIED` is re-exported for `fakts.graphql.mutations.render`; the single source
 # of truth (and of the tenant-scoping helpers) is `karakter.authz`.
@@ -257,6 +257,11 @@ class App:
     identifier: scalars.AppIdentifier = strawberry.field(description="The identifier of the app. This should be a globally unique string that identifies the app. We encourage you to use the reverse domain name notation. E.g. `com.example.myapp`")
 
     releases: list["Release"] = strawberry.field(description="The releases of the app. A release is a version of the app that can be installed by a user.")
+    @strawberry_django.field(annotate={"release_count_annotated": Count("releases", distinct=True)}, description="How many releases the app has.")
+    def release_count(self) -> int:
+        # Annotated when the object comes from a list; counted when a resolver hands it over.
+        counted = getattr(self, "release_count_annotated", None)
+        return counted if counted is not None else self.releases.count()
 
     logo: types.MediaStore | None = strawberry.field(description="The logo of the app. This should be a url to a logo that can be used to represent the app.")
 
@@ -268,6 +273,8 @@ class App:
 @strawberry_django.type(
     models.Release,
     ordering=filters.ReleaseOrdering,
+    filters=filters.ReleaseFilter,
+    pagination=True,
     description="A Release is a version of an app. Releases might change over time. E.g. a release might be updated to fix a bug, and the release might be updated to add a new feature. This is why they are the home for `scopes` and `requirements`, which might change over the release cycle.",
 )
 class Release:
@@ -278,6 +285,11 @@ class Release:
     logo: types.MediaStore | None = strawberry.field(description="The logo of the release. This should be a url to a logo that can be used to represent the release.")
     scopes: list[str] = strawberry.field(description="The scopes of the release. Scopes are used to limit the access of a client to a user's data. They represent app-level permissions.")
     clients: list["Client"] = strawberry.field(description="The clients of the release")
+    @strawberry_django.field(annotate={"client_count_annotated": Count("clients", distinct=True)}, description="How many clients run the release.")
+    def client_count(self) -> int:
+        # Annotated when the object comes from a list; counted when a resolver hands it over.
+        counted = getattr(self, "client_count_annotated", None)
+        return counted if counted is not None else self.clients.count()
 
     @strawberry_django.field(
         description="The requirements of the release: the services (by key and service identifier) a client of this release needs composed against it. Each entry is a manifest `Requirement` object (`key`, `service`, `optional`, `description`).",
@@ -498,6 +510,11 @@ class Device:
     name: str | None
     node_id: strawberry.ID = strawberry_django.field(deprecation_reason="Use deviceId.")
     clients: list[Client]
+    @strawberry_django.field(annotate={"client_count_annotated": Count("clients", distinct=True)}, description="How many clients run on this device.")
+    def client_count(self) -> int:
+        # Annotated when the object comes from a list; counted when a resolver hands it over.
+        counted = getattr(self, "client_count_annotated", None)
+        return counted if counted is not None else self.clients.count()
 
     @strawberry_django.field(description="The (per-organization hashed) id of the device.")
     def device_id(self) -> strawberry.ID:
@@ -559,6 +576,11 @@ class Mandate:
     revoked_at: datetime.datetime | None = strawberry_django.field(description="When the mandate was withdrawn; its clients were deleted then.")
     last_used_at: datetime.datetime | None = strawberry_django.field(description="When the key was last exchanged for a token.")
     clients: list[Client] = strawberry_django.field(description="The clients logged in with the key, one per device.")
+    @strawberry_django.field(annotate={"client_count_annotated": Count("clients", distinct=True)}, description="How many clients are logged in with the key.")
+    def client_count(self) -> int:
+        # Annotated when the object comes from a list; counted when a resolver hands it over.
+        counted = getattr(self, "client_count_annotated", None)
+        return counted if counted is not None else self.clients.count()
     parent: Optional["Mandate"] = strawberry_django.field(description="The agent mandate this one was issued under.")
     children: list["Mandate"] = strawberry_django.field(description="The keyed mandates the agent issued under this one.")
     issuing_client: Optional[Client] = strawberry_django.field(description="The app that issued this mandate.")

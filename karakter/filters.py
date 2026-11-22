@@ -205,6 +205,10 @@ class InviteFilter:
         entry = {"instance": str(value.instance), "collaboration": str(value.collaboration)}
         return Q(**{f"{prefix}shared_collaborations__contains": [entry]})
 
+    @strawberry_django.filter_field(description="Only the links that grant collaborations (true), or only the invites to become a member (false).")
+    def grants_collaborations(self, value: bool, prefix: str) -> Q:
+        return Q(**{f"{prefix}shared_collaborations__isnull": not value})
+
     @strawberry_django.filter_field(description="Only the invites that can still be accepted (true: pending and not expired), or only the others (false).")
     def valid(self, value: bool, prefix: str) -> Q:
         live = Q(**{f"{prefix}status": models.Invite.Status.PENDING}) & (
