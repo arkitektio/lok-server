@@ -9,7 +9,7 @@ from allauth.socialaccount import models as smodels
 import kante
 from .type_gen import create_stats_type
 from django.db.models import Q
-from karakter.authz import build_prescoped_queryset, get_organization, get_user
+from karakter.authz import build_prescoped_queryset, caller_is_guest, get_organization, get_user
 from karakter.roles import owner_or_admin_q
 
 
@@ -100,7 +100,8 @@ class User:
 
     @classmethod
     def get_queryset(cls, queryset, info: Info):
-        return build_prescoped_queryset(info, queryset, field="memberships__organization")
+        # A guest sees themselves, not the organization's member directory.
+        return build_prescoped_queryset(info, queryset, field="memberships__organization", guest=lambda qs, user, _m: qs.filter(pk=user.pk))
 
 
 UserStats, UserStatsResolver = create_stats_type(
@@ -375,7 +376,8 @@ class Membership:
 
     @classmethod
     def get_queryset(cls, queryset, info: Info):
-        return build_prescoped_queryset(info, queryset, field="organization")
+        # A guest sees their own membership, not who else is in the organization.
+        return build_prescoped_queryset(info, queryset, field="organization", guest=lambda qs, user, _m: qs.filter(user=user))
 
 
 MembershipStats, MembershipStatsResolver = create_stats_type(
@@ -412,9 +414,12 @@ class Organization:
     def roles(self) -> List["Role"]:
         return self.roles.all()
 
-    @strawberry_django.field(description="The users that are part of the organization")
-    def users(self) -> List[User]:
-        return models.User.objects.filter(memberships__organization=self).distinct()
+    @strawberry_django.field(description="The users that are part of the organization. Only yourself for a guest who was only granted some collaborations.")
+    def users(self, info: Info) -> List[User]:
+        users = models.User.objects.filter(memberships__organization=self).distinct()
+        if caller_is_guest(info):
+            return users.filter(pk=get_user(info).pk)
+        return users
 
     @strawberry_django.field(description="The name of this organization")
     def name(self) -> str:

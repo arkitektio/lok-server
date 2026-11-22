@@ -511,7 +511,11 @@ class ManagementMembership:
     user: ManagementUser
     organization: "ManagementOrganization"
     roles: List["ManagementRole"] = strawberry.field(description="The roles that the user has in the organization")
-    created_through: Optional["ManagementInvite"] = strawberry.field(description="The invite that created this membership")
+
+    @strawberry_django.field(description="The invite that created this membership. Null unless you may see that invite (its organization's owner and admins, or whoever created it).")
+    def created_through(self, info: Info) -> Optional["ManagementInvite"]:
+        return _visible_invite(info, self.created_through_id)
+
     brand_hue: Optional[float] = strawberry.field(description="The member's personal brand hue (0–360) for this organization, if set.")
     brand_chroma: Optional[float] = strawberry.field(description="The member's personal brand chroma (0–1) for this organization, if set.")
     allow_notifications: bool = strawberry.field(description="Whether this organization is allowed to push notifications to the member's registered devices.")
@@ -800,6 +804,21 @@ class ManagementInvite:
         ).distinct()
 
 
+def _visible_invite(info: Info, invite_id) -> Optional[ManagementInvite]:
+    """The invite behind a foreign key, if the caller may see it.
+
+    A forward FK reaches its type unscoped (`ManagementInvite.get_queryset` only
+    runs for lists), and an invite carries `token` and `inviteUrl`, a bearer
+    credential. A collaboration invite stays redeemable until `max_uses`, so any
+    full member, `guest` role included, could read
+    `memberships { createdThrough { token } }` and hand the link to an outsider.
+    The hop now answers by the same policy as the list.
+    """
+    if invite_id is None:
+        return None
+    return ManagementInvite.get_queryset(models.Invite.objects.filter(pk=invite_id), info).first()
+
+
 @strawberry_django.type(
     models.CollaborationGrant,
     pagination=True,
@@ -813,7 +832,11 @@ class ManagementCollaborationGrant:
     collaboration_id: str = strawberry.field(description="The collaboration's id in its service.")
     roles: list[str] = strawberry.field(description="Identifiers of the organization's roles that hold inside the collaboration. Empty: view only.")
     granted_by: Optional[ManagementUser] = strawberry.field(description="Who granted it.")
-    granted_through: Optional[ManagementInvite] = strawberry.field(description="The invite it was granted through.")
+
+    @strawberry_django.field(description="The invite it was granted through. Null unless you may see that invite (its organization's owner and admins, or whoever created it).")
+    def granted_through(self, info: Info) -> Optional[ManagementInvite]:
+        return _visible_invite(info, self.granted_through_id)
+
     created_at: datetime.datetime
     expires_at: Optional[datetime.datetime]
     mesh: bool = strawberry.field(description="Whether the guest's apps may join the organization's mesh to reach the hub the collaboration's instance runs on.")

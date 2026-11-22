@@ -90,7 +90,14 @@ class Hub:
 
     @classmethod
     def get_queryset(cls, queryset, info: Info, **kwargs):
-        return build_prescoped_queryset(info, queryset)
+        return build_prescoped_queryset(info, queryset, guest=_granted_hubs)
+
+
+def _granted_hubs(queryset, user, membership):
+    """A guest sees the hubs their live collaborations run on, as on the management schema."""
+    from karakter.collaboration_grants import live_grants
+
+    return queryset.filter(pk__in=live_grants(membership).filter(instance__hub__isnull=False).values("instance__hub_id"))
 
 
 @strawberry.type(description="The health a hub reported for one of its service instances.")

@@ -72,6 +72,15 @@ async def expand_user_from_token(token: str):
     pass
 
 
+async def _is_hub_identity(client) -> bool:
+    """Whether ``client`` is a hub's own identity (``Hub.client``)."""
+    if client is None:
+        return False
+    from fakts.models import Hub
+
+    return await Hub.objects.filter(client=client).aexists()
+
+
 class AuthAppExtension(AuthentikateExtension):
     """This is the extension class for directly authenticating users and
     clients from the token or header. It sets the user and client in the"""
@@ -87,6 +96,11 @@ class AuthAppExtension(AuthentikateExtension):
         organization = await self.aexpand_organization_from_token(token)
         user = await self.aexpand_user_from_token(token)
         client = await self.aexpand_client_from_token(token)
+        if not user.is_active and not await _is_hub_identity(client):
+            # A deactivated account's access tokens stop at once rather than when
+            # they expire (authapp.token_generators refuses to mint new ones). A
+            # hub's identity is the organization's and is exempt, as there.
+            raise authentikate_errors.InvalidJwtTokenError("This account has been deactivated")
         membership = await self.aexpand_membership_from_user_and_organization(user, organization, token)
         return (cast(User, user), client, organization, membership)
 

@@ -17,7 +17,7 @@ Notes:
 """
 
 from authlib.oauth2.rfc9068 import JWTBearerTokenGenerator
-from authlib.oauth2.rfc6749.errors import InvalidClientError
+from authlib.oauth2.rfc6749.errors import InvalidClientError, InvalidGrantError
 from joserfc.jwk import RSAKey
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.backends import default_backend
@@ -129,6 +129,14 @@ class MyJWTBearerTokenGenerator(JWTBearerTokenGenerator):
         ``{"7": {"12": ["editor"], "9": []}}``.
         """
         membership = self._get_membership(client, user)
+
+        # Every grant mints through here, so this is where a deactivated account
+        # stops getting tokens: its refresh chains, device codes and mandate keys
+        # used to keep minting `aud: lok` tokens for up to the refresh lifetime.
+        # A hub's identity is exempt: it is the organization's, and acts through
+        # the membership of whoever registered it, who may since have left.
+        if not membership.user.is_active and self._get_hub(client) is None:
+            raise InvalidGrantError(description="This account has been deactivated.")
 
         if not scope:
             # fall back to the client's configured scope

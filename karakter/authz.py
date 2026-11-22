@@ -87,12 +87,34 @@ def get_scoped_or_denied(manager, info, *args, field="organization", **lookup):
     return get_or_denied(manager, *args, **{field: organization}, **lookup)
 
 
-def build_prescoped_queryset(info, queryset, field="organization"):
+def caller_is_guest(info) -> bool:
+    """Whether the caller is only a guest of some collaborations in their active organization.
+
+    The token's membership is the one `AuthAppExtension` resolved for `org`; a
+    membership holding collaboration grants is scoped (`Membership.is_scoped`).
+    Fails closed: a request without a resolvable membership counts as a guest.
+    """
+    try:
+        membership = info.context.request.membership
+    except Exception:
+        return True
+    return membership is None or membership.is_scoped
+
+
+def build_prescoped_queryset(info, queryset, field="organization", guest=None):
     """Narrow a list queryset to the caller's active organization.
 
     Used by the `get_queryset` classmethods of the main schema's tenant-owned
     types. `field` is the ORM path from the model to its `Organization`
     (e.g. `"organization"`, `"service__organization"`, `"hub__organization"`).
+
+    A guest (a member only granted some collaborations) sees none of it: the
+    organization's member directory, devices, clients and inventory are for full
+    members, as on the management schema (`full_member_q`). Guests used to be
+    scoped like everyone else, so a guest's app token listed every member's email
+    and every device of an organization they were only invited into for one
+    collaboration. A type whose guests should see *part* of it passes `guest`, a
+    `(queryset, user, membership) -> queryset` narrowing applied after the org scope.
 
     Note: strawberry-django only runs a type's `get_queryset` when a resolver
     returns a *QuerySet* — single-object resolvers that `.get()` by pk bypass it
@@ -104,7 +126,12 @@ def build_prescoped_queryset(info, queryset, field="organization"):
     """
     filters = info.variable_values.get("filters") or {}
     if not isinstance(filters, dict) or filters.get("scope") is None:
-        return queryset.filter(**{field: get_organization(info)})
+        queryset = queryset.filter(**{field: get_organization(info)})
+        if caller_is_guest(info):
+            if guest is None:
+                return queryset.none()
+            return guest(queryset, get_user(info), info.context.request.membership)
+        return queryset
 
     raise GraphQLError("Custom scopes are not implemented yet")
 
