@@ -288,3 +288,79 @@ def test_plain_code_challenge_method_is_refused(client):
     qs = parse_qs(urlparse(resp["Location"]).query)
     assert qs["error"] == ["invalid_request"]
     assert "code" not in qs
+
+
+# --------------------------------------------------------------------------- #
+# The client must belong to the organization the code is granted in.
+# --------------------------------------------------------------------------- #
+
+
+def _consent(client, rp, organization):
+    return client.post(
+        reverse("authorize"),
+        {**_authorize_params(rp), "allow": "true", "organization": str(organization.pk)},
+        secure=True,
+    )
+
+
+@pytest.mark.django_db
+def test_an_app_from_another_organization_gets_no_code(client):
+    """The phishing shape: an attacker approves their own app (redirect URI theirs) in
+    their own organization, and a member of another organization clicks Allow. The
+    token would carry the victim's `org` with `aud: lok`, so no code may be issued."""
+    from authapp.models import AuthorizationCode
+
+    attacker = factories.make_membership()
+    app = factories.make_client(membership=attacker, redirect_uris="https://rp.example/callback")
+    victim = factories.make_membership()
+    client.force_login(victim.user)
+
+    resp = _consent(client, app, victim.organization)
+
+    assert resp.status_code == 400
+    assert resp.json()["error"] == "invalid_request"
+    assert not AuthorizationCode.objects.filter(client_id=app.client_id).exists()
+
+
+@pytest.mark.django_db
+def test_an_app_is_authorized_in_its_own_organization(client):
+    membership = factories.make_membership()
+    app = factories.make_client(membership=membership, redirect_uris="https://rp.example/callback")
+    colleague = factories.make_membership(organization=membership.organization)
+    client.force_login(colleague.user)
+
+    resp = _consent(client, app, membership.organization)
+
+    assert resp.status_code == 302
+    assert "code=" in resp["Location"]
+
+
+@pytest.mark.django_db
+def test_a_relying_party_serves_every_organization(client):
+    """Config-provisioned relying parties are global: their tokens are addressed to themselves."""
+    from fakts.enums import ClientKindChoices
+
+    rp = factories.make_oauth2_client(redirect_uris="https://rp.example/callback", kind=ClientKindChoices.RELYING_PARTY.value, organization=None)
+    rp.membership = None  # as ensureopenid provisions them: global, no membership
+    rp.save(update_fields=["membership"])
+    member = factories.make_membership()
+    client.force_login(member.user)
+
+    resp = _consent(client, rp, member.organization)
+
+    assert resp.status_code == 302
+    assert "code=" in resp["Location"]
+
+
+@pytest.mark.django_db
+def test_a_staged_client_runs_no_code_flow(client):
+    """Registered but never approved: no organization, so no organization to authorize into."""
+    member = factories.make_membership()
+    staged = factories.make_oauth2_client(redirect_uris="https://rp.example/callback", organization=None)
+    staged.membership = None  # as /o/app-authorization/ registers it
+    staged.save(update_fields=["membership"])
+    client.force_login(member.user)
+
+    resp = _consent(client, staged, member.organization)
+
+    assert resp.status_code == 400

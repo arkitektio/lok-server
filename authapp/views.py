@@ -262,7 +262,44 @@ def authorize(request: HttpRequest) -> HttpResponse:
             status=400,
         )
 
+    # The client must belong to the organization the user picked. An app or hub
+    # client's token takes its `aud` (lok plus its hub's services) and `hub` from the
+    # *client*, but its `org` and `sub` from this membership. Anyone can register an
+    # app and approve it in an organization of their own with a redirect URI they
+    # control, so without this check, one "Allow" click from a member of another
+    # organization handed that app's owner a lok token (and a refresh chain) acting
+    # as the victim in the victim's organization. Only config-provisioned relying
+    # parties are global: their tokens are addressed to themselves, never to lok.
+    # The client is the one authlib resolves from this very request, so the
+    # check cannot be steered by a second `client_id` elsewhere in it.
+    try:
+        client = server.get_consent_grant(request=request, end_user=membership).client
+    except OAuth2Error as error:
+        return server.handle_response(*error())
+    if not _may_authorize_into(client, membership):
+        return JsonResponse(
+            {
+                "error": "invalid_request",
+                "error_description": "This application belongs to another organization. It can only be authorized in the organization that approved it.",
+            },
+            status=400,
+        )
+
     return server.create_authorization_response(request, grant_user=membership)
+
+
+def _may_authorize_into(client, membership) -> bool:
+    """Whether ``client`` may be granted an authorization code for ``membership``.
+
+    Relying parties (``ensureopenid``, no organization) serve every organization.
+    Every other client only its own; a staged, never-approved row has none, so
+    it may not run the code flow at all.
+    """
+    from fakts.enums import ClientKindChoices
+
+    if client.kind == ClientKindChoices.RELYING_PARTY.value:
+        return True
+    return client.organization_id is not None and client.organization_id == membership.organization_id
 
 
 @csrf_exempt
