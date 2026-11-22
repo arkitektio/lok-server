@@ -80,6 +80,10 @@ class Hub:
     def online(self) -> bool:
         return self.online
 
+    @strawberry_django.field(description="When the hub stops counting as online unless it reports again: its last report plus three reporting intervals. Null if it never reported. A client watching `hubHealth` sets a timer for it instead of polling.")
+    def offline_at(self) -> Optional[datetime.datetime]:
+        return self.offline_at
+
     @strawberry_django.field(description="The hub's most recent health report, or null if it never reported.")
     def latest_health(self) -> Optional["HubHealthReport"]:
         return self.health_snapshots.first()

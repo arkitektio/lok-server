@@ -295,9 +295,17 @@ class GenericAccount(SocialAccount):
         return ob.provider != "orcid"
 
 
-@strawberry.type(description="""A Communication""")
-class Communication:
-    channel: strawberry.ID
+@strawberry.type(description="""A change to one of the caller's system messages. Exactly one field is set.""")
+class SystemMessageEvent:
+    create: Optional["SystemMessage"] = strawberry.field(default=None, description="A message the caller just got.")
+    update: Optional["SystemMessage"] = strawberry.field(default=None, description="A message of the caller that changed (e.g. was acknowledged).")
+    delete: Optional[strawberry.ID] = strawberry.field(default=None, description="The id of a message of the caller that was deleted.")
+
+
+@strawberry.type(description="""A membership request into the active organization was made or answered. Exactly one field is set.""")
+class MembershipRequestEvent:
+    create: Optional["MembershipRequest"] = strawberry.field(default=None, description="A new request.")
+    update: Optional["MembershipRequest"] = strawberry.field(default=None, description="A request that was answered.")
 
 
 @strawberry_django.type(

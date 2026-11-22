@@ -247,7 +247,9 @@ class Mutation:
 
 @strawberry.type
 class Subscription:
-    communications = strawberry.subscription(extensions=[AuthSubscribeExtension(scopes=[READ])], resolver=karakter_subscriptions.communications)
+    my_messages = strawberry.subscription(extensions=[AuthSubscribeExtension(scopes=[READ])], resolver=karakter_subscriptions.my_messages)
+    membership_requests = strawberry.subscription(extensions=[AuthSubscribeExtension(scopes=[READ])], resolver=karakter_subscriptions.membership_requests)
+    hub_health = strawberry.subscription(extensions=[AuthSubscribeExtension(scopes=[READ])], resolver=karakter_subscriptions.hub_health)
 
 
 class Schema(QuietErrorsSchema, kante.Schema):

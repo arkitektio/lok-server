@@ -635,4 +635,8 @@ def report_hub_health(hub: models.Hub, report: base_models.HubHealthReport) -> m
     retention = getattr(settings, "HUB_HEALTH_RETENTION", 20)
     keep = list(models.HubHealthSnapshot.objects.filter(hub=hub).values_list("id", flat=True)[:retention])
     models.HubHealthSnapshot.objects.filter(hub=hub).exclude(id__in=keep).delete()
+
+    from karakter.channels import HubHealthSignal, hub_health_channel, hub_health_group
+
+    hub_health_channel.broadcast_on_commit(HubHealthSignal(hub_id=hub.pk), [hub_health_group(hub.organization_id)])
     return hub

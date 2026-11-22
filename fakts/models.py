@@ -1,4 +1,5 @@
 import secrets as _secrets
+import datetime
 from django.conf import settings
 from django.db import models
 from django.utils import timezone
@@ -706,12 +707,18 @@ class Hub(models.Model):
         return f"tag:hub-{self.pk}"
 
     @property
+    def offline_at(self) -> datetime.datetime | None:
+        """When the hub stops counting as online unless it reports again; None if it never reported."""
+        if self.last_seen_at is None:
+            return None
+        interval = getattr(settings, "HUB_HEALTH_INTERVAL", 60)
+        return self.last_seen_at + datetime.timedelta(seconds=3 * interval)
+
+    @property
     def online(self) -> bool:
         """Reported health within the last three reporting intervals."""
-        if self.last_seen_at is None:
-            return False
-        interval = getattr(settings, "HUB_HEALTH_INTERVAL", 60)
-        return (timezone.now() - self.last_seen_at).total_seconds() <= 3 * interval
+        offline_at = self.offline_at
+        return offline_at is not None and timezone.now() <= offline_at
 
     @property
     def last_verified_at(self):

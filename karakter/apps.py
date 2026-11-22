@@ -10,8 +10,10 @@ class KarakterConfig(AppConfig):
         # (karakter.collaboration_grants), Membership.is_admin recomputed from the
         # roles (karakter.roles), and the service roles lok hands out by itself
         # (karakter.service_roles).
+        # karakter.realtime broadcasts the changes the subscriptions report.
         from karakter import (
             collaboration_grants,  # noqa: F401
+            realtime,  # noqa: F401
             roles,  # noqa: F401
             service_roles,  # noqa: F401
         )
