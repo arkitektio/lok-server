@@ -6,6 +6,7 @@ import strawberry_django
 from django.db.models import Q
 from fakts import models as fakts_models
 from fakts import enums as fakts_enums
+from fakts.scalars import AppIdentifier
 
 
 @strawberry_django.filter_type(models.User, description="Filter for User model.")
@@ -67,6 +68,10 @@ class AppFilter:
     def search(self, value: str, prefix: str) -> Q:
         return Q(**{f"{prefix}name__contains": value})
 
+    @strawberry_django.filter_field(description="Only the apps with one of these identifiers (exact match).")
+    def identifiers(self, value: list[AppIdentifier], prefix: str) -> Q:
+        return Q(**{f"{prefix}identifier__in": [str(v) for v in value]})
+
 
 @strawberry_django.filter_type(fakts_models.Mandate)
 class MandateFilter:
@@ -108,6 +113,14 @@ class DeviceFilter:
     @strawberry_django.filter_field
     def search(self, value: str, prefix: str) -> Q:
         return Q(**{f"{prefix}name__contains": value})
+
+    @strawberry_django.filter_field(description="Only the devices with one of these device ids: the ids the other services know a device by (`Device.deviceId`, a token's `client_device` claim), used as they are, never hashed again.")
+    def device_ids(self, value: list[strawberry.ID], prefix: str) -> Q:
+        return Q(**{f"{prefix}node_id__in": [str(v) for v in value]})
+
+    @strawberry_django.filter_field(description="Only the devices in this device group.")
+    def device_group(self, value: strawberry.ID, prefix: str) -> Q:
+        return Q(**{f"{prefix}device_groups__id": value})
 
 
 @strawberry_django.filter_type(fakts_models.DeviceGroup)

@@ -188,6 +188,11 @@ def _sample(gql_type):
         # representative one — the others differ only in operator.
         if "contains" in fields:
             return {"contains": "x"}
+        # Every required field (an input like `{ instance, collaboration }`),
+        # or else the first one.
+        required = {name: _sample(field.type) for name, field in fields.items() if isinstance(field.type, GraphQLNonNull)}
+        if required:
+            return required
         name, field = next(iter(fields.items()))
         return {name: _sample(field.type)}
     raise AssertionError(f"unhandled input type {gql_type}")

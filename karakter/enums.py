@@ -166,3 +166,10 @@ class GraphEdgeKind(str, Enum):
 
     VANILLA = "VANILLA"
     LOGGING = "LOGGING"
+
+
+@strawberry.enum(description="Where a membership request stands.")
+class MembershipRequestStatus(Enum):
+    PENDING = "pending"
+    APPROVED = "approved"
+    DECLINED = "declined"

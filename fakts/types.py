@@ -303,6 +303,12 @@ _CLIENT_KINDS = {
 }
 
 
+@strawberry.type(description="A client looked up by an id another service knows it by (`clientsByClientId`).")
+class ClientByClientId:
+    requested_id: strawberry.ID = strawberry.field(description="The id that was asked for. The client's current `clientId` may differ: a client keeps one id per release it ran.")
+    client: "Client" = strawberry.field(description="The client known by that id.")
+
+
 @strawberry_django.type(
     models.Client,
     ordering=filters.ClientOrdering,

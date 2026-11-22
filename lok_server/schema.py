@@ -54,6 +54,7 @@ class Query:
     service_instances: list[fakts_types.ServiceInstance] = strawberry_django.field(extensions=_needs(READ))
     service_releases: list[fakts_types.ServiceRelease] = strawberry_django.field(extensions=_needs(READ))
     invites: list[karakter_types.Invite] = strawberry_django.field(extensions=_needs(READ))
+    membership_requests: list[karakter_types.MembershipRequest] = strawberry_django.field(extensions=_needs(READ), description="Requests of non-members to join the active organization. Only its owner and admins see any.")
 
     user = strawberry_django.field(extensions=_needs(READ), resolver=karakter_queries.user)
     me = strawberry_django.field(extensions=_needs(READ), resolver=karakter_queries.me)
@@ -63,6 +64,7 @@ class Query:
     app = strawberry_django.field(extensions=_needs(READ), resolver=fakts_queries.app)
     release = strawberry_django.field(extensions=_needs(READ), resolver=fakts_queries.release)
     client = strawberry_django.field(extensions=_needs(READ), resolver=fakts_queries.client)
+    clients_by_client_id = strawberry_django.field(extensions=_needs(READ), resolver=fakts_queries.clients_by_client_id, description="The clients of the organization other services know by these ids (a token's `client_id` claim), in one query.")
     my_managed_clients = strawberry_django.field(extensions=_needs(READ), resolver=fakts_queries.my_managed_clients)
     layers: list[fakts_types.Layer] = strawberry_django.field(extensions=_needs(READ))
 
@@ -76,6 +78,7 @@ class Query:
 
     # Stats
     user_stats: karakter_types.UserStats = strawberry_django.field(extensions=_needs(READ), resolver=karakter_types.UserStatsResolver)
+    membership_stats: karakter_types.MembershipStats = strawberry_django.field(extensions=_needs(READ), resolver=karakter_types.MembershipStatsResolver, description="Counts over the memberships of the active organization, e.g. per role with `filters: { role }`.")
 
     @kante.django_field(extensions=_needs(READ))
     def hallo(self, info: Info) -> str:
@@ -95,16 +98,18 @@ class Query:
     def device(self, info: Info, id: strawberry.ID) -> fakts_types.Device:
         return get_scoped_or_denied(fakts_models.Device.objects, info, id=id)
 
-    @kante.django_field(extensions=_needs(READ), description="Look a device up by its raw device id, as reported by the client. Device ids are stored as a per-organization hash, so the raw id is hashed with the caller's organization before lookup.")
+    @kante.django_field(extensions=_needs(READ), description="Look a device up by its device id: the id the other services know it by (`Device.deviceId`, a token's `client_device` claim, rekuest's `Agent.device.deviceId`). The raw id a client reports about itself is accepted too.")
     def device_by_device_id(self, info: Info, id: strawberry.ID) -> fakts_types.Device:
         organization = get_organization(info)
-        # Every write path stores `hash_device_id(node_id, organization)`, never
-        # the raw id — so a raw-id lookup could never match a row.
+        # Every write path stores `hash_device_id(raw, organization)`, and that
+        # stored hash is the id that leaves lok (the `client_device` claim, so
+        # rekuest's device ids). Hashing it again could never match, so the id is
+        # looked up as it is first, and as a raw id second.
         try:
             hashed = hash_device_id(str(id), organization)
         except Exception:
             raise GraphQLError(DENIED)
-        return get_scoped_or_denied(fakts_models.Device.objects, info, node_id=hashed)
+        return get_scoped_or_denied(fakts_models.Device.objects.filter(node_id__in=[str(id), hashed]), info)
 
     @kante.django_field(extensions=_needs(READ))
     def device_group(self, info: Info, id: strawberry.ID) -> fakts_types.DeviceGroup:

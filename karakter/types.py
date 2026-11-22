@@ -350,6 +350,9 @@ class Membership:
     id: strawberry.ID
     user: User
     organization: "Organization"
+    created_at: Optional[datetime.datetime] = strawberry.field(
+        description="When the user became a member. Null for an old membership whose invite or request did not tell."
+    )
     roles: List["Role"] = strawberry.field(description="The roles that the user has in the organization")
     brand_hue: Optional[float] = strawberry.field(
         description="The member's personal brand hue (0–360) for this organization, if set. "
@@ -365,6 +368,15 @@ class Membership:
     @classmethod
     def get_queryset(cls, queryset, info: Info):
         return build_prescoped_queryset(info, queryset, field="organization")
+
+
+MembershipStats, MembershipStatsResolver = create_stats_type(
+    model=models.Membership,
+    filters=filters.MembershipFilter,
+    allowed_fields={"created_at": "created_at"},
+    allowed_datetime_fields={"created_at": "created_at"},
+    prescope=build_prescoper(field="organization"),
+)
 
 
 @strawberry_django.type(models.Organization, filters=filters.OrganizationFilter, pagination=True, description="""An Organization is a group of users that can work together on a project.""", ordering=filters.OrganizationOrdering)
@@ -491,11 +503,17 @@ class Invite:
         ).distinct()
 
 
-@strawberry_django.type(models.MembershipRequest, description="""A request of a user who is not a member of an organization to become one.""")
+@strawberry_django.type(
+    models.MembershipRequest,
+    filters=filters.MembershipRequestFilter,
+    ordering=filters.MembershipRequestOrdering,
+    pagination=True,
+    description="""A request of a user who is not a member of an organization to become one.""",
+)
 class MembershipRequest:
     id: strawberry.ID
     reason: str | None
-    status: str
+    status: str = strawberry.field(description="`pending`, `approved` or `declined` (filter with `MembershipRequestStatus`).")
     created_at: datetime.datetime
     resolved_by: User | None
     responded_at: datetime.datetime | None
@@ -521,6 +539,13 @@ class MembershipRequest:
         ).distinct()
 
 
+def _active_membership(user: models.User | None, organization: models.Organization | None) -> models.Membership | None:
+    """The user's membership in the organization the request acts in, if they hold one."""
+    if user is None or organization is None:
+        return None
+    return models.Membership.objects.filter(user=user, organization=organization).first()
+
+
 @strawberry.type
 class Context:
     """The context of this app. It is used to provide information about the current request and user."""
@@ -537,6 +562,24 @@ class Context:
             "Apps can pass its id back as `?hub=` on a later configure link to preselect it."
         ),
     )
+
+    @strawberry_django.field(description="The user's membership in the organization, or null when they are not a member of it.")
+    def membership(self) -> Optional[Membership]:
+        return _active_membership(self.user, self.organization)
+
+    @strawberry_django.field(description="The brand hue (0–360) in effect: the member's own choice for the organization, else the organization's default. Null when neither is set.")
+    def brand_hue(self) -> Optional[float]:
+        membership = _active_membership(self.user, self.organization)
+        if membership is not None and membership.brand_hue is not None:
+            return membership.brand_hue
+        return self.organization.brand_hue if self.organization else None
+
+    @strawberry_django.field(description="The brand chroma (0–1) in effect: the member's own choice for the organization, else the organization's default. Null when neither is set.")
+    def brand_chroma(self) -> Optional[float]:
+        membership = _active_membership(self.user, self.organization)
+        if membership is not None and membership.brand_chroma is not None:
+            return membership.brand_chroma
+        return self.organization.brand_chroma if self.organization else None
 
     @strawberry_django.field(description="Are we acting in the active organization of the user?")
     def fits_active_organization(self) -> bool:

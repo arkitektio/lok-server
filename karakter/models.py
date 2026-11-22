@@ -7,6 +7,7 @@ from django.conf import settings
 from django.core.cache import cache
 from django.contrib.auth.models import AbstractUser, Group, Permission
 from django.db import models
+from django.db.models.functions import Now
 from django.utils import timezone
 import uuid
 from karakter import fields, datalayer
@@ -247,6 +248,13 @@ class Membership(models.Model):
         "whenever they change (karakter.roles), never set by hand.",
     )
     created_through = models.ForeignKey("Invite", on_delete=models.SET_NULL, null=True, related_name="created_memberships")
+    created_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        db_default=Now(),
+        help_text="When the user became a member. Null for memberships older than this field whose invite or request "
+        "did not tell (karakter migration 0004 backfilled the others).",
+    )
     automatic_roles = models.ManyToManyField(
         Role,
         related_name="automatically_held_by",

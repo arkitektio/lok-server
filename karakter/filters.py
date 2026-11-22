@@ -5,6 +5,14 @@ from strawberry_django.filters import FilterLookup
 import strawberry_django
 from django.db.models import Q
 from allauth.socialaccount import models as smodels
+from django.utils import timezone
+from karakter.enums import MembershipRequestStatus
+
+
+@strawberry.input(description="One collaboration of a service instance.")
+class CollaborationRefInput:
+    instance: strawberry.ID = strawberry.field(description="The service instance the collaboration lives in.")
+    collaboration: strawberry.ID = strawberry.field(description="The collaboration's id in that service.")
 
 
 @strawberry_django.filter_type(models.User)
@@ -93,6 +101,31 @@ class MembershipFilter:
     def search(self, value: str, prefix: str) -> Q:
         return Q(**{f"{prefix}user__username__icontains": value})
 
+    @strawberry_django.filter_field(description="Only the memberships holding this role.")
+    def role(self, value: strawberry.ID, prefix: str) -> Q:
+        return Q(**{f"{prefix}roles__id": value})
+
+    @strawberry_django.filter_field(description="Only the organization's admins (true) or only the others (false).")
+    def is_admin(self, value: bool, prefix: str) -> Q:
+        return Q(**{f"{prefix}is_admin": value})
+
+
+@strawberry_django.filter_type(models.MembershipRequest, description="__doc__")
+class MembershipRequestFilter:
+    """A Filterset to Filter Membership Requests"""
+
+    @strawberry_django.filter_field
+    def ids(self, value: list[strawberry.ID], prefix: str) -> Q:
+        return Q(**{f"{prefix}id__in": value})
+
+    @strawberry_django.filter_field(description="Matches the requester's username or their reason.")
+    def search(self, value: str, prefix: str) -> Q:
+        return Q(**{f"{prefix}user__username__icontains": value}) | Q(**{f"{prefix}reason__icontains": value})
+
+    @strawberry_django.filter_field(description="Only the requests in one of these states.")
+    def status(self, value: list[MembershipRequestStatus], prefix: str) -> Q:
+        return Q(**{f"{prefix}status__in": [v.value for v in value]})
+
 
 @strawberry_django.filter_type(models.Profile)
 class ProfileFilter:
@@ -152,6 +185,20 @@ class InviteFilter:
     def status(self, value: str, prefix: str) -> Q:
         return Q(**{f"{prefix}status": value})
 
+    @strawberry_django.filter_field(description="Only the invites granting this collaboration.")
+    def collaboration(self, value: CollaborationRefInput, prefix: str) -> Q:
+        # Entries are stored as `CollaborationRef.as_entry()`: string instance and
+        # collaboration ids, plus the roles, which containment ignores.
+        entry = {"instance": str(value.instance), "collaboration": str(value.collaboration)}
+        return Q(**{f"{prefix}shared_collaborations__contains": [entry]})
+
+    @strawberry_django.filter_field(description="Only the invites that can still be accepted (true: pending and not expired), or only the others (false).")
+    def valid(self, value: bool, prefix: str) -> Q:
+        live = Q(**{f"{prefix}status": models.Invite.Status.PENDING}) & (
+            Q(**{f"{prefix}expires_at__isnull": True}) | Q(**{f"{prefix}expires_at__gte": timezone.now()})
+        )
+        return live if value else ~live
+
 
 @strawberry_django.filter_type(smodels.SocialAccount)
 class SocialAccountFilter:
@@ -199,6 +246,14 @@ class ComChannelOrdering:
 @strawberry_django.order_type(models.Membership)
 class MembershipOrdering:
     id: strawberry.auto
+    created_at: strawberry.auto
+
+
+@strawberry_django.order_type(models.MembershipRequest)
+class MembershipRequestOrdering:
+    id: strawberry.auto
+    created_at: strawberry.auto
+    responded_at: strawberry.auto
 
 
 @strawberry_django.order_type(models.Invite)
