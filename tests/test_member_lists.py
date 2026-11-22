@@ -54,7 +54,7 @@ query ($filters: MembershipFilter) { membershipStats(filters: $filters) { count 
 """
 
 
-@pytest.mark.django_db
+@pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
 async def test_memberships_filter_by_role_and_admin_and_count_per_role():
     team = await sync_to_async(_team)()
@@ -79,7 +79,7 @@ async def test_memberships_filter_by_role_and_admin_and_count_per_role():
     assert (await _run(context, STATS, filters={"isAdmin": False}))["membershipStats"]["count"] == 5
 
 
-@pytest.mark.django_db
+@pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
 async def test_membership_stats_count_only_the_active_organization():
     team = await sync_to_async(_team)()
@@ -103,7 +103,7 @@ def _requests(organization, pending: int, declined: int):
     return rows
 
 
-@pytest.mark.django_db
+@pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
 async def test_membership_requests_filter_by_status_and_page_for_admins_only():
     team = await sync_to_async(_team)()
@@ -125,7 +125,7 @@ CONTEXT = """
 """
 
 
-@pytest.mark.django_db
+@pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
 async def test_context_names_the_active_membership_and_the_brand_in_effect():
     team = await sync_to_async(_team)()

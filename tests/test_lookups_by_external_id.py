@@ -35,7 +35,7 @@ DEVICE_BY_ID = "query ($id: ID!) { deviceByDeviceId(id: $id) { id deviceId } }"
 DEVICES = "query ($filters: DeviceFilter) { devices(filters: $filters) { id } }"
 
 
-@pytest.mark.django_db
+@pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
 async def test_a_device_is_found_by_the_id_other_services_know_it_by():
     def setup():
@@ -54,7 +54,7 @@ async def test_a_device_is_found_by_the_id_other_services_know_it_by():
     assert (await _run(context, DEVICE_BY_ID, id="unknown")).errors
 
 
-@pytest.mark.django_db
+@pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
 async def test_devices_filter_by_device_ids_and_by_group():
     def setup():
@@ -79,7 +79,7 @@ async def test_devices_filter_by_device_ids_and_by_group():
 CLIENTS = "query ($ids: [ID!]!) { clientsByClientId(clientIds: $ids) { requestedId client { id clientId } } }"
 
 
-@pytest.mark.django_db
+@pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
 async def test_clients_are_looked_up_in_one_query_by_any_id_they_had():
     def setup():
@@ -101,7 +101,7 @@ async def test_clients_are_looked_up_in_one_query_by_any_id_they_had():
 APPS = "query ($filters: AppFilter) { apps(filters: $filters) { identifier } }"
 
 
-@pytest.mark.django_db
+@pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
 async def test_apps_filter_by_exact_identifiers():
     def setup():
@@ -118,7 +118,7 @@ async def test_apps_filter_by_exact_identifiers():
 INVITES = "query ($filters: InviteFilter) { invites(filters: $filters) { id } }"
 
 
-@pytest.mark.django_db
+@pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
 async def test_invites_filter_by_granted_collaboration_and_validity():
     def setup():
