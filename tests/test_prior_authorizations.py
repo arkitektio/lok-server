@@ -39,31 +39,49 @@ query ($code: String!) {
 
 
 def _manifest(device_id=DEVICE_ID, identifier=IDENTIFIER, version="1.0.0", scopes=None):
-    return base_models.Manifest(identifier=identifier, version=version, scopes=scopes or [], requirements=[], device_id=device_id)
+    return base_models.Manifest(
+        identifier=identifier,
+        version=version,
+        scopes=scopes or [],
+        requirements=[],
+        device_id=device_id,
+    )
 
 
 def _approve(membership, hub, manifest=None):
     """A bound client for ``manifest`` on ``hub``, as an earlier approval left it."""
-    return clients.bind_client(clients.create_public_client(), manifest or _manifest(), membership, hub=hub)
+    return clients.bind_client(
+        clients.create_public_client(), manifest or _manifest(), membership, hub=hub
+    )
 
 
 def _token(client, **kw):
     n = OAuth2Token.objects.count()
     kw.setdefault("access_token", f"access-{client.client_id}-{n}")
     kw.setdefault("refresh_token", f"refresh-{client.client_id}-{n}")
-    return OAuth2Token.objects.create(user=client.membership, client_id=client.client_id, token_type="Bearer", **kw)
+    return OAuth2Token.objects.create(
+        user=client.membership, client_id=client.client_id, token_type="Bearer", **kw
+    )
 
 
 def _pending(manifest=None):
-    return factories.make_device_code(staging_manifest=(manifest or _manifest()).model_dump())
+    return factories.make_device_code(
+        staging_manifest=(manifest or _manifest()).model_dump()
+    )
 
 
 def _context(membership):
-    return build_auth_context(membership.user, membership.organization, factories.make_client(membership=membership))
+    return build_auth_context(
+        membership.user,
+        membership.organization,
+        factories.make_client(membership=membership),
+    )
 
 
 async def _query(context, code):
-    return await management_schema.execute(QUERY, context_value=context, variable_values={"code": code.code})
+    return await management_schema.execute(
+        QUERY, context_value=context, variable_values={"code": code.code}
+    )
 
 
 # --- service layer ---------------------------------------------------------
@@ -121,7 +139,9 @@ def test_manifest_without_device_id_matches_nothing():
     membership = factories.make_membership()
     _approve(membership, factories.make_hub(organization=membership.organization))
 
-    assert not clients.find_prior_clients(_manifest(device_id=None), membership.user).exists()
+    assert not clients.find_prior_clients(
+        _manifest(device_id=None), membership.user
+    ).exists()
 
 
 @pytest.mark.django_db

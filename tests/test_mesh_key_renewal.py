@@ -27,20 +27,32 @@ def org(ionscale_repo):
     ionscale_repo.unique_auth_keys = True
     organization = factories.make_organization()
     layer = models.IonscaleLayer.objects.create(
-        organization=organization, name="Default", kind="ionscale",
-        identifier=organization.slug, tailnet_name=organization.slug,
+        organization=organization,
+        name="Default",
+        kind="ionscale",
+        identifier=organization.slug,
+        tailnet_name=organization.slug,
     )
-    admin = factories.make_membership(user=organization.owner, organization=organization)
+    admin = factories.make_membership(
+        user=organization.owner, organization=organization
+    )
     member = factories.make_membership(organization=organization)
     hub = factories.make_hub(organization=organization)
     return SimpleNamespace(
-        organization=organization, layer=layer, member=member, hub=hub,
+        organization=organization,
+        layer=layer,
+        member=member,
+        hub=hub,
         hub_granter=SimpleNamespace(organization=organization, membership=admin),
     )
 
 
 def _renew(client, token):
-    return client.post(reverse("fakts:meshkey"), HTTP_AUTHORIZATION=f"Bearer {token['access_token']}", secure=True)
+    return client.post(
+        reverse("fakts:meshkey"),
+        HTTP_AUTHORIZATION=f"Bearer {token['access_token']}",
+        secure=True,
+    )
 
 
 def _let_the_key_age():
@@ -53,7 +65,9 @@ def test_a_live_app_gets_a_fresh_key_for_the_same_sidecar(client, ionscale_repo,
     token = grant_app(client, org.member, org.hub)
     enrollment = models.AppMeshEnrollment.objects.get()
     # The node it lost the state of: offline.
-    ionscale_repo.machines_by_tailnet[org.layer.tailnet_name] = [Machine(id="100", name="app", tags=[enrollment.tag], connected=False)]
+    ionscale_repo.machines_by_tailnet[org.layer.tailnet_name] = [
+        Machine(id="100", name="app", tags=[enrollment.tag], connected=False)
+    ]
     _let_the_key_age()
 
     resp = _renew(client, token)
@@ -64,12 +78,17 @@ def test_a_live_app_gets_a_fresh_key_for_the_same_sidecar(client, ionscale_repo,
     assert mesh["ionscale_auth_key"] != token["mesh"]["ionscale_auth_key"]
     assert ionscale_repo.created_auth_keys[-1]["tags"] == [enrollment.tag]
     # The previous key is revoked, and no second enrollment appears.
-    assert (org.layer.tailnet_name, token["mesh"]["ionscale_auth_key"]) in ionscale_repo.deleted_auth_keys
+    assert (
+        org.layer.tailnet_name,
+        token["mesh"]["ionscale_auth_key"],
+    ) in ionscale_repo.deleted_auth_keys
     assert models.AppMeshEnrollment.objects.get().pk == enrollment.pk
 
 
 @pytest.mark.django_db
-def test_a_revoked_client_gets_no_key_although_its_access_token_still_verifies(client, ionscale_repo, org):
+def test_a_revoked_client_gets_no_key_although_its_access_token_still_verifies(
+    client, ionscale_repo, org
+):
     token = grant_app(client, org.member, org.hub)
     _let_the_key_age()
     OAuth2Token.objects.filter(client_id=token["client_id"]).update(revoked=True)
@@ -83,7 +102,9 @@ def test_a_revoked_client_gets_no_key_although_its_access_token_still_verifies(c
 
 
 @pytest.mark.django_db
-def test_an_app_that_was_not_granted_mesh_access_cannot_take_it(client, ionscale_repo, org):
+def test_an_app_that_was_not_granted_mesh_access_cannot_take_it(
+    client, ionscale_repo, org
+):
     token = grant_app(client, org.member, org.hub, allow_ionscale=False)
 
     resp = _renew(client, token)
@@ -109,7 +130,9 @@ def test_an_app_without_a_device_must_be_approved_again(client, ionscale_repo, o
 def test_no_key_while_the_sidecars_node_is_online(client, ionscale_repo, org):
     token = grant_app(client, org.member, org.hub)
     enrollment = models.AppMeshEnrollment.objects.get()
-    ionscale_repo.machines_by_tailnet[org.layer.tailnet_name] = [Machine(id="100", name="app", tags=[enrollment.tag], connected=True)]
+    ionscale_repo.machines_by_tailnet[org.layer.tailnet_name] = [
+        Machine(id="100", name="app", tags=[enrollment.tag], connected=True)
+    ]
     _let_the_key_age()
     minted = len(ionscale_repo.created_auth_keys)
 

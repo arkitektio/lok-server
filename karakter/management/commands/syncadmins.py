@@ -13,4 +13,8 @@ class Command(BaseCommand):
     def handle(self, *args: Any, **kwargs: Any) -> None:
         """Repair every stale flag, and say how many there were."""
         fixed = sync_all()
-        self.stdout.write(f"{fixed} membership(s) had a stale admin flag" if fixed else "Every admin flag matches the roles")
+        self.stdout.write(
+            f"{fixed} membership(s) had a stale admin flag"
+            if fixed
+            else "Every admin flag matches the roles"
+        )

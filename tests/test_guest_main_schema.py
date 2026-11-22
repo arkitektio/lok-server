@@ -33,8 +33,19 @@ def _setup(guest: bool):
 
     caller = factories.make_membership(organization=organization)
     if guest:
-        models.CollaborationGrant.objects.create(membership=caller, instance=instance, collaboration_id="12", granted_by=organization.owner)
-    context = build_auth_context(caller.user, organization, factories.make_client(membership=caller), roles=(), scope="openid lok_all")
+        models.CollaborationGrant.objects.create(
+            membership=caller,
+            instance=instance,
+            collaboration_id="12",
+            granted_by=organization.owner,
+        )
+    context = build_auth_context(
+        caller.user,
+        organization,
+        factories.make_client(membership=caller),
+        roles=(),
+        scope="openid lok_all",
+    )
     return context, {
         "self": str(caller.user.id),
         "colleague": str(colleague.user.id),

@@ -30,9 +30,7 @@ def _two_tenants():
 
     theirs = factories.make_membership()
     their_client = factories.make_client(membership=theirs)
-    their_context = build_auth_context(
-        theirs.user, theirs.organization, their_client
-    )
+    their_context = build_auth_context(theirs.user, theirs.organization, their_client)
 
     return my_context, my_client, their_context, their_client
 
@@ -53,7 +51,9 @@ RENDER_HUB = """
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
 async def test_client_list_does_not_leak_other_tenants_clients():
-    my_context, my_client, _their_context, their_client = await sync_to_async(_two_tenants)()
+    my_context, my_client, _their_context, their_client = await sync_to_async(
+        _two_tenants
+    )()
 
     result = await schema.execute(LIST_CLIENTS, context_value=my_context)
 
@@ -66,7 +66,9 @@ async def test_client_list_does_not_leak_other_tenants_clients():
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
 async def test_invite_list_does_not_leak_other_tenants_tokens():
-    my_context, _my_client, their_context, _their_client = await sync_to_async(_two_tenants)()
+    my_context, _my_client, their_context, _their_client = await sync_to_async(
+        _two_tenants
+    )()
 
     def _make_their_invite():
         # An invite belonging to the *other* tenant, carrying the admin role.
@@ -88,7 +90,9 @@ async def test_invite_list_does_not_leak_other_tenants_tokens():
 @pytest.mark.asyncio
 async def test_render_hub_refuses_another_tenants_client():
     """`renderHub` returns `client_secret`, so it must be owner-scoped."""
-    my_context, _my_client, _their_context, their_client = await sync_to_async(_two_tenants)()
+    my_context, _my_client, _their_context, their_client = await sync_to_async(
+        _two_tenants
+    )()
 
     result = await schema.execute(
         RENDER_HUB,
@@ -115,7 +119,9 @@ async def test_render_hub_denies_before_reaching_the_broken_render_path():
     Pinning the denial as a distinct message proves the guard short-circuits ahead
     of that AttributeError rather than accidentally relying on it.
     """
-    my_context, _my_client, _their_context, their_client = await sync_to_async(_two_tenants)()
+    my_context, _my_client, _their_context, their_client = await sync_to_async(
+        _two_tenants
+    )()
 
     result = await schema.execute(
         RENDER_HUB,
@@ -141,7 +147,9 @@ async def test_client_token_field_no_longer_exists():
     """The opaque `Client.token` credential is gone — client identity is the
     OAuth2 client_id + refresh chain, so the schema must not expose a `token`
     field on Client at all (including via FK traversal)."""
-    my_context, _my_client, _their_context, _their_client = await sync_to_async(_two_tenants)()
+    my_context, _my_client, _their_context, _their_client = await sync_to_async(
+        _two_tenants
+    )()
 
     result = await schema.execute(OWN_CLIENT_TOKEN, context_value=my_context)
 

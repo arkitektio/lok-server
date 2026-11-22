@@ -7,7 +7,11 @@ from django.db import transaction
 from django.utils import timezone
 
 from fakts import base_models, enums, models
-from fakts.services.clients import bind_client, create_public_client, find_unchanged_client
+from fakts.services.clients import (
+    bind_client,
+    create_public_client,
+    find_unchanged_client,
+)
 from fakts.services.tokens import create_challenge_code, create_device_code
 from fakts.utils import download_logo
 from karakter import models as karakter_models
@@ -30,7 +34,9 @@ class LogoDownloadError(Exception):
     """Raised when a manifest logo could not be downloaded while staging a device code."""
 
 
-def start_device_code(start_grant: base_models.DeviceCodeStartRequest) -> models.DeviceCode:
+def start_device_code(
+    start_grant: base_models.DeviceCodeStartRequest,
+) -> models.DeviceCode:
     """Stage a (client) device code from a start request, downloading the logo.
 
     This is also dynamic client registration: a *public* OAuth2 client is
@@ -50,7 +56,9 @@ def start_device_code(start_grant: base_models.DeviceCodeStartRequest) -> models
     except Exception as e:
         raise LogoDownloadError(str(e)) from e
 
-    logger.debug("Received start challenge for %s:%s", manifest.identifier, manifest.version)
+    logger.debug(
+        "Received start challenge for %s:%s", manifest.identifier, manifest.version
+    )
 
     # Registration writes the requested attributes straight onto the staged
     # (unbound) client — the staged row IS the client.
@@ -90,7 +98,9 @@ def purge_expired_device_codes() -> int:
     return count
 
 
-def start_hub_device_code(start_grant: base_models.HubStartRequest) -> models.DeviceCode:
+def start_hub_device_code(
+    start_grant: base_models.HubStartRequest,
+) -> models.DeviceCode:
     """Stage a hub device code from a start request, downloading the logo."""
     manifest = start_grant.hub
 
@@ -113,14 +123,19 @@ def start_hub_device_code(start_grant: base_models.HubStartRequest) -> models.De
     )
 
 
-def start_mesh_device_code(start_grant: base_models.MeshDeviceCodeStartRequest) -> models.MeshDeviceCode:
+def start_mesh_device_code(
+    start_grant: base_models.MeshDeviceCodeStartRequest,
+) -> models.MeshDeviceCode:
     """Stage a mesh device code from a start request.
 
     A machine requests to join an organization's mesh; a human authorizer later accepts
     (minting the pre-auth key) via the management GraphQL. ``code`` is the human-visible
     value for the configure URL, ``challenge_code`` is the secret the machine polls with.
     """
-    logger.debug("Received mesh start challenge for machine %r", start_grant.requested_machine_name)
+    logger.debug(
+        "Received mesh start challenge for machine %r",
+        start_grant.requested_machine_name,
+    )
 
     return models.MeshDeviceCode.objects.create(
         code=create_device_code(),
@@ -154,14 +169,18 @@ def validate_device_code(
     membership, node, hub), and the previous installation's client_id and refresh
     chain die.
     """
-    membership = karakter_models.Membership.objects.get(user=user, organization=organization)
+    membership = karakter_models.Membership.objects.get(
+        user=user, organization=organization
+    )
     manifest = device_code.manifest_as_model
     staged = device_code.client
 
     kept = find_unchanged_client(staged, manifest, membership, hub)
     if kept is not None:
         # A code of the kept client that was approved but never polled is stale now.
-        models.DeviceCode.objects.filter(client=kept).exclude(pk=device_code.pk).delete()
+        models.DeviceCode.objects.filter(client=kept).exclude(
+            pk=device_code.pk
+        ).delete()
         kept.redirect_uris = staged.redirect_uris
         kept.public = staged.public
         kept.save(update_fields=["redirect_uris", "public"])

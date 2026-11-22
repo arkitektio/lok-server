@@ -40,7 +40,9 @@ def _setup():
 
 async def _create(context, org, name, roles=None):
     return await management_schema.execute(
-        CREATE, context_value=context, variable_values={"org": str(org.id), "name": name, "roles": roles}
+        CREATE,
+        context_value=context,
+        variable_values={"org": str(org.id), "name": name, "roles": roles},
     )
 
 
@@ -59,7 +61,9 @@ async def test_owner_can_create_a_role_set_with_roles():
 
     assert not result.errors, result.errors
     assert result.data["createRoleSet"]["name"] == "editors"
-    assert [r["identifier"] for r in result.data["createRoleSet"]["roles"]] == ["editor"]
+    assert [r["identifier"] for r in result.data["createRoleSet"]["roles"]] == [
+        "editor"
+    ]
 
 
 @pytest.mark.django_db(transaction=True)
@@ -72,7 +76,9 @@ async def test_admin_is_not_enough_to_manage_role_sets():
 
     assert result.errors, f"an admin created a role set: {result.data}"
     assert result.errors[0].message == OWNER_ONLY
-    assert not await sync_to_async(models.RoleSet.objects.filter(name="editors").exists)()
+    assert not await sync_to_async(
+        models.RoleSet.objects.filter(name="editors").exists
+    )()
 
 
 @pytest.mark.django_db(transaction=True)
@@ -90,7 +96,9 @@ async def test_plain_member_is_rejected_too():
 @pytest.mark.asyncio
 async def test_foreign_role_ids_are_ignored():
     s = await sync_to_async(_setup)()
-    foreign = await sync_to_async(lambda: create_role(factories.make_organization(), "editor"))()
+    foreign = await sync_to_async(
+        lambda: create_role(factories.make_organization(), "editor")
+    )()
 
     result = await _create(s["owner"], s["org"], "mixed", [str(foreign.id)])
 
@@ -119,12 +127,18 @@ async def test_update_allows_renaming_to_own_name_and_replaces_roles():
     result = await management_schema.execute(
         UPDATE,
         context_value=s["owner"],
-        variable_values={"id": str(role_set.id), "name": "editors", "roles": [str(s["viewer"].id)]},
+        variable_values={
+            "id": str(role_set.id),
+            "name": "editors",
+            "roles": [str(s["viewer"].id)],
+        },
     )
 
     assert not result.errors, result.errors
     assert result.data["updateRoleSet"]["name"] == "editors"
-    assert [r["identifier"] for r in result.data["updateRoleSet"]["roles"]] == ["viewer"]
+    assert [r["identifier"] for r in result.data["updateRoleSet"]["roles"]] == [
+        "viewer"
+    ]
 
 
 @pytest.mark.django_db(transaction=True)
@@ -135,7 +149,9 @@ async def test_update_refuses_renaming_onto_another_set():
     other = await sync_to_async(_make_set)(s["org"], "viewers")
 
     result = await management_schema.execute(
-        UPDATE, context_value=s["owner"], variable_values={"id": str(other.id), "name": "editors", "roles": None}
+        UPDATE,
+        context_value=s["owner"],
+        variable_values={"id": str(other.id), "name": "editors", "roles": None},
     )
 
     assert result.errors
@@ -149,13 +165,19 @@ async def test_admin_cannot_update_or_delete():
     role_set = await sync_to_async(_make_set)(s["org"], "editors", [s["editor"]])
 
     updated = await management_schema.execute(
-        UPDATE, context_value=s["admin"], variable_values={"id": str(role_set.id), "name": "x", "roles": None}
+        UPDATE,
+        context_value=s["admin"],
+        variable_values={"id": str(role_set.id), "name": "x", "roles": None},
     )
-    deleted = await management_schema.execute(DELETE, context_value=s["admin"], variable_values={"id": str(role_set.id)})
+    deleted = await management_schema.execute(
+        DELETE, context_value=s["admin"], variable_values={"id": str(role_set.id)}
+    )
 
     assert updated.errors and updated.errors[0].message == OWNER_ONLY
     assert deleted.errors and deleted.errors[0].message == OWNER_ONLY
-    assert await sync_to_async(models.RoleSet.objects.filter(pk=role_set.pk, name="editors").exists)()
+    assert await sync_to_async(
+        models.RoleSet.objects.filter(pk=role_set.pk, name="editors").exists
+    )()
 
 
 @pytest.mark.django_db(transaction=True)
@@ -164,9 +186,13 @@ async def test_delete_keeps_the_underlying_roles():
     s = await sync_to_async(_setup)()
     role_set = await sync_to_async(_make_set)(s["org"], "editors", [s["editor"]])
 
-    result = await management_schema.execute(DELETE, context_value=s["owner"], variable_values={"id": str(role_set.id)})
+    result = await management_schema.execute(
+        DELETE, context_value=s["owner"], variable_values={"id": str(role_set.id)}
+    )
 
     assert not result.errors, result.errors
     assert result.data["deleteRoleSet"] == str(role_set.id)
-    assert not await sync_to_async(models.RoleSet.objects.filter(pk=role_set.pk).exists)()
+    assert not await sync_to_async(
+        models.RoleSet.objects.filter(pk=role_set.pk).exists
+    )()
     assert await sync_to_async(models.Role.objects.filter(pk=s["editor"].pk).exists)()

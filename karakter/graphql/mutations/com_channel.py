@@ -15,7 +15,7 @@ API callers.
 """
 
 import logging
-from typing import Optional, cast
+from typing import cast
 
 import strawberry
 from graphql import GraphQLError
@@ -39,7 +39,9 @@ class RegisterComChannelInput:
     token: str
 
 
-def register_com_channel(info: Info, input: RegisterComChannelInput) -> types.ComChannel:
+def register_com_channel(
+    info: Info, input: RegisterComChannelInput
+) -> types.ComChannel:
     """Register or update the current user's communication channel.
 
     Validates that the caller is authenticated and that a non-empty
@@ -71,7 +73,10 @@ def register_com_channel(info: Info, input: RegisterComChannelInput) -> types.Co
             defaults={"token": token},
         )
     except Exception as exc:  # broad catch to wrap DB/ORM errors
-        logger.exception("Failed to register communication channel for user=%s", getattr(user, "id", None))
+        logger.exception(
+            "Failed to register communication channel for user=%s",
+            getattr(user, "id", None),
+        )
         raise GraphQLError("Failed to register communication channel") from exc
 
     return cast(types.ComChannel, channel)
@@ -89,7 +94,7 @@ class NotifyUserInput:
 
     user: strawberry.ID
     message: str
-    title: Optional[str] = ""
+    title: str | None = ""
 
 
 def notify_user(info: Info, input: NotifyUserInput) -> bool:
@@ -127,7 +132,9 @@ def notify_user(info: Info, input: NotifyUserInput) -> bool:
     try:
         target_user.notify(title, message)
     except Exception as exc:
-        logger.exception("Failed to send notification to user=%s", getattr(target_user, "id", None))
+        logger.exception(
+            "Failed to send notification to user=%s", getattr(target_user, "id", None)
+        )
         raise GraphQLError("Failed to send notification") from exc
 
     return True

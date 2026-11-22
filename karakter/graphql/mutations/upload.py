@@ -1,15 +1,14 @@
 import mimetypes
 import uuid
-from pathlib import PurePosixPath
 
-from kante.types import Info
 import strawberry
-
-from fakts import types, models
-from karakter.authz import get_user
-from karakter.datalayer import get_current_datalayer
 from django.conf import settings
 from graphql import GraphQLError
+from kante.types import Info
+
+from fakts import models, types
+from karakter.authz import get_user
+from karakter.datalayer import get_current_datalayer
 
 # A presigned POST grants write access to exactly one key, so the key must not be
 # attacker-chosen. `MEDIA_BUCKET` is served publicly by the gateway, so an
@@ -22,7 +21,9 @@ UPLOAD_EXPIRES_IN = 3600
 # deployment's own origin, so anything that can carry script (HTML, and SVG even
 # though it is image/*) must never land there. POST policies cannot express
 # "image/* except svg", so the exact type is pinned with an `eq` condition.
-UPLOAD_ALLOWED_CONTENT_TYPES = frozenset({"image/png", "image/jpeg", "image/gif", "image/webp", "image/avif"})
+UPLOAD_ALLOWED_CONTENT_TYPES = frozenset(
+    {"image/png", "image/jpeg", "image/gif", "image/webp", "image/avif"}
+)
 
 
 @strawberry.input()
@@ -57,7 +58,9 @@ def scoped_key(user, content_type: str) -> str:
     return f"users/{user.id}/{uuid.uuid4().hex}{mimetypes.guess_extension(content_type) or ''}"
 
 
-def presign_media_upload(user, datalayer, datalayer_name: str, key: str, content_type: str | None = None) -> types.PresignedPostCredentials:
+def presign_media_upload(
+    user, datalayer, datalayer_name: str, key: str, content_type: str | None = None
+) -> types.PresignedPostCredentials:
     """Mint a bounded presigned POST for one new media object owned by `user`."""
     content_type = resolve_content_type(key, content_type)
     key = scoped_key(user, content_type)
@@ -77,7 +80,9 @@ def presign_media_upload(user, datalayer, datalayer_name: str, key: str, content
 
     path = f"s3://{settings.MEDIA_BUCKET}/{key}"
 
-    store = models.MediaStore.objects.create(path=path, key=key, bucket=settings.MEDIA_BUCKET)
+    store = models.MediaStore.objects.create(
+        path=path, key=key, bucket=settings.MEDIA_BUCKET
+    )
 
     aws = {
         "key": response["fields"]["key"],
@@ -99,4 +104,10 @@ def request_media_upload(
     info: Info, input: RequestMediaUploadInput
 ) -> types.PresignedPostCredentials:
     """Request upload credentials for a given key"""
-    return presign_media_upload(get_user(info), get_current_datalayer(), input.datalayer, input.key, input.content_type)
+    return presign_media_upload(
+        get_user(info),
+        get_current_datalayer(),
+        input.datalayer,
+        input.key,
+        input.content_type,
+    )

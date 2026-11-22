@@ -1,23 +1,31 @@
 import re
 import uuid
-from pydantic import AliasChoices, BaseModel, Field, SecretStr, field_validator, model_validator
-from typing import Dict, List, Optional, Literal, Union
-from django.conf import settings
-from fakts import enums
+from typing import Literal
 
+from django.conf import settings
+from pydantic import (
+    AliasChoices,
+    BaseModel,
+    Field,
+    SecretStr,
+    field_validator,
+    model_validator,
+)
+
+from fakts import enums
 
 #: A service's name in its hub: what tokens for it name as their audience.
 NAME_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,99}$")
-
 
 
 #: The scopes every client of lok holds, whatever it asked for: it logs a user in (OIDC). A pin
 #: never has to name them, and an app asking for them asks for nothing a pin could withhold.
 BASE_OIDC_SCOPES = ["openid", "profile", "email"]
 
+
 class Layer(BaseModel):
     identifier: str
-    kind: Union[Literal["WEB"], Literal["TAILSCALE"]]
+    kind: Literal["WEB"] | Literal["TAILSCALE"]
     dns_probe: str | None = None
     get_probe: str | None = None
 
@@ -63,12 +71,12 @@ class WellKnownFakts(BaseModel):
     `client_id`): the refresh chain ends at once, and its mesh sidecar is reaped."""
     jwks_uri: str | None = None
     """Absolute URL of the JWKS used to verify issued access tokens."""
-    grant_types_supported: List[str] = Field(default_factory=list)
+    grant_types_supported: list[str] = Field(default_factory=list)
     """Grant types the token endpoint accepts. Fakts clients use the device-code
     URN (interactive, then refresh_token for continuity) or
     urn:fakts:grant-type:mandate-key (headless: form fields `key` + JSON `manifest`;
     access tokens only, the client runs the grant again when one expires)."""
-    token_endpoint_auth_methods_supported: List[str] = Field(default_factory=list)
+    token_endpoint_auth_methods_supported: list[str] = Field(default_factory=list)
     """Client authentication methods at the token endpoint. Fakts-provisioned
     clients are public and authenticate with `none` (client_id only)."""
     mesh_coord_url: str | None = None
@@ -115,9 +123,9 @@ class Requirement(BaseModel):
     the reverse domain naming scheme"""
     optional: bool = False
     """ The optional flag indicates if the requirement is optional or not. Users should be able to use the client even if the requirement is not met. """
-    description: Optional[str] = None
+    description: str | None = None
     """ The description is a human readable description of the requirement. Will be show to the user when asking for the requirement."""
-    version: Optional[str] = None
+    version: str | None = None
     """The versions of the service the client was written for, as a specifier (``>=12.1,<14``).
     Advisory: an instance outside it is still handed out, and its claim says so (``satisfies``)."""
 
@@ -136,17 +144,17 @@ class Manifest(BaseModel):
     """ The identifier is a unique string that identifies the client. """
     version: str
     """ The version is a string that identifies the version of the client. """
-    title: Optional[str] = None
+    title: str | None = None
     """ A human readable display name for the app. Used as the name of the App and Release. """
-    description: Optional[str] = None
+    description: str | None = None
     """ A human readable description of what the app does. """
-    logo: Optional[str] = None
+    logo: str | None = None
     """ The logo is a url to a logo that should be used for the client. """
     scopes: list[str] = Field(default_factory=list)
     """ The scopes are a list of scopes that the client can request. """
     requirements: list[Requirement] = Field(default_factory=list)
     """ The requirements are a list of requirements that the client needs to run on (e.g. needs GPU)"""
-    device_id: Optional[str] = Field(
+    device_id: str | None = Field(
         default=None, validation_alias=AliasChoices("device_id", "node_id")
     )
     """ The device the client runs on. ``node_id`` is the deprecated spelling; it is
@@ -155,13 +163,13 @@ class Manifest(BaseModel):
     """ The authors that created and maintain the app. """
     keywords: list[str] = Field(default_factory=list)
     """ Keywords/tags that describe the app and help with discoverability. """
-    license: Optional[str] = None
+    license: str | None = None
     """ The license of the app (SPDX identifier or free text). """
-    homepage: Optional[str] = None
+    homepage: str | None = None
     """ The homepage url of the app (repo_url already tracks the issue tracker). """
-    repo_url: Optional[str] = None
+    repo_url: str | None = None
     """ The repo_url is the url to track issues and get more information about the client. """
-    public_sources: Optional[List[PublicSource]] = None
+    public_sources: list[PublicSource] | None = None
     """ The public_sources are a list of public sources where the client can be found. """
 
 
@@ -191,15 +199,22 @@ class MandatePin(BaseModel):
     version: str | None = None
     scopes: list[str] | None = None
     requirements: list[RequirementPin] | None = None
-    device_id: str | None = Field(default=None, validation_alias=AliasChoices("device_id", "node_id"))
+    device_id: str | None = Field(
+        default=None, validation_alias=AliasChoices("device_id", "node_id")
+    )
 
     @classmethod
-    def from_manifest(cls, manifest: "Manifest", *, version: bool = True, device: bool = False) -> "MandatePin":
+    def from_manifest(
+        cls, manifest: "Manifest", *, version: bool = True, device: bool = False
+    ) -> "MandatePin":
         return cls(
             identifier=manifest.identifier,
             version=manifest.version if version else None,
             scopes=sorted(set(manifest.scopes or [])),
-            requirements=[RequirementPin(key=r.key, service=r.service) for r in manifest.requirements or []],
+            requirements=[
+                RequirementPin(key=r.key, service=r.service)
+                for r in manifest.requirements or []
+            ],
             device_id=manifest.device_id if device else None,
         )
 
@@ -218,42 +233,72 @@ class MandatePin(BaseModel):
     def check(self, manifest: "Manifest") -> None:
         """Raise :class:`MandatePinMismatch` unless the pin covers ``manifest``."""
         if self.identifier is not None and manifest.identifier != self.identifier:
-            raise MandatePinMismatch(f"This mandate is pinned to app '{self.identifier}', not '{manifest.identifier}'.")
+            raise MandatePinMismatch(
+                f"This mandate is pinned to app '{self.identifier}', not '{manifest.identifier}'."
+            )
         if self.version is not None and manifest.version != self.version:
             raise MandatePinMismatch(
                 f"This mandate is pinned to version '{self.version}' of '{manifest.identifier}', not '{manifest.version}'."
             )
         if self.device_id is not None and manifest.device_id != self.device_id:
-            raise MandatePinMismatch("This mandate is pinned to a different device than the one the manifest names.")
+            raise MandatePinMismatch(
+                "This mandate is pinned to a different device than the one the manifest names."
+            )
         if self.scopes is not None:
-            extra_scopes = sorted(set(manifest.scopes or []) - set(self.scopes) - set(BASE_OIDC_SCOPES))
+            extra_scopes = sorted(
+                set(manifest.scopes or []) - set(self.scopes) - set(BASE_OIDC_SCOPES)
+            )
             if extra_scopes:
-                raise MandatePinMismatch(f"This mandate does not authorize the scope(s) {', '.join(extra_scopes)}.")
+                raise MandatePinMismatch(
+                    f"This mandate does not authorize the scope(s) {', '.join(extra_scopes)}."
+                )
         services = self._required_services()
         if services is not None:
-            extra = sorted(f"{r.key}={r.service}" for r in manifest.requirements or [] if r.service not in services)
+            extra = sorted(
+                f"{r.key}={r.service}"
+                for r in manifest.requirements or []
+                if r.service not in services
+            )
             if extra:
-                raise MandatePinMismatch(f"This mandate does not authorize the requirement(s) {', '.join(extra)}.")
+                raise MandatePinMismatch(
+                    f"This mandate does not authorize the requirement(s) {', '.join(extra)}."
+                )
 
     def assert_within(self, ceiling: "MandatePin") -> None:
         """Raise :class:`MandatePinMismatch` unless every app this pin admits is admitted by ``ceiling``."""
         for name in ("identifier", "version", "device_id"):
             fixed = getattr(ceiling, name)
             if fixed is not None and getattr(self, name) != fixed:
-                raise MandatePinMismatch(f"The {name.replace('_', ' ')} must be '{fixed}', as the issuing mandate pins it.")
+                raise MandatePinMismatch(
+                    f"The {name.replace('_', ' ')} must be '{fixed}', as the issuing mandate pins it."
+                )
         if ceiling.scopes is not None:
             if self.scopes is None:
-                raise MandatePinMismatch("Scopes must be pinned, as the issuing mandate pins them.")
-            extra_scopes = sorted(set(self.scopes) - set(ceiling.scopes) - set(BASE_OIDC_SCOPES))
+                raise MandatePinMismatch(
+                    "Scopes must be pinned, as the issuing mandate pins them."
+                )
+            extra_scopes = sorted(
+                set(self.scopes) - set(ceiling.scopes) - set(BASE_OIDC_SCOPES)
+            )
             if extra_scopes:
-                raise MandatePinMismatch(f"The scope(s) {', '.join(extra_scopes)} exceed the issuer's.")
+                raise MandatePinMismatch(
+                    f"The scope(s) {', '.join(extra_scopes)} exceed the issuer's."
+                )
         ceiling_services = ceiling._required_services()
         if ceiling_services is not None:
             if self.requirements is None:
-                raise MandatePinMismatch("Requirements must be pinned, as the issuing mandate pins them.")
-            extra = sorted(f"{r.key}={r.service}" for r in self.requirements if r.service not in ceiling_services)
+                raise MandatePinMismatch(
+                    "Requirements must be pinned, as the issuing mandate pins them."
+                )
+            extra = sorted(
+                f"{r.key}={r.service}"
+                for r in self.requirements
+                if r.service not in ceiling_services
+            )
             if extra:
-                raise MandatePinMismatch(f"The requirement(s) {', '.join(extra)} exceed the issuer's.")
+                raise MandatePinMismatch(
+                    f"The requirement(s) {', '.join(extra)} exceed the issuer's."
+                )
 
     def narrowed_to_device(self, device_id: str) -> "MandatePin":
         return self.model_copy(update={"device_id": device_id})
@@ -274,15 +319,21 @@ class MandateKeyGrantRequest(BaseModel):
     @field_validator("requested_client_kind")
     @classmethod
     def _headless_kind(cls, kind: enums.ClientKindVanilla) -> enums.ClientKindVanilla:
-        allowed = (enums.ClientKindVanilla.DEVELOPMENT, enums.ClientKindVanilla.DESKTOP, enums.ClientKindVanilla.MOBILE)
+        allowed = (
+            enums.ClientKindVanilla.DEVELOPMENT,
+            enums.ClientKindVanilla.DESKTOP,
+            enums.ClientKindVanilla.MOBILE,
+        )
         if kind not in allowed:
-            raise ValueError(f"A mandate key logs in a {', '.join(k.value for k in allowed)} client, not a {kind.value} one.")
+            raise ValueError(
+                f"A mandate key logs in a {', '.join(k.value for k in allowed)} client, not a {kind.value} one."
+            )
         return kind
 
 
 class Role(BaseModel):
     key: str
-    description: Optional[str] = None
+    description: str | None = None
     """ The description is a human readable description of the role. Will be show to the user when asking for the requirement."""
     is_admin_role: bool = False
     """ The role lets a member do everything in the service: lok gives it to the organization's owner and admins."""
@@ -292,7 +343,7 @@ class Role(BaseModel):
 
 class Scope(BaseModel):
     key: str
-    description: Optional[str] = None
+    description: str | None = None
     """ The description is a human readable description of the scope. Will be show to the user when asking for the requirement."""
     is_all_scope: bool = False
     """ The scope grants an app everything the service offers."""
@@ -307,23 +358,23 @@ class ServiceManifest(BaseModel):
     """ The identifier is a unique string that identifies the client. """
     version: str
     """ The version is a string that identifies the version of the client. """
-    description: Optional[str] = None
+    description: str | None = None
     """ The description is a human readable description of the client. """
-    logo: Optional[str] = None
+    logo: str | None = None
     """ The logo is a url to a logo that should be used for the client. """
-    roles: Optional[List[Role]] = Field(default_factory=list)
+    roles: list[Role] | None = Field(default_factory=list)
     """ The requirements are a list of requirements that the client needs to run on (e.g. needs GPU)"""
-    scopes: Optional[List[Scope]] = Field(default_factory=list)
+    scopes: list[Scope] | None = Field(default_factory=list)
     """ The scopes are a list of scopes that the client can request. """
-    device_id: Optional[str] = Field(
+    device_id: str | None = Field(
         default=None, validation_alias=AliasChoices("device_id", "node_id")
     )
     """ The device the service runs on. ``node_id`` is the deprecated spelling. """
-    instance_id: Optional[str] = "default"
+    instance_id: str | None = "default"
     """ The instance_id is the id of the instance that the runs on """
-    public_sources: Optional[List[PublicSource]] = None
+    public_sources: list[PublicSource] | None = None
     """ The public_sources are a list of public sources where the client can be found. """
-    challenge_key: Optional[str] = None
+    challenge_key: str | None = None
     """ Base64-encoded raw Ed25519 public key (32 bytes). When set, the Fakts server stores it
     and includes it in claims so clients can verify signed alias challenges. """
 
@@ -348,7 +399,7 @@ class DeviceCodeStartRequest(BaseModel):
     requested_client_kind: enums.ClientKindVanilla = enums.ClientKindVanilla.DEVELOPMENT
     requested_client_role: enums.ClientRoleVanilla = enums.ClientRoleVanilla.INTERFACE
     request_public: bool = False
-    supported_layers: List[str] = Field(default_factory=lambda: ["web"])
+    supported_layers: list[str] = Field(default_factory=lambda: ["web"])
     request_auth_key: bool = False
     """Ask for a pre-authorized key to the organization's mesh. If the approver allows
     it, the device-code token response carries it once, as ``mesh.ionscale_auth_key``
@@ -360,16 +411,16 @@ class DeviceCodeStartRequest(BaseModel):
 
 class StagingAlias(BaseModel):
     id: str
-    name: Optional[str] = None
+    name: str | None = None
     ssl: bool = True
-    host: Optional[str] = None
+    host: str | None = None
     """Required for every kind but ``mesh``. A mesh alias's host is filled in at
     render time with the hub node's MagicDNS name, so a declared one is ignored.
     A ``docker`` alias's host is a name on the hub's own docker network."""
-    port: Optional[int] = None
-    path: Optional[str] = None
-    challenge: Optional[str] = None
-    reach: Optional[Literal["loopback", "internal", "lan", "mesh", "public"]] = None
+    port: int | None = None
+    path: str | None = None
+    challenge: str | None = None
+    reach: Literal["loopback", "internal", "lan", "mesh", "public"] | None = None
     """Where the address works (``fakts.services.alias_reach``). Said, it decides ``kind`` and
     ``scope``, which are then ignored; left out (an older hub), it is derived from them."""
     kind: str = "absolute"
@@ -378,7 +429,7 @@ class StagingAlias(BaseModel):
     """Deprecated: say ``reach``."""
     public: bool = False
     """If the alias is publicly reachable, the coordination server can also check its health directly (enabling health checks from the kontrol interface)."""
-    lok_checks: Optional[bool] = None
+    lok_checks: bool | None = None
     """Whether the coordination server may health check the alias itself: ``public``'s new
     name, which wins over it when said."""
 
@@ -390,20 +441,30 @@ class StagingAlias(BaseModel):
             from fakts.services.alias_reach import is_loopback_host
 
             if self.reach == "loopback" and not is_loopback_host(self.host):
-                raise ValueError(f"Alias '{self.id}' says it is loopback, but '{self.host}' is not this machine.")
+                raise ValueError(
+                    f"Alias '{self.id}' says it is loopback, but '{self.host}' is not this machine."
+                )
             self.kind, self.scope = legacy_of(self.reach, self.host)
         if self.lok_checks is not None:
             self.public = self.lok_checks
         if self.kind not in enums.AliasKindChoices.values:
-            raise ValueError(f"Alias '{self.id}' has an unknown kind '{self.kind}' (one of: {', '.join(enums.AliasKindChoices.values)}).")
+            raise ValueError(
+                f"Alias '{self.id}' has an unknown kind '{self.kind}' (one of: {', '.join(enums.AliasKindChoices.values)})."
+            )
         if self.kind == enums.AliasKindChoices.MESH.value:
             self.host = None
         elif not self.host:
-            raise ValueError(f"Alias '{self.id}' needs a host (only kind 'mesh' resolves its own).")
+            raise ValueError(
+                f"Alias '{self.id}' needs a host (only kind 'mesh' resolves its own)."
+            )
         if self.kind == enums.AliasKindChoices.DOCKER.value and self.public:
-            raise ValueError(f"Alias '{self.id}' is internal and cannot be checked by the coordination server: it is only reachable from inside the hub's own network.")
+            raise ValueError(
+                f"Alias '{self.id}' is internal and cannot be checked by the coordination server: it is only reachable from inside the hub's own network."
+            )
         if self.public and not self.ssl:
-            raise ValueError(f"Alias '{self.id}' is checked by the coordination server (public / lok_checks), so it must be served over https (ssl: true).")
+            raise ValueError(
+                f"Alias '{self.id}' is checked by the coordination server (public / lok_checks), so it must be served over https (ssl: true)."
+            )
         return self
 
     @property
@@ -430,7 +491,7 @@ class MeshDeviceCodeStartRequest(BaseModel):
     authorizing user on the configure page."""
     ephemeral: bool = False
     """Whether the minted node should be ephemeral (auto-removed when offline)."""
-    tags: List[str] = Field(default_factory=list)
+    tags: list[str] = Field(default_factory=list)
     """Optional ionscale ACL tags to request for the minted key."""
     relay: bool = False
     """The machine asks to join as a peer relay: to forward UDP for the
@@ -447,11 +508,14 @@ class InstanceRequest(BaseModel):
 
     identifier: str
     """A human-readable name for the instance (the catalogue's: "Mikro")."""
-    name: str = Field(default="", description="The service's name in the hub (`mikro`): unique there, and the audience tokens for it name. Left out, the last part of its manifest's identifier (`live.arkitekt.mikro` -> `mikro`).")
-    description: Optional[str] = None
+    name: str = Field(
+        default="",
+        description="The service's name in the hub (`mikro`): unique there, and the audience tokens for it name. Left out, the last part of its manifest's identifier (`live.arkitekt.mikro` -> `mikro`).",
+    )
+    description: str | None = None
     """A human readable description of the request."""
     manifest: ServiceManifest
-    aliases: List[StagingAlias] = Field(default_factory=list)
+    aliases: list[StagingAlias] = Field(default_factory=list)
 
     @model_validator(mode="after")
     def named_in_the_hub(self):
@@ -459,7 +523,9 @@ class InstanceRequest(BaseModel):
         if not self.name:
             self.name = self.manifest.identifier.rsplit(".", 1)[-1].lower()
         if not NAME_RE.match(self.name):
-            raise ValueError(f"'{self.name}' is not a service name: lowercase letters, digits, '_' and '-' (at most 100)")
+            raise ValueError(
+                f"'{self.name}' is not a service name: lowercase letters, digits, '_' and '-' (at most 100)"
+            )
         return self
 
 
@@ -471,7 +537,7 @@ class ClientRequest(BaseModel):
     identifier: str
     """How the hub knows this client: unique within the hub. The hub's envelope
     answers under it (``client_requests``)."""
-    description: Optional[str] = None
+    description: str | None = None
     """A human readable description of the request."""
     manifest: Manifest
     """What the client may be. Approving the hub issues a mandate pinned to the
@@ -485,15 +551,23 @@ class ClientRequest(BaseModel):
 class HubManifest(BaseModel):
     """A Hub Request allows to request seting up a hub of clients and services."""
 
-    uid: Optional[uuid.UUID] = Field(default=None, description="The hub's identity: a uuid it generated for itself. Authorized again under the same uid, it replaces what was known of it; tokens for its services carry it as `hub`. Left out (a partner's config may), it is derived from the label, the same in every organization.")
-    identifier: str = Field(..., description="The hub's label: a human-readable name, not an identity.")
-    description: Optional[str] = None
+    uid: uuid.UUID | None = Field(
+        default=None,
+        description="The hub's identity: a uuid it generated for itself. Authorized again under the same uid, it replaces what was known of it; tokens for its services carry it as `hub`. Left out (a partner's config may), it is derived from the label, the same in every organization.",
+    )
+    identifier: str = Field(
+        ..., description="The hub's label: a human-readable name, not an identity."
+    )
+    description: str | None = None
     """A human readable description of the hub."""
-    logo: Optional[str] = None
-    instances: List[InstanceRequest] = Field(default_factory=list)
-    clients: List[ClientRequest] = Field(default_factory=list)
+    logo: str | None = None
+    instances: list[InstanceRequest] = Field(default_factory=list)
+    clients: list[ClientRequest] = Field(default_factory=list)
     request_auth_key: bool = False
-    tls_certificate: Optional[str] = Field(default=None, description="The one self-signed certificate (PEM) the hub's gateway serves for every host it is reached at. Apps trust exactly it for the hub's aliases (``tls`` on each instance). Left out, the hub is a plain-HTTP hub; authorized again without it, it becomes one again.")
+    tls_certificate: str | None = Field(
+        default=None,
+        description="The one self-signed certificate (PEM) the hub's gateway serves for every host it is reached at. Apps trust exactly it for the hub's aliases (``tls`` on each instance). Left out, the hub is a plain-HTTP hub; authorized again without it, it becomes one again.",
+    )
 
     @model_validator(mode="after")
     def named_by_itself(self):
@@ -502,7 +576,9 @@ class HubManifest(BaseModel):
             self.uid = uuid.uuid5(uuid.NAMESPACE_URL, f"arkitekt-hub:{self.identifier}")
         names = [instance.name for instance in self.instances]
         if len(set(names)) != len(names):
-            raise ValueError(f"A hub names each of its services once: {sorted(n for n in set(names) if names.count(n) > 1)}")
+            raise ValueError(
+                f"A hub names each of its services once: {sorted(n for n in set(names) if names.count(n) > 1)}"
+            )
         return self
 
 
@@ -527,23 +603,23 @@ class ServerClaimRequest(BaseModel):
 class AliasReport(BaseModel):
     alias_id: str | None = None
     valid: bool
-    reason: Optional[str] = None
+    reason: str | None = None
 
 
 class ReportRequest(BaseModel):
     """A client's self-report. The client is identified by its Bearer access
     token (the JWT's `client_id` claim), not by a payload token."""
 
-    alias_reports: Dict[str, AliasReport] = Field(default_factory=dict)
+    alias_reports: dict[str, AliasReport] = Field(default_factory=dict)
     functional: bool = True
 
 
 class LinkingRequest(BaseModel):
     host: str
-    port: Optional[str] = None
-    base_url: Optional[str] = None
+    port: str | None = None
+    base_url: str | None = None
     is_secure: bool = False
-    jwks_url: Optional[str] = None
+    jwks_url: str | None = None
     """The issuer's JWKS endpoint (the `jwks_uri` openid-configuration advertises)."""
     """Where hubs' trust bundles live (issuer-anchored); a hub's is `<base><hub pk>`."""
 
@@ -578,9 +654,9 @@ class Alias(BaseModel):
     """The ssl flag indicates if the alias is available over SSL or not."""
     host: str
     """The host is the host of the alias, it is used to create the URL."""
-    port: Optional[int] = None
+    port: int | None = None
     """The port is the port of the alias, it is used to create the URL."""
-    path: Optional[str] = None
+    path: str | None = None
     """The path is the path of the alias, it is used to create the URL."""
     challenge: str = Field(
         description="A challenge url to verify the alias on the client. If it returns a 200 OK, the alias is valid. It can additionally return a JSON object with a `challenge` key that contains the challenge to be solved by the client.",
@@ -593,12 +669,12 @@ class Alias(BaseModel):
     mesh sidecar. ``docker`` aliases are only reachable from inside the hub's own
     docker environment: every client gets them, and only one running there passes
     the challenge. Clients that do not know the field ignore it."""
-    reach: Optional[Literal["loopback", "internal", "lan", "mesh", "public"]] = None
+    reach: Literal["loopback", "internal", "lan", "mesh", "public"] | None = None
     """Where the address works (``fakts.services.alias_reach``): ``loopback`` this machine,
     ``internal`` only inside the deployment's own network, ``lan`` the local network, ``mesh``
     the organization's mesh, ``public`` the internet. What ``kind`` says, and more; ``kind``
     stays for the clients that predate it."""
-    priority: Optional[int] = None
+    priority: int | None = None
     """Where the hub's owner ranks the alias for the client it is rendered for, lower first
     (``fakts.services.alias_priority``). An instance's aliases are sent in this order; clients
     that do not know the field follow the order."""
@@ -609,7 +685,7 @@ class TlsClaim(BaseModel):
 
     A list so a rotation can hand out the old and the new one side by side."""
 
-    certificates: List[str] = Field(default_factory=list)
+    certificates: list[str] = Field(default_factory=list)
     """PEM certificates, each trusted as itself (no CA, no chain) for the instance's hosts."""
 
 
@@ -623,16 +699,16 @@ class InstanceClaim(BaseModel):
     """The service is the service that will be used to fill the key, it will be used to find the correct instance. It needs to fullfill"""
     identifier: str
     """The service's name in its hub (``mikro``): the audience the app's token carries for it."""
-    aliases: List[Alias] = Field(default_factory=list)
-    challenge_key: Optional[Dict] = None
+    aliases: list[Alias] = Field(default_factory=list)
+    challenge_key: dict | None = None
     """Ed25519 public key for verifying signed alias challenges: {"kind": "ed25519", "key": "<base64 raw 32 bytes>"}. Absent when the instance has no registered key."""
-    tls: Optional[TlsClaim] = None
+    tls: TlsClaim | None = None
     """The certificate(s) the instance's TLS aliases present, when its hub registered one. An app
     that knows the field verifies those aliases by them alone and refuses its plain-HTTP aliases
     that are not on the mesh. Absent for a plain-HTTP hub; apps that do not know it ignore it."""
-    version: Optional[str] = None
+    version: str | None = None
     """The version the instance runs, as its hub last reported it. Absent when unknown."""
-    satisfies: Optional[bool] = None
+    satisfies: bool | None = None
     """Whether ``version`` is within the requirement's ``version`` specifier. Absent when the
     requirement names none or the version is unknown. Advisory: the instance is usable either way."""
 
@@ -640,13 +716,13 @@ class InstanceClaim(BaseModel):
 class SelfClaim(BaseModel):
     deployment_name: str = Field(default=settings.DEPLOYMENT_NAME)
     alias: Alias
-    jwks_url: Optional[str] = None
+    jwks_url: str | None = None
     """Where to fetch the keys that sign this deployment's access tokens."""
-    sub: Optional[str] = None
+    sub: str | None = None
     """The id of the user the client acts for: the access token's `sub` claim."""
-    organization: Optional[str] = None
+    organization: str | None = None
     """The organization pk: the access token's `org` claim."""
-    hub: Optional[str] = None
+    hub: str | None = None
     """The hub pk: for an app, the hub its client is bound to; for a hub, the hub
     itself. Null for an app client bound to no hub. Unlike the access token's
     `hub` claim (the hub identifier), this is stable, and matches the hub's mesh
@@ -676,8 +752,8 @@ class FaktsEnvelope(BaseModel):
     """
 
     self: SelfClaim
-    instances: Dict[str, InstanceClaim] = Field(default_factory=dict)
-    statuses: Dict[str, str] = Field(default_factory=dict)
+    instances: dict[str, InstanceClaim] = Field(default_factory=dict)
+    statuses: dict[str, str] = Field(default_factory=dict)
     """Per-requirement grant outcomes keyed by manifest requirement key.
     Values: 'granted' | 'denied' | 'unavailable'. Omitted for registrations
     that predate this feature (clients should treat missing keys as 'unknown')."""
@@ -716,7 +792,7 @@ class HubClientRequestClaim(BaseModel):
 
     mandate: str
     key_sha256: str
-    client_ids: List[str] = Field(default_factory=list)
+    client_ids: list[str] = Field(default_factory=list)
     """The clients that have logged in with the key, one per device."""
 
 
@@ -726,24 +802,24 @@ class HubClaimAnswer(BaseModel):
     are never rendered here, see :class:`MeshClaim`)."""
 
     self: SelfClaim
-    instances: Dict[str, HubInstanceClaim] = Field(default_factory=dict)
-    clients: Dict[str, HubClientClaim] = Field(default_factory=dict)
-    client_requests: Dict[str, HubClientRequestClaim] = Field(default_factory=dict)
+    instances: dict[str, HubInstanceClaim] = Field(default_factory=dict)
+    clients: dict[str, HubClientClaim] = Field(default_factory=dict)
+    client_requests: dict[str, HubClientRequestClaim] = Field(default_factory=dict)
     """The clients the hub's manifest requested, by the request's identifier."""
 
 
 class InstanceHealth(BaseModel):
     healthy: bool
-    reason: Optional[str] = None
-    version: Optional[str] = None
+    reason: str | None = None
+    version: str | None = None
     """The version the service says it runs. Absent when it does not say."""
 
 
 class MeshHealth(BaseModel):
     connected: bool
-    hostname: Optional[str] = None
+    hostname: str | None = None
     """The hub node's MagicDNS name, as its tailscaled reports it."""
-    ipv4: Optional[str] = None
+    ipv4: str | None = None
 
 
 class HubHealthReport(BaseModel):
@@ -751,7 +827,7 @@ class HubHealthReport(BaseModel):
     Bearer access token (the JWT's `client_id` claim), like a client report."""
 
     healthy: bool
-    version: Optional[str] = None
-    instances: Dict[str, InstanceHealth] = Field(default_factory=dict)
+    version: str | None = None
+    instances: dict[str, InstanceHealth] = Field(default_factory=dict)
     """Keyed by the instance's name in the hub (the keys of the hub envelope's `instances`)."""
-    mesh: Optional[MeshHealth] = None
+    mesh: MeshHealth | None = None

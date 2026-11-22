@@ -63,7 +63,10 @@ def legacy_of(reach: Reach, host: str | None) -> tuple[str, str]:
         return ("absolute" if host else "mesh", "ionscale")
     if reach == "internal":
         return ("docker", "local")
-    return ("absolute", {"loopback": "local", "lan": "network", "public": "public"}[reach])
+    return (
+        "absolute",
+        {"loopback": "local", "lan": "network", "public": "public"}[reach],
+    )
 
 
 #: Where an alias of each reach is ranked when its hub's owner set no priority, lower first,

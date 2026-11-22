@@ -59,7 +59,9 @@ async def _held(membership):
 async def test_plain_member_cannot_grant_themselves_admin():
     s = await sync_to_async(_setup)()
 
-    result = await _update(s["member"], s["member_membership"], [str(s["admin_role"].id)])
+    result = await _update(
+        s["member"], s["member_membership"], [str(s["admin_role"].id)]
+    )
 
     assert result.errors, f"a plain member escalated to admin: {result.data}"
     assert "not allowed to manage memberships" in result.errors[0].message
@@ -74,7 +76,9 @@ async def test_owner_replaces_roles_rather_than_appending():
     result = await _update(s["owner"], s["member_membership"], [str(s["editor"].id)])
 
     assert not result.errors, result.errors
-    assert [r["identifier"] for r in result.data["updateMembership"]["roles"]] == ["editor"]
+    assert [r["identifier"] for r in result.data["updateMembership"]["roles"]] == [
+        "editor"
+    ]
     # `roles.set` is a replacement: the viewer role the member held before is gone.
     assert await _held(s["member_membership"]) == ["editor"]
 
@@ -94,7 +98,9 @@ async def test_admin_who_is_not_owner_may_also_set_roles():
 @pytest.mark.asyncio
 async def test_role_from_another_organization_is_dropped():
     s = await sync_to_async(_setup)()
-    foreign_role = await sync_to_async(lambda: create_role(factories.make_organization(), "editor"))()
+    foreign_role = await sync_to_async(
+        lambda: create_role(factories.make_organization(), "editor")
+    )()
 
     result = await _update(
         s["owner"], s["member_membership"], [str(s["editor"].id), str(foreign_role.id)]
@@ -129,11 +135,15 @@ async def test_outsider_gets_the_uniform_denial():
     outsider = await sync_to_async(factories.make_membership)()
     outsider_context = await sync_to_async(
         lambda: build_auth_context(
-            outsider.user, outsider.organization, factories.make_client(membership=outsider)
+            outsider.user,
+            outsider.organization,
+            factories.make_client(membership=outsider),
         )
     )()
 
-    result = await _update(outsider_context, s["member_membership"], [str(s["editor"].id)])
+    result = await _update(
+        outsider_context, s["member_membership"], [str(s["editor"].id)]
+    )
 
     assert result.errors
     assert "not allowed to manage memberships" in result.errors[0].message

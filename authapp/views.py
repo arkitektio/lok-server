@@ -18,20 +18,21 @@ contributors and to clarify security-related decorators (CSRF, allowed
 methods).
 """
 
-from django.http import HttpRequest, HttpResponse, JsonResponse
-from django.shortcuts import render, redirect
-from django.contrib.auth import logout
-from django.contrib.auth.views import LoginView
-from django.urls import reverse_lazy, reverse
-from django.contrib.auth.decorators import login_required
-from django.views.decorators.http import require_http_methods
-from authapp.server import server, resource_protector
-from authlib.oauth2 import OAuth2Error
-from django.views.decorators.csrf import csrf_exempt
 from urllib.parse import urljoin, urlsplit, urlunsplit
 
+from authlib.oauth2 import OAuth2Error
 from django.conf import settings
+from django.contrib.auth import logout
+from django.contrib.auth.decorators import login_required
+from django.contrib.auth.views import LoginView
 from django.core.exceptions import ValidationError
+from django.http import HttpRequest, HttpResponse, JsonResponse
+from django.shortcuts import redirect, render
+from django.urls import reverse, reverse_lazy
+from django.views.decorators.csrf import csrf_exempt
+from django.views.decorators.http import require_http_methods
+
+from authapp.server import resource_protector, server
 from authapp.token_generators import public_jwks
 
 
@@ -54,8 +55,8 @@ def user_info(request: HttpRequest) -> JsonResponse:
     403. The individual claims are gated by scope instead (§5.4), which is
     where that gating belongs.
     """
-    from fakts.models import Client
     from authapp.oidc_claims import build_claims
+    from fakts.models import Client
 
     membership = request.oauth_token.user  # type: ignore
 
@@ -142,7 +143,10 @@ def _authorization_server_metadata(request: HttpRequest) -> dict:
     /.well-known/oauth-authorization-server and /.well-known/openid-configuration
     (which adds its OIDC-specific fields on top). /.well-known/fakts inlines the
     same core so fakts clients need a single discovery request."""
-    from authapp.server import GRANT_TYPES_SUPPORTED, TOKEN_ENDPOINT_AUTH_METHODS_SUPPORTED
+    from authapp.server import (
+        GRANT_TYPES_SUPPORTED,
+        TOKEN_ENDPOINT_AUTH_METHODS_SUPPORTED,
+    )
 
     return {
         "issuer": settings.OIDC_ISSUER,
@@ -255,10 +259,15 @@ def authorize(request: HttpRequest) -> HttpResponse:
     # as a 400 rather than surfacing as a 500.
     organization = request.POST.get("organization")
     try:
-        membership = Membership.objects.get(user=request.user, organization_id=organization)
+        membership = Membership.objects.get(
+            user=request.user, organization_id=organization
+        )
     except (Membership.DoesNotExist, ValueError, ValidationError):
         return JsonResponse(
-            {"error": "invalid_request", "error_description": "You are not a member of the selected organization."},
+            {
+                "error": "invalid_request",
+                "error_description": "You are not a member of the selected organization.",
+            },
             status=400,
         )
 
@@ -299,7 +308,10 @@ def _may_authorize_into(client, membership) -> bool:
 
     if client.kind == ClientKindChoices.RELYING_PARTY.value:
         return True
-    return client.organization_id is not None and client.organization_id == membership.organization_id
+    return (
+        client.organization_id is not None
+        and client.organization_id == membership.organization_id
+    )
 
 
 @csrf_exempt
@@ -337,7 +349,11 @@ def issue_token(request: HttpRequest) -> HttpResponse | tuple:
     Returns:
         HttpResponse produced by the AuthorizationServer token handler.
     """
-    from authapp.throttle import TOKEN_LIMIT_PER_MINUTE, is_throttled, throttled_response
+    from authapp.throttle import (
+        TOKEN_LIMIT_PER_MINUTE,
+        is_throttled,
+        throttled_response,
+    )
 
     if is_throttled(request, "token", TOKEN_LIMIT_PER_MINUTE):
         return throttled_response()

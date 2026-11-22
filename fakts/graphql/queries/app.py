@@ -1,6 +1,7 @@
 import strawberry
 from graphql import GraphQLError
 from kante.types import Info
+
 from fakts import models, scalars, types
 from karakter.authz import DENIED, get_scoped_or_denied
 

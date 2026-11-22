@@ -129,8 +129,12 @@ def mocked_signature_validation():
 def post_assertion(client, saml_response):
     """Drive ACS -> finish, the two-step redirect allauth uses to get the IdP's
     cross-site POST onto a same-site GET before logging the user in."""
-    slug = {"organization_slug": "acme-university"}  # allauth's kwarg name; it is the client_id
-    response = client.post(reverse("saml_acs", kwargs=slug), data={"SAMLResponse": saml_response})
+    slug = {
+        "organization_slug": "acme-university"
+    }  # allauth's kwarg name; it is the client_id
+    response = client.post(
+        reverse("saml_acs", kwargs=slug), data={"SAMLResponse": saml_response}
+    )
     assert response.status_code == HTTPStatus.FOUND
 
     finish = reverse("saml_finish_acs", kwargs=slug)
@@ -140,7 +144,9 @@ def post_assertion(client, saml_response):
 
 @pytest.mark.django_db
 @override_settings(SOCIALACCOUNT_PROVIDERS={"saml": {"APPS": [SAML_APP]}})
-def test_saml_assertion_registers_and_logs_in_a_user(saml_response, mocked_signature_validation):
+def test_saml_assertion_registers_and_logs_in_a_user(
+    saml_response, mocked_signature_validation
+):
     post_assertion(Client(HTTP_HOST=HOST), saml_response)
 
     user = User.objects.get(socialaccount__uid="dummysamluid")
@@ -153,7 +159,9 @@ def test_saml_assertion_registers_and_logs_in_a_user(saml_response, mocked_signa
 
 @pytest.mark.django_db
 @override_settings(SOCIALACCOUNT_PROVIDERS={"saml": {"APPS": [SAML_APP]}})
-def test_saml_login_grants_no_organization_membership(saml_response, mocked_signature_validation):
+def test_saml_login_grants_no_organization_membership(
+    saml_response, mocked_signature_validation
+):
     """Standing guard against organization auto-provisioning creeping back in.
 
     An earlier design made a SAML app's client_id an Organization slug and granted
@@ -187,5 +195,3 @@ def test_second_saml_login_is_idempotent(saml_response, mocked_signature_validat
     user = User.objects.get(socialaccount__uid="dummysamluid")
     assert SocialAccount.objects.filter(user=user).count() == 1
     assert Membership.objects.filter(user=user).count() == 1
-
-

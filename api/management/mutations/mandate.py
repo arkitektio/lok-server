@@ -9,7 +9,13 @@ from graphql import GraphQLError
 from kante import Info
 
 import api.management.types as types
-from api.management.authz import DENIED, assert_member, get_or_denied, get_user, is_owner_or_admin
+from api.management.authz import (
+    DENIED,
+    assert_member,
+    get_or_denied,
+    get_user,
+    is_owner_or_admin,
+)
 from fakts import models as fakts_models
 from fakts.base_models import MandatePin, RequirementPin
 from fakts.services import mandates as services
@@ -27,10 +33,20 @@ class ManagementMandatePinInput:
     """The app a key admits. A field left out is open."""
 
     identifier: str
-    version: str | None = strawberry.field(default=None, description="Pin one release. Left out: every release.")
-    device_id: str | None = strawberry.field(default=None, description="Pin one device. Left out: any device.")
-    scopes: list[str] | None = strawberry.field(default=None, description="The most scopes the app may ask for. Left out: the organization's.")
-    requirements: list[ManagementRequirementPinInput] | None = strawberry.field(default=None, description="The most requirements the app may ask for. Left out: any.")
+    version: str | None = strawberry.field(
+        default=None, description="Pin one release. Left out: every release."
+    )
+    device_id: str | None = strawberry.field(
+        default=None, description="Pin one device. Left out: any device."
+    )
+    scopes: list[str] | None = strawberry.field(
+        default=None,
+        description="The most scopes the app may ask for. Left out: the organization's.",
+    )
+    requirements: list[ManagementRequirementPinInput] | None = strawberry.field(
+        default=None,
+        description="The most requirements the app may ask for. Left out: any.",
+    )
 
 
 @kante.input
@@ -39,11 +55,21 @@ class IssueMandateKeyInput:
 
     hub: strawberry.ID
     app: ManagementMandatePinInput | None = strawberry.field(
-        default=None, description="The app the key admits. Left out (owners and admins only): the first app that logs in with it."
+        default=None,
+        description="The app the key admits. Left out (owners and admins only): the first app that logs in with it.",
     )
-    expires_in_days: int | None = strawberry.field(default=None, description="The key stops working after this many days. Left out: until revoked.")
-    max_clients: int | None = strawberry.field(default=None, description="On how many devices the key may log in. Left out: unlimited.")
-    allow_mesh: bool = strawberry.field(default=False, description="Whether a client logging in with the key may ask for a mesh key.")
+    expires_in_days: int | None = strawberry.field(
+        default=None,
+        description="The key stops working after this many days. Left out: until revoked.",
+    )
+    max_clients: int | None = strawberry.field(
+        default=None,
+        description="On how many devices the key may log in. Left out: unlimited.",
+    )
+    allow_mesh: bool = strawberry.field(
+        default=False,
+        description="Whether a client logging in with the key may ask for a mesh key.",
+    )
     label: str | None = None
 
 
@@ -60,16 +86,26 @@ def _pin(app: ManagementMandatePinInput | None) -> MandatePin:
         version=app.version,
         device_id=app.device_id,
         scopes=sorted(set(app.scopes)) if app.scopes is not None else None,
-        requirements=[RequirementPin(key=r.key, service=r.service) for r in app.requirements] if app.requirements is not None else None,
+        requirements=[
+            RequirementPin(key=r.key, service=r.service) for r in app.requirements
+        ]
+        if app.requirements is not None
+        else None,
     )
 
 
-def issue_mandate_key(info: Info, input: IssueMandateKeyInput) -> types.ManagementIssuedMandateKey:
+def issue_mandate_key(
+    info: Info, input: IssueMandateKeyInput
+) -> types.ManagementIssuedMandateKey:
     """Issue a mandate key for a hub, acting as you. The key is shown here once; it
     stops working when you leave the organization or it is revoked."""
-    hub = get_or_denied(fakts_models.Hub.objects.select_related("organization"), id=input.hub)
+    hub = get_or_denied(
+        fakts_models.Hub.objects.select_related("organization"), id=input.hub
+    )
     assert_member(info, hub.organization)
-    membership = models.Membership.objects.select_related("organization").get(user=get_user(info), organization=hub.organization)
+    membership = models.Membership.objects.select_related("organization").get(
+        user=get_user(info), organization=hub.organization
+    )
 
     expires_at = None
     if input.expires_in_days is not None:
@@ -91,15 +127,22 @@ def issue_mandate_key(info: Info, input: IssueMandateKeyInput) -> types.Manageme
         )
     except services.MandateError as e:
         raise GraphQLError(str(e)) from e
-    return types.ManagementIssuedMandateKey(mandate=issued.mandate, key=issued.key or "")
+    return types.ManagementIssuedMandateKey(
+        mandate=issued.mandate, key=issued.key or ""
+    )
 
 
 def revoke_mandate(info: Info, input: RevokeMandateInput) -> types.ManagementMandate:
     """Withdraw a mandate (its grantor, or the organization's owner/admins). Every
     mandate issued under it stops working too, and their clients are deleted."""
-    mandate = get_or_denied(fakts_models.Mandate.objects.select_related("organization", "membership"), id=input.id)
+    mandate = get_or_denied(
+        fakts_models.Mandate.objects.select_related("organization", "membership"),
+        id=input.id,
+    )
     user = get_user(info)
-    if mandate.membership.user_id != user.id and not is_owner_or_admin(user, mandate.organization):
+    if mandate.membership.user_id != user.id and not is_owner_or_admin(
+        user, mandate.organization
+    ):
         raise GraphQLError(DENIED)
     services.revoke_mandate(mandate)
     mandate.refresh_from_db()

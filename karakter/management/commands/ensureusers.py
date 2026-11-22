@@ -1,7 +1,8 @@
 from allauth.account.models import EmailAddress
+from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.core.management.base import BaseCommand
-from django.conf import settings
+
 from karakter.base_models import UserConfig
 
 User = get_user_model()
@@ -46,16 +47,26 @@ class Command(BaseCommand):
                     user.set_password(user_config.password.strip())
                     user.save()
 
-                    self.stdout.write(self.style.SUCCESS(f"Updated user {user.username}"))
+                    self.stdout.write(
+                        self.style.SUCCESS(f"Updated user {user.username}")
+                    )
                 else:
-                    user = User.objects.create_user(username=user_config.username, email=user_config.email, password=user_config.password)
+                    user = User.objects.create_user(
+                        username=user_config.username,
+                        email=user_config.email,
+                        password=user_config.password,
+                    )
                     user.is_superuser = user_config.is_superuser
                     user.is_staff = user_config.is_staff
                     user.save()
-                    self.stdout.write(self.style.SUCCESS(f"Created user {user.username}"))
+                    self.stdout.write(
+                        self.style.SUCCESS(f"Created user {user.username}")
+                    )
 
                 if user_config.email:
                     _ensure_verified_email(user, user_config.email)
 
             except Exception as e:
-                self.stdout.write(self.style.ERROR(f"Error creating user {lokuser}: {e}"))
+                self.stdout.write(
+                    self.style.ERROR(f"Error creating user {lokuser}: {e}")
+                )

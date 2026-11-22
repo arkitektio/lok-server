@@ -19,7 +19,6 @@ from asgiref.sync import sync_to_async
 from graphql import GraphQLError
 from strawberry.extensions import SchemaExtension
 
-
 # GraphQL field names (camelCase) that may be resolved without authentication.
 # `inviteByCode` powers the public invite-preview page (`/invite/:code`); the
 # resolver itself still hides private invites from anonymous visitors.
@@ -79,7 +78,9 @@ class RequireAuthenticationExtension(SchemaExtension):
                 _is_authenticated, thread_sensitive=True
             )(request)
             if not authenticated:
-                raise GraphQLError("Authentication required to access the management API.")
+                raise GraphQLError(
+                    "Authentication required to access the management API."
+                )
 
         result = _next(root, info, *args, **kwargs)
         if inspect.isawaitable(result):

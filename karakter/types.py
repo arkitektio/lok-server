@@ -1,16 +1,24 @@
 import datetime
-from typing import Annotated, List, Optional, cast
-from karakter.datalayer import get_current_datalayer
+from typing import Annotated, Optional, cast
+
+import kante
 import strawberry
 import strawberry_django
-from kante.types import Info
-from karakter import filters, models, scalars
 from allauth.socialaccount import models as smodels
-import kante
-from .type_gen import create_stats_type
 from django.db.models import Q
-from karakter.authz import build_prescoped_queryset, caller_is_guest, get_organization, get_user
+from kante.types import Info
+
+from karakter import filters, models, scalars
+from karakter.authz import (
+    build_prescoped_queryset,
+    caller_is_guest,
+    get_organization,
+    get_user,
+)
+from karakter.datalayer import get_current_datalayer
 from karakter.roles import owner_or_admin_q
+
+from .type_gen import create_stats_type
 
 
 def build_prescoper(field="organization"):
@@ -36,7 +44,7 @@ class Group:
     profile: Optional["GroupProfile"]
 
     @strawberry_django.field(description="The users that are in the group")
-    def users(self, info: Info) -> List["User"]:
+    def users(self, info: Info) -> list["User"]:
         return models.User.objects.filter(groups=self)
 
     @classmethod
@@ -62,7 +70,9 @@ class MediaStore:
     @strawberry_django.field()
     def presigned_url(self, info: Info, host: str | None = None) -> str:
         datalayer = get_current_datalayer()
-        return cast(models.MediaStore, self).get_presigned_url(info, datalayer=datalayer, host=host)
+        return cast(models.MediaStore, self).get_presigned_url(
+            info, datalayer=datalayer, host=host
+        )
 
 
 @strawberry_django.type(
@@ -89,19 +99,35 @@ class User:
     last_name: str | None
     email: str | None
     groups: list[Group]
-    memberships: list["Membership"] = strawberry_django.field(description="The memberships of the user in organizations")
+    memberships: list["Membership"] = strawberry_django.field(
+        description="The memberships of the user in organizations"
+    )
     profile: "Profile"
 
-    @strawberry_django.field(description="A short-lived URL of the user's avatar (`profile.avatar`), if they have one.")
+    @strawberry_django.field(
+        description="A short-lived URL of the user's avatar (`profile.avatar`), if they have one."
+    )
     def avatar(self, info: Info) -> str | None:
         store = cast(models.User, self).avatar
-        return store.get_presigned_url(info, datalayer=get_current_datalayer()) if store else None
-    com_channels: list["ComChannel"] = strawberry_django.field(description="The communication channels that the user has")
+        return (
+            store.get_presigned_url(info, datalayer=get_current_datalayer())
+            if store
+            else None
+        )
+
+    com_channels: list["ComChannel"] = strawberry_django.field(
+        description="The communication channels that the user has"
+    )
 
     @classmethod
     def get_queryset(cls, queryset, info: Info):
         # A guest sees themselves, not the organization's member directory.
-        return build_prescoped_queryset(info, queryset, field="memberships__organization", guest=lambda qs, user, _m: qs.filter(pk=user.pk))
+        return build_prescoped_queryset(
+            info,
+            queryset,
+            field="memberships__organization",
+            guest=lambda qs, user, _m: qs.filter(pk=user.pk),
+        )
 
 
 UserStats, UserStatsResolver = create_stats_type(
@@ -144,8 +170,12 @@ about an organization, such as a display name, a short bio and an avatar (logo).
 class OrganizationProfile:
     id: strawberry.ID
     bio: str | None = strawberry.field(description="A short bio of the organization")
-    name: str | None = strawberry.field(description="The display name of the organization")
-    avatar: MediaStore | None = strawberry.field(description="The avatar (logo) of the organization")
+    name: str | None = strawberry.field(
+        description="The display name of the organization"
+    )
+    avatar: MediaStore | None = strawberry.field(
+        description="The avatar (logo) of the organization"
+    )
 
 
 @strawberry_django.type(
@@ -179,20 +209,30 @@ class SocialAccount:
         "For ordinary providers this is the provider id ('google', 'orcid'); for sub-providers "
         "(SAML, OpenID Connect) it is the configured `provider_id` of the specific app, e.g. 'saml:acme'."
     )
-    uid: str = strawberry.field(description="The unique identifier of the account. This is unique for the provider.")
-    extra_data: scalars.ExtraData = strawberry.field(description="Extra data that is specific to the provider. This is a json field and can be used to store arbitrary data.")
+    uid: str = strawberry.field(
+        description="The unique identifier of the account. This is unique for the provider."
+    )
+    extra_data: scalars.ExtraData = strawberry.field(
+        description="Extra data that is specific to the provider. This is a json field and can be used to store arbitrary data."
+    )
 
 
-@strawberry.type(description="""The ORCID Identifier of a user. This is a unique identifier that is used to identify a user on the ORCID service. It is composed of a uri, a path and a host.""")
+@strawberry.type(
+    description="""The ORCID Identifier of a user. This is a unique identifier that is used to identify a user on the ORCID service. It is composed of a uri, a path and a host."""
+)
 class OrcidIdentifier:
     uri: str = strawberry.field(description="The uri of the identifier")
     path: str = strawberry.field(description="The path of the identifier")
     host: str = strawberry.field(description="The host of the identifier")
 
 
-@strawberry.type(description="""The ORCID Preferences of a user. This is a set of preferences that are specific to the ORCID service. Currently only the locale is supported.""")
+@strawberry.type(
+    description="""The ORCID Preferences of a user. This is a set of preferences that are specific to the ORCID service. Currently only the locale is supported."""
+)
 class OrcidPreferences:
-    locale: str = strawberry.field(description="The locale of the user. This is used to determine the language of the ORCID service.")
+    locale: str = strawberry.field(
+        description="The locale of the user. This is used to determine the language of the ORCID service."
+    )
 
 
 @strawberry.type(description="""Assoiated OridReseracher Result""")
@@ -231,23 +271,31 @@ This includes the ORCID Activities, the ORCID Researcher URLs and the ORCID Addr
 """,
 )
 class OrcidAccount(SocialAccount):
-    @strawberry_django.field(description="The ORCID Identifier of the user. The UID of the account is the same as the path of the identifier. Null if the provider did not return one.")
-    def identifier(self) -> Optional[OrcidIdentifier]:
+    @strawberry_django.field(
+        description="The ORCID Identifier of the user. The UID of the account is the same as the path of the identifier. Null if the provider did not return one."
+    )
+    def identifier(self) -> OrcidIdentifier | None:
         data = (self.extra_data or {}).get("orcid-identifier")
         if not isinstance(data, dict):
             return None
         try:
-            return OrcidIdentifier(uri=data["uri"], path=data["path"], host=data["host"])
+            return OrcidIdentifier(
+                uri=data["uri"], path=data["path"], host=data["host"]
+            )
         except KeyError:
             return None
 
-    @strawberry_django.field(description="Information about the person that is specific to the ORCID service.")
-    def person(self) -> Optional[OrcidPerson]:
+    @strawberry_django.field(
+        description="Information about the person that is specific to the ORCID service."
+    )
+    def person(self) -> OrcidPerson | None:
         person = self.extra_data.get("person", None)
         if not person:
             return None
 
-        researcher_urls = (self.extra_data.get("researcher-urls") or {}).get("researcher-urls") or []
+        researcher_urls = (self.extra_data.get("researcher-urls") or {}).get(
+            "researcher-urls"
+        ) or []
         addresses = (self.extra_data.get("addresses") or {}).get("addresses") or []
 
         return OrcidPerson(researcher_urls=researcher_urls, addresses=addresses)
@@ -268,7 +316,9 @@ user that is specific to the Github service. This includes the Github Identifier
 """,
 )
 class GithubAccount(SocialAccount):
-    @strawberry_django.field(description="The GitHub login of the account, if the provider returned one.")
+    @strawberry_django.field(
+        description="The GitHub login of the account, if the provider returned one."
+    )
     def identifier(self) -> str | None:
         login = (self.extra_data or {}).get("login")
         return str(login) if login else None
@@ -296,17 +346,32 @@ class GenericAccount(SocialAccount):
         return ob.provider != "orcid"
 
 
-@strawberry.type(description="""A change to one of the caller's system messages. Exactly one field is set.""")
+@strawberry.type(
+    description="""A change to one of the caller's system messages. Exactly one field is set."""
+)
 class SystemMessageEvent:
-    create: Optional["SystemMessage"] = strawberry.field(default=None, description="A message the caller just got.")
-    update: Optional["SystemMessage"] = strawberry.field(default=None, description="A message of the caller that changed (e.g. was acknowledged).")
-    delete: Optional[strawberry.ID] = strawberry.field(default=None, description="The id of a message of the caller that was deleted.")
+    create: Optional["SystemMessage"] = strawberry.field(
+        default=None, description="A message the caller just got."
+    )
+    update: Optional["SystemMessage"] = strawberry.field(
+        default=None,
+        description="A message of the caller that changed (e.g. was acknowledged).",
+    )
+    delete: strawberry.ID | None = strawberry.field(
+        default=None, description="The id of a message of the caller that was deleted."
+    )
 
 
-@strawberry.type(description="""A membership request into the active organization was made or answered. Exactly one field is set.""")
+@strawberry.type(
+    description="""A membership request into the active organization was made or answered. Exactly one field is set."""
+)
 class MembershipRequestEvent:
-    create: Optional["MembershipRequest"] = strawberry.field(default=None, description="A new request.")
-    update: Optional["MembershipRequest"] = strawberry.field(default=None, description="A request that was answered.")
+    create: Optional["MembershipRequest"] = strawberry.field(
+        default=None, description="A new request."
+    )
+    update: Optional["MembershipRequest"] = strawberry.field(
+        default=None, description="A request that was answered."
+    )
 
 
 @strawberry_django.type(
@@ -329,13 +394,23 @@ class SystemMessage:
     user: User
 
 
-@strawberry_django.type(models.Role, filters=filters.RoleFilter, pagination=True, description="""A Role is a set of permissions that can be assigned to a user. It is used to define what a user can do in the system.""", ordering=filters.RoleOrdering)
+@strawberry_django.type(
+    models.Role,
+    filters=filters.RoleFilter,
+    pagination=True,
+    description="""A Role is a set of permissions that can be assigned to a user. It is used to define what a user can do in the system.""",
+    ordering=filters.RoleOrdering,
+)
 class Role:
     id: strawberry.ID
     identifier: str
     organization: "Organization"
-    is_admin_role: bool = strawberry.field(description="The role lets a member do everything in the service declaring it. Lok gives it to the organization's owner and admins.")
-    is_default_role: bool = strawberry.field(description="Every full member holds the role, unless an admin took it away.")
+    is_admin_role: bool = strawberry.field(
+        description="The role lets a member do everything in the service declaring it. Lok gives it to the organization's owner and admins."
+    )
+    is_default_role: bool = strawberry.field(
+        description="Every full member holds the role, unless an admin took it away."
+    )
 
     @kante.django_field()
     def description(self, info: Info) -> "str":
@@ -359,16 +434,18 @@ class Membership:
     id: strawberry.ID
     user: User
     organization: "Organization"
-    created_at: Optional[datetime.datetime] = strawberry.field(
+    created_at: datetime.datetime | None = strawberry.field(
         description="When the user became a member. Null for an old membership whose invite or request did not tell."
     )
-    roles: List["Role"] = strawberry.field(description="The roles that the user has in the organization")
-    brand_hue: Optional[float] = strawberry.field(
+    roles: list["Role"] = strawberry.field(
+        description="The roles that the user has in the organization"
+    )
+    brand_hue: float | None = strawberry.field(
         description="The member's personal brand hue (0–360) for this organization, if set. "
         "Null means they have not overridden the organization's default — fall back to "
         "`organization.brandHue`."
     )
-    brand_chroma: Optional[float] = strawberry.field(
+    brand_chroma: float | None = strawberry.field(
         description="The member's personal brand chroma (0–1) for this organization, if set. "
         "Null means they have not overridden the organization's default — fall back to "
         "`organization.brandChroma`."
@@ -377,7 +454,12 @@ class Membership:
     @classmethod
     def get_queryset(cls, queryset, info: Info):
         # A guest sees their own membership, not who else is in the organization.
-        return build_prescoped_queryset(info, queryset, field="organization", guest=lambda qs, user, _m: qs.filter(user=user))
+        return build_prescoped_queryset(
+            info,
+            queryset,
+            field="organization",
+            guest=lambda qs, user, _m: qs.filter(user=user),
+        )
 
 
 MembershipStats, MembershipStatsResolver = create_stats_type(
@@ -389,33 +471,62 @@ MembershipStats, MembershipStatsResolver = create_stats_type(
 )
 
 
-@strawberry_django.type(models.Organization, filters=filters.OrganizationFilter, pagination=True, description="""An Organization is a group of users that can work together on a project.""", ordering=filters.OrganizationOrdering)
+@strawberry_django.type(
+    models.Organization,
+    filters=filters.OrganizationFilter,
+    pagination=True,
+    description="""An Organization is a group of users that can work together on a project.""",
+    ordering=filters.OrganizationOrdering,
+)
 class Organization:
     id: strawberry.ID
     slug: str
-    description: str | None = strawberry.field(description="A short description of the organization")
-    brand_hue: Optional[float] = strawberry.field(description="The organization's default brand hue (0–360), if set. Members can override it per-membership.")
-    brand_chroma: Optional[float] = strawberry.field(description="The organization's default brand chroma (0–1), if set. Members can override it per-membership.")
+    description: str | None = strawberry.field(
+        description="A short description of the organization"
+    )
+    brand_hue: float | None = strawberry.field(
+        description="The organization's default brand hue (0–360), if set. Members can override it per-membership."
+    )
+    brand_chroma: float | None = strawberry.field(
+        description="The organization's default brand chroma (0–1), if set. Members can override it per-membership."
+    )
 
-    @strawberry_django.field(description="The logo of the organization. Mirrors `profile.avatar`; prefer that field.")
+    @strawberry_django.field(
+        description="The logo of the organization. Mirrors `profile.avatar`; prefer that field."
+    )
     def avatar(self, info: Info) -> MediaStore | None:
         org = cast(models.Organization, self)
-        profile = models.OrganizationProfile.objects.filter(organization=org).select_related("avatar").first()
+        profile = (
+            models.OrganizationProfile.objects.filter(organization=org)
+            .select_related("avatar")
+            .first()
+        )
         return (profile.avatar if profile else None) or org.avatar
-    active_users: List[User] = strawberry.field(description="The users that are currently active in the organization")
+
+    active_users: list[User] = strawberry.field(
+        description="The users that are currently active in the organization"
+    )
     profile: "OrganizationProfile"
-    memberships: List["Membership"] = strawberry_django.field(description="the memberships of people")
-    invites: List["Invite"] = strawberry_django.field(description="the invites for this organization")
-    membership_requests: List["MembershipRequest"] = strawberry_django.field(
+    memberships: list["Membership"] = strawberry_django.field(
+        description="the memberships of people"
+    )
+    invites: list["Invite"] = strawberry_django.field(
+        description="the invites for this organization"
+    )
+    membership_requests: list["MembershipRequest"] = strawberry_django.field(
         description="Requests of non-members to join this organization. Only its owner and admins see any."
     )
 
-    @strawberry_django.field(description="The roles that are available in the organization")
-    def roles(self) -> List["Role"]:
+    @strawberry_django.field(
+        description="The roles that are available in the organization"
+    )
+    def roles(self) -> list["Role"]:
         return self.roles.all()
 
-    @strawberry_django.field(description="The users that are part of the organization. Only yourself for a guest who was only granted some collaborations.")
-    def users(self, info: Info) -> List[User]:
+    @strawberry_django.field(
+        description="The users that are part of the organization. Only yourself for a guest who was only granted some collaborations."
+    )
+    def users(self, info: Info) -> list[User]:
         users = models.User.objects.filter(memberships__organization=self).distinct()
         if caller_is_guest(info):
             return users.filter(pk=get_user(info).pk)
@@ -431,20 +542,40 @@ class Organization:
         return queryset.filter(id=get_organization(info).id)
 
 
-@strawberry_django.type(models.ComChannel, filters=filters.ComChannelFilter, pagination=True, description="""A communication channel through which a user can be notified (e.g. a push token).""", ordering=filters.ComChannelOrdering)
+@strawberry_django.type(
+    models.ComChannel,
+    filters=filters.ComChannelFilter,
+    pagination=True,
+    description="""A communication channel through which a user can be notified (e.g. a push token).""",
+    ordering=filters.ComChannelOrdering,
+)
 class ComChannel:
     id: strawberry.ID
     user: User
 
 
-@strawberry.type(description="""One collaboration a collaboration invite grants: a collaboration of a service instance, with the roles that hold inside it.""")
+@strawberry.type(
+    description="""One collaboration a collaboration invite grants: a collaboration of a service instance, with the roles that hold inside it."""
+)
 class SharedCollaboration:
-    instance: strawberry.ID = strawberry.field(description="The service instance the collaboration lives in.")
-    collaboration: str = strawberry.field(description="The collaboration's id in that service.")
-    roles: list[str] = strawberry.field(description="Identifiers of the organization's roles that hold inside the collaboration. Empty: view only.")
+    instance: strawberry.ID = strawberry.field(
+        description="The service instance the collaboration lives in."
+    )
+    collaboration: str = strawberry.field(
+        description="The collaboration's id in that service."
+    )
+    roles: list[str] = strawberry.field(
+        description="Identifiers of the organization's roles that hold inside the collaboration. Empty: view only."
+    )
 
 
-@strawberry_django.type(models.Invite, filters=filters.InviteFilter, pagination=True, description="""A single-use magic invite link that allows one person to join an organization.""", ordering=filters.InviteOrdering)
+@strawberry_django.type(
+    models.Invite,
+    filters=filters.InviteFilter,
+    pagination=True,
+    description="""A single-use magic invite link that allows one person to join an organization.""",
+    ordering=filters.InviteOrdering,
+)
 class Invite:
     id: strawberry.ID
     token: str
@@ -459,18 +590,35 @@ class Invite:
     responded_at: datetime.datetime | None
     roles: list["Role"]
     created_memberships: list["Membership"]
-    public: bool = strawberry.field(description="Whether anyone with the link can preview the invitation before signing in.")
-    max_uses: int | None = strawberry.field(description="For a collaboration invite: how many people may accept it. Null: anyone with the link until it expires.")
+    public: bool = strawberry.field(
+        description="Whether anyone with the link can preview the invitation before signing in."
+    )
+    max_uses: int | None = strawberry.field(
+        description="For a collaboration invite: how many people may accept it. Null: anyone with the link until it expires."
+    )
     uses: int = strawberry.field(description="How many people accepted it so far.")
-    mesh: bool = strawberry.field(description="For a collaboration invite: whether its guests' apps may join the organization's mesh, reaching only the hubs the granted collaborations run on.")
+    mesh: bool = strawberry.field(
+        description="For a collaboration invite: whether its guests' apps may join the organization's mesh, reaching only the hubs the granted collaborations run on."
+    )
 
-    @strawberry_django.field(description="The collaborations this invite grants, with the roles that hold inside each. Null for an invite that makes its holder a member.")
+    @strawberry_django.field(
+        description="The collaborations this invite grants, with the roles that hold inside each. Null for an invite that makes its holder a member."
+    )
     def collaborations(self) -> list[SharedCollaboration] | None:
         if self.shared_collaborations is None:
             return None
-        return [SharedCollaboration(instance=strawberry.ID(str(e["instance"])), collaboration=e["collaboration"], roles=list(e.get("roles") or [])) for e in self.shared_collaborations]
+        return [
+            SharedCollaboration(
+                instance=strawberry.ID(str(e["instance"])),
+                collaboration=e["collaboration"],
+                roles=list(e.get("roles") or []),
+            )
+            for e in self.shared_collaborations
+        ]
 
-    @strawberry_django.field(description="Check if the invite is still valid and pending")
+    @strawberry_django.field(
+        description="Check if the invite is still valid and pending"
+    )
     def valid(self) -> bool:
         """Check if the invite is still valid"""
         return self.is_valid()
@@ -526,12 +674,16 @@ class Invite:
 class MembershipRequest:
     id: strawberry.ID
     reason: str | None
-    status: str = strawberry.field(description="`pending`, `approved` or `declined` (filter with `MembershipRequestStatus`).")
+    status: str = strawberry.field(
+        description="`pending`, `approved` or `declined` (filter with `MembershipRequestStatus`)."
+    )
     created_at: datetime.datetime
     resolved_by: User | None
     responded_at: datetime.datetime | None
 
-    @strawberry_django.field(description="The user who asks to join. Not a member yet, so they are visible here and nowhere else.")
+    @strawberry_django.field(
+        description="The user who asks to join. Not a member yet, so they are visible here and nowhere else."
+    )
     def user(self) -> User:
         # Fetched as a row, not a queryset: `User.get_queryset` only shows
         # members of the active organization, which the requester is not. By
@@ -552,22 +704,34 @@ class MembershipRequest:
         ).distinct()
 
 
-def _active_membership(user: models.User | None, organization: models.Organization | None) -> models.Membership | None:
+def _active_membership(
+    user: models.User | None, organization: models.Organization | None
+) -> models.Membership | None:
     """The user's membership in the organization the request acts in, if they hold one."""
     if user is None or organization is None:
         return None
-    return models.Membership.objects.filter(user=user, organization=organization).first()
+    return models.Membership.objects.filter(
+        user=user, organization=organization
+    ).first()
 
 
 @strawberry.type
 class Context:
     """The context of this app. It is used to provide information about the current request and user."""
 
-    user: User = strawberry.field(description="The user that is associated with this app")
-    organization: Organization = strawberry.field(description="The organization that is associated with this app")
-    roles: List[str] = strawberry.field(description="The roles that the user has in the organization")
-    scope: List[str] = strawberry.field(description="The scope of the app within in the organization")
-    hub: Optional[Annotated["Hub", strawberry.lazy("fakts.types")]] = strawberry.field(
+    user: User = strawberry.field(
+        description="The user that is associated with this app"
+    )
+    organization: Organization = strawberry.field(
+        description="The organization that is associated with this app"
+    )
+    roles: list[str] = strawberry.field(
+        description="The roles that the user has in the organization"
+    )
+    scope: list[str] = strawberry.field(
+        description="The scope of the app within in the organization"
+    )
+    hub: Annotated["Hub", strawberry.lazy("fakts.types")] | None = strawberry.field(
         default=None,
         description=(
             "The hub this client was approved into (for an app client) or is the identity of "
@@ -576,25 +740,33 @@ class Context:
         ),
     )
 
-    @strawberry_django.field(description="The user's membership in the organization, or null when they are not a member of it.")
-    def membership(self) -> Optional[Membership]:
+    @strawberry_django.field(
+        description="The user's membership in the organization, or null when they are not a member of it."
+    )
+    def membership(self) -> Membership | None:
         return _active_membership(self.user, self.organization)
 
-    @strawberry_django.field(description="The brand hue (0–360) in effect: the member's own choice for the organization, else the organization's default. Null when neither is set.")
-    def brand_hue(self) -> Optional[float]:
+    @strawberry_django.field(
+        description="The brand hue (0–360) in effect: the member's own choice for the organization, else the organization's default. Null when neither is set."
+    )
+    def brand_hue(self) -> float | None:
         membership = _active_membership(self.user, self.organization)
         if membership is not None and membership.brand_hue is not None:
             return membership.brand_hue
         return self.organization.brand_hue if self.organization else None
 
-    @strawberry_django.field(description="The brand chroma (0–1) in effect: the member's own choice for the organization, else the organization's default. Null when neither is set.")
-    def brand_chroma(self) -> Optional[float]:
+    @strawberry_django.field(
+        description="The brand chroma (0–1) in effect: the member's own choice for the organization, else the organization's default. Null when neither is set."
+    )
+    def brand_chroma(self) -> float | None:
         membership = _active_membership(self.user, self.organization)
         if membership is not None and membership.brand_chroma is not None:
             return membership.brand_chroma
         return self.organization.brand_chroma if self.organization else None
 
-    @strawberry_django.field(description="Are we acting in the active organization of the user?")
+    @strawberry_django.field(
+        description="Are we acting in the active organization of the user?"
+    )
     def fits_active_organization(self) -> bool:
         """Check if the context is for the active organization of the user"""
         if not self.user or not self.organization:
@@ -609,6 +781,8 @@ class Context:
         `user.memberships` is scoped to it, so a client holding a link into
         another organization could not otherwise tell "join" from "connect"."""
         try:
-            return models.Membership.objects.filter(user=self.user, organization_id=organization).exists()
+            return models.Membership.objects.filter(
+                user=self.user, organization_id=organization
+            ).exists()
         except (ValueError, TypeError):
             return False

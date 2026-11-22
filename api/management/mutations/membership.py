@@ -4,9 +4,9 @@ import strawberry
 from graphql import GraphQLError
 from kante.types import Info
 
-from karakter import models
 from api.management import types
 from api.management.authz import DENIED, get_or_denied, is_owner, is_owner_or_admin
+from karakter import models
 from karakter.collaboration_grants import upgrade_to_full
 
 logger = logging.getLogger(__name__)
@@ -18,7 +18,9 @@ class UpdateMembershipInput:
     roles: list[strawberry.ID] | None = None
 
 
-def update_membership(info: Info, input: UpdateMembershipInput) -> types.ManagementMembership:
+def update_membership(
+    info: Info, input: UpdateMembershipInput
+) -> types.ManagementMembership:
     membership = get_or_denied(models.Membership.objects, pk=input.id)
     organization = membership.organization
     user = info.context.request.user
@@ -26,12 +28,16 @@ def update_membership(info: Info, input: UpdateMembershipInput) -> types.Managem
     # Only the organization's owner or an admin may change a member's roles —
     # otherwise any member could grant themselves (or anyone) admin.
     if not is_owner_or_admin(user, organization):
-        raise GraphQLError("You are not allowed to manage memberships for this organization.")
+        raise GraphQLError(
+            "You are not allowed to manage memberships for this organization."
+        )
 
     if input.roles:
         # Roles must belong to the membership's own organization; never let a role
         # id from another organization be attached.
-        roles = models.Role.objects.filter(pk__in=input.roles, organization=organization)
+        roles = models.Role.objects.filter(
+            pk__in=input.roles, organization=organization
+        )
         if membership.is_scoped:
             # Giving roles to a guest of some collaborations makes them a full member;
             # their collaboration grants go, the organization is theirs.
@@ -63,7 +69,9 @@ def delete_membership(info: Info, input: DeleteMembershipInput) -> strawberry.ID
 
     is_self = membership.user_id == user.id
     if not is_self and not is_owner_or_admin(user, organization):
-        raise GraphQLError("You are not allowed to manage memberships for this organization.")
+        raise GraphQLError(
+            "You are not allowed to manage memberships for this organization."
+        )
 
     if not is_self and is_owner(membership.user, organization):
         raise GraphQLError(
@@ -102,7 +110,9 @@ def set_membership_brand_hue(
     unchanged.
     """
     membership = get_or_denied(
-        models.Membership.objects, user=info.context.request.user, organization_id=input.organization
+        models.Membership.objects,
+        user=info.context.request.user,
+        organization_id=input.organization,
     )
 
     updated = []
@@ -122,7 +132,9 @@ def set_membership_brand_hue(
 class RequestMembershipInput:
     """Input for asking to become a member of an organization, named by its id"""
 
-    organization: strawberry.ID = strawberry.field(description="The organization's id: what a shared link carries.")
+    organization: strawberry.ID = strawberry.field(
+        description="The organization's id: what a shared link carries."
+    )
     reason: str | None = None
 
 
@@ -166,15 +178,21 @@ class DeclineMembershipRequestInput:
 def _pending_membership_request(info: Info, id) -> models.MembershipRequest:
     """A pending request the caller may answer: they own or administer its
     organization. Anyone else gets the same denial as a missing id."""
-    membership_request = get_or_denied(models.MembershipRequest.objects.select_related("organization"), pk=id)
-    if not is_owner_or_admin(info.context.request.user, membership_request.organization):
+    membership_request = get_or_denied(
+        models.MembershipRequest.objects.select_related("organization"), pk=id
+    )
+    if not is_owner_or_admin(
+        info.context.request.user, membership_request.organization
+    ):
         raise GraphQLError(DENIED)
     if membership_request.status != models.MembershipRequest.Status.PENDING:
         raise GraphQLError(f"This request has already been {membership_request.status}")
     return membership_request
 
 
-def approve_membership_request(info: Info, input: ApproveMembershipRequestInput) -> types.ManagementMembership:
+def approve_membership_request(
+    info: Info, input: ApproveMembershipRequestInput
+) -> types.ManagementMembership:
     """Approve a pending request to join. Only the organization's owner or admins
     may do this.
 
@@ -185,11 +203,21 @@ def approve_membership_request(info: Info, input: ApproveMembershipRequestInput)
 
     membership_request = _pending_membership_request(info, input.id)
     organization = membership_request.organization
-    roles = list(models.Role.objects.filter(identifier__in=input.roles or [], organization=organization))
+    roles = list(
+        models.Role.objects.filter(
+            identifier__in=input.roles or [], organization=organization
+        )
+    )
     membership = membership_request.approve(info.context.request.user, roles)
 
-    requester = models.User.objects.prefetch_related("com_channels").get(pk=membership_request.user_id)
-    _notify([requester], "You were added", f"You are now a member of {organization.name or organization.slug}.")
+    requester = models.User.objects.prefetch_related("com_channels").get(
+        pk=membership_request.user_id
+    )
+    _notify(
+        [requester],
+        "You were added",
+        f"You are now a member of {organization.name or organization.slug}.",
+    )
     return membership
 
 

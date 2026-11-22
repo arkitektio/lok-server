@@ -18,7 +18,9 @@ from django.http import JsonResponse
 
 # Requests per window per client IP. Generous by design: a polling device makes
 # ~12 token requests/min, but many devices can share a NAT.
-AUTHORIZATION_LIMIT_PER_MINUTE = getattr(settings, "OAUTH_AUTHORIZATION_THROTTLE_PER_MINUTE", 30)
+AUTHORIZATION_LIMIT_PER_MINUTE = getattr(
+    settings, "OAUTH_AUTHORIZATION_THROTTLE_PER_MINUTE", 30
+)
 TOKEN_LIMIT_PER_MINUTE = getattr(settings, "OAUTH_TOKEN_THROTTLE_PER_MINUTE", 240)
 WINDOW_SECONDS = 60
 

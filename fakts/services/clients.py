@@ -29,7 +29,10 @@ logger = logging.getLogger(__name__)
 # (with registered redirect URIs and PKCE) can use the standard code flow.
 # Clients that log in with a mandate key are registered for that grant only
 # (see fakts.services.mandates).
-FAKTS_CLIENT_GRANT_TYPES = "urn:ietf:params:oauth:grant-type:device_code refresh_token authorization_code"
+FAKTS_CLIENT_GRANT_TYPES = (
+    "urn:ietf:params:oauth:grant-type:device_code refresh_token authorization_code"
+)
+
 
 class DeviceAuthRequired(Exception):
     """Raised when an organization requires device authentication but the client
@@ -76,7 +79,9 @@ def finalize_client_scope(client: models.Client) -> str:
     scopes (``Client.scopes`` M2M) on top of the OIDC base scopes. This is the
     scope unification point — issued JWTs carry these instead of silently
     falling back to the OIDC defaults."""
-    granted = sorted(set(client.scopes.values_list("identifier", flat=True)) - set(BASE_OIDC_SCOPES))
+    granted = sorted(
+        set(client.scopes.values_list("identifier", flat=True)) - set(BASE_OIDC_SCOPES)
+    )
     scope = " ".join(BASE_OIDC_SCOPES + granted)
     client.scope = scope
     client.save(update_fields=["scope"])
@@ -110,7 +115,10 @@ def find_unchanged_client(
         manifest_hash=hash_manifest(manifest),
     ).exclude(pk=staged.pk)
     if manifest.device_id:
-        candidates = candidates.filter(node__organization=organization, node__node_id=hash_device_id(manifest.device_id, organization))
+        candidates = candidates.filter(
+            node__organization=organization,
+            node__node_id=hash_device_id(manifest.device_id, organization),
+        )
     else:
         candidates = candidates.filter(node__isnull=True)
     return candidates.first()
@@ -210,7 +218,9 @@ def bind_client(
     stale = stale.exclude(pk=client.pk)
     # Re-parent before the delete: the cascade would otherwise take the
     # mandates the old row issued with it.
-    models.Mandate.objects.filter(issuing_client__in=stale).update(issuing_client=client)
+    models.Mandate.objects.filter(issuing_client__in=stale).update(
+        issuing_client=client
+    )
     stale.delete()
 
     _keep_identities(client, release)
@@ -225,10 +235,21 @@ def bind_client(
     client.name = display_name
     client.manifest = manifest.model_dump()
     client.logo = logo or release.logo
-    client.public_sources = [t.model_dump() for t in manifest.public_sources] if manifest.public_sources else []
+    client.public_sources = (
+        [t.model_dump() for t in manifest.public_sources]
+        if manifest.public_sources
+        else []
+    )
     client.save()
 
-    client = auto_compose(client, manifest, user, organization, device=node, declined_requirements=declined_requirements)
+    client = auto_compose(
+        client,
+        manifest,
+        user,
+        organization,
+        device=node,
+        declined_requirements=declined_requirements,
+    )
 
     # What the app asks for and the organization has. A scope no service of the organization
     # declares grants nothing to grant: an app that knows many services (Orkestrator asks for
@@ -236,11 +257,20 @@ def bind_client(
     # stricter: it refuses a scope the organization does not define (fakts.services.mandates).
     client.scopes.clear()
     requested = set(manifest.scopes or [])
-    held = list(karakter_models.Scope.objects.filter(identifier__in=requested, organization=organization))
+    held = list(
+        karakter_models.Scope.objects.filter(
+            identifier__in=requested, organization=organization
+        )
+    )
     client.scopes.add(*held)
     absent = sorted(requested - {scope.identifier for scope in held})
     if absent:
-        logger.info("Client %s asked for scopes %s that %s does not define; not granted", client.client_id, ", ".join(absent), organization.slug)
+        logger.info(
+            "Client %s asked for scopes %s that %s does not define; not granted",
+            client.client_id,
+            ", ".join(absent),
+            organization.slug,
+        )
 
     finalize_client_scope(client)
 
@@ -296,7 +326,11 @@ def offer_manifest(client: models.Client, manifest: base_models.Manifest) -> str
     client that logs in with a mandate key: that one re-binds in its own grant).
     Never raises: a refresh must not fail over what it was only offered.
     """
-    if client.release_id is None or client.membership_id is None or client.mandate_id is not None:
+    if (
+        client.release_id is None
+        or client.membership_id is None
+        or client.mandate_id is not None
+    ):
         return None
     if client.manifest_hash == hash_manifest(manifest):
         return MANIFEST_UNCHANGED
@@ -311,14 +345,20 @@ def offer_manifest(client: models.Client, manifest: base_models.Manifest) -> str
     if manifest.identifier != client.release.app.identifier:
         return MANIFEST_APPROVAL_REQUIRED
     held_device = client.node.node_id if client.node_id is not None else None
-    offered_device = hash_device_id(manifest.device_id, organization) if manifest.device_id else None
+    offered_device = (
+        hash_device_id(manifest.device_id, organization) if manifest.device_id else None
+    )
     if held_device != offered_device:
         return MANIFEST_APPROVAL_REQUIRED
     if organization.require_device_auth and not manifest.device_id:
         return MANIFEST_APPROVAL_REQUIRED
-    if not set(manifest.scopes or []) <= set(approved.scopes or []) | set(BASE_OIDC_SCOPES):
+    if not set(manifest.scopes or []) <= set(approved.scopes or []) | set(
+        BASE_OIDC_SCOPES
+    ):
         return MANIFEST_APPROVAL_REQUIRED
-    if not {r.service for r in manifest.requirements or []} <= {r.service for r in approved.requirements or []}:
+    if not {r.service for r in manifest.requirements or []} <= {
+        r.service for r in approved.requirements or []
+    }:
         return MANIFEST_APPROVAL_REQUIRED
 
     # Another login of this person already holds the place this client would move
@@ -336,13 +376,24 @@ def offer_manifest(client: models.Client, manifest: base_models.Manifest) -> str
         return MANIFEST_APPROVAL_REQUIRED
 
     # What the person declined when they approved stays declined.
-    declined = [key for key, status in (client.statuses or {}).items() if status == "denied"]
+    declined = [
+        key for key, status in (client.statuses or {}).items() if status == "denied"
+    ]
     try:
-        bind_client(client, manifest, membership, hub=client.hub, declined_requirements=declined)
+        bind_client(
+            client, manifest, membership, hub=client.hub, declined_requirements=declined
+        )
     except Exception:
-        logger.exception("Could not adopt the manifest client %s offered", client.client_id)
+        logger.exception(
+            "Could not adopt the manifest client %s offered", client.client_id
+        )
         return None
-    logger.info("Client %s moved to %s %s without re-approval", client.client_id, manifest.identifier, manifest.version)
+    logger.info(
+        "Client %s moved to %s %s without re-approval",
+        client.client_id,
+        manifest.identifier,
+        manifest.version,
+    )
     return MANIFEST_ADOPTED
 
 
@@ -370,7 +421,9 @@ def find_prior_clients(manifest: Manifest, user: karakter_models.User):
     if not manifest.device_id:
         return models.Client.objects.none()
 
-    memberships = karakter_models.Membership.objects.filter(user=user).select_related("organization")
+    memberships = karakter_models.Membership.objects.filter(user=user).select_related(
+        "organization"
+    )
     node_q = Q(pk__in=[])
     for membership in memberships:
         organization = membership.organization
@@ -409,9 +462,17 @@ def client_access_state(client: models.Client) -> str:
         mandate = client.mandate
         if mandate.is_live():
             return PRIOR_ACCESS_ACTIVE
-        return PRIOR_ACCESS_REVOKED if mandate.revoked_at is not None else PRIOR_ACCESS_EXPIRED
+        return (
+            PRIOR_ACCESS_REVOKED
+            if mandate.revoked_at is not None
+            else PRIOR_ACCESS_EXPIRED
+        )
 
-    latest = OAuth2Token.objects.filter(client_id=client.client_id).order_by("-issued_at", "-id").first()
+    latest = (
+        OAuth2Token.objects.filter(client_id=client.client_id)
+        .order_by("-issued_at", "-id")
+        .first()
+    )
     if latest is None:
         return PRIOR_ACCESS_EXPIRED
     if latest.revoked:
@@ -421,7 +482,9 @@ def client_access_state(client: models.Client) -> str:
     return PRIOR_ACCESS_EXPIRED
 
 
-def _resolve_reported_alias(client: models.Client, alias_id: str | None) -> models.InstanceAlias | None:
+def _resolve_reported_alias(
+    client: models.Client, alias_id: str | None
+) -> models.InstanceAlias | None:
     """Resolve an alias id from a self-report, scoped to the client's organization.
 
     The alias id arrives from a Bearer-authenticated client and must never be
@@ -436,7 +499,9 @@ def _resolve_reported_alias(client: models.Client, alias_id: str | None) -> mode
     if client.organization_id is None:
         return None
     alias = (
-        models.InstanceAlias.objects.filter(id=alias_id, instance__hub__organization_id=client.organization_id)
+        models.InstanceAlias.objects.filter(
+            id=alias_id, instance__hub__organization_id=client.organization_id
+        )
         .select_related("instance")
         .first()
     )
@@ -450,7 +515,9 @@ def _resolve_reported_alias(client: models.Client, alias_id: str | None) -> mode
 
 
 @transaction.atomic
-def report_client(client: models.Client, claim: base_models.ReportRequest) -> models.Client:
+def report_client(
+    client: models.Client, claim: base_models.ReportRequest
+) -> models.Client:
     """Record a client's self-report (functional flag + per-requirement alias reports).
 
     The client is resolved by the caller from its Bearer access token (the

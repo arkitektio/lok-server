@@ -5,7 +5,10 @@ from unittest import mock
 
 import pytest
 
-from api.management.mutations.ionscale import CreateIonscaleLayerInput, create_ionscale_layer
+from api.management.mutations.ionscale import (
+    CreateIonscaleLayerInput,
+    create_ionscale_layer,
+)
 from fakts import models as fakts_models
 from ionscale.base_models import DNSConfig, Tailnet
 from ionscale.errors import IonscaleError
@@ -31,7 +34,12 @@ def test_set_dns_config_enable_both():
     with mock.patch.object(repo, "_run_command", return_value="ok") as run:
         repo.set_dns_config("tn", DNSConfig(magic_dns=True, https_certs=True))
     assert run.call_args.args[0] == [
-        "tailnets", "set-dns", "--tailnet", "tn", "--magic-dns", "--https-certs",
+        "tailnets",
+        "set-dns",
+        "--tailnet",
+        "tn",
+        "--magic-dns",
+        "--https-certs",
     ]
 
 
@@ -49,7 +57,11 @@ def test_set_dns_config_magic_on_https_off():
     with mock.patch.object(repo, "_run_command", return_value="ok") as run:
         repo.set_dns_config("tn", DNSConfig(magic_dns=True, https_certs=False))
     assert run.call_args.args[0] == [
-        "tailnets", "set-dns", "--tailnet", "tn", "--magic-dns",
+        "tailnets",
+        "set-dns",
+        "--tailnet",
+        "tn",
+        "--magic-dns",
     ]
 
 
@@ -66,13 +78,22 @@ def test_cli_repo_revoke_account_builds_command():
     repo = _repo()
     with mock.patch.object(repo, "_run_command", return_value="") as run:
         repo.revoke_account("42", "7")
-    assert run.call_args.args[0] == ["users", "revoke-account", "--external-id", "42", "--org", "7"]
+    assert run.call_args.args[0] == [
+        "users",
+        "revoke-account",
+        "--external-id",
+        "42",
+        "--org",
+        "7",
+    ]
 
 
 # --- signal-driven sync ------------------------------------------------------
 
 
-def _org_with_mesh(slug: str, owner: User, ionscale_repo, commit_callbacks) -> tuple[Organization, fakts_models.IonscaleLayer]:
+def _org_with_mesh(
+    slug: str, owner: User, ionscale_repo, commit_callbacks
+) -> tuple[Organization, fakts_models.IonscaleLayer]:
     """An organization whose owner is already a member, with one mesh layer whose
     tailnet exists on the (fake) control plane. Recorded calls are cleared so the
     caller only sees what its own actions produce."""
@@ -86,7 +107,9 @@ def _org_with_mesh(slug: str, owner: User, ionscale_repo, commit_callbacks) -> t
         identifier=slug,
         tailnet_name=slug,
     )
-    ionscale_repo.tailnets.append(Tailnet(id="1", name=slug, dns_name=slug, organization=str(organization.pk)))
+    ionscale_repo.tailnets.append(
+        Tailnet(id="1", name=slug, dns_name=slug, organization=str(organization.pk))
+    )
     ionscale_repo.updated_policies.clear()
     return organization, layer
 
@@ -94,7 +117,9 @@ def _org_with_mesh(slug: str, owner: User, ionscale_repo, commit_callbacks) -> t
 @pytest.mark.django_db
 def test_membership_changes_resync_ionscale_layers(ionscale_repo, commit_callbacks):
     existing_user = User.objects.create(username="existing-user")
-    organization, _ = _org_with_mesh("ionscale-sync-org", existing_user, ionscale_repo, commit_callbacks)
+    organization, _ = _org_with_mesh(
+        "ionscale-sync-org", existing_user, ionscale_repo, commit_callbacks
+    )
 
     new_user = User.objects.create(username="new-user")
     with commit_callbacks():
@@ -120,9 +145,13 @@ def test_membership_changes_resync_ionscale_layers(ionscale_repo, commit_callbac
 def test_membership_sync_waits_for_commit(ionscale_repo, commit_callbacks):
     """Nothing reaches ionscale from inside the transaction."""
     existing_user = User.objects.create(username="existing-user")
-    organization, _ = _org_with_mesh("ionscale-uncommitted", existing_user, ionscale_repo, commit_callbacks)
+    organization, _ = _org_with_mesh(
+        "ionscale-uncommitted", existing_user, ionscale_repo, commit_callbacks
+    )
 
-    Membership.objects.create(user=User.objects.create(username="u2"), organization=organization)
+    Membership.objects.create(
+        user=User.objects.create(username="u2"), organization=organization
+    )
 
     assert ionscale_repo.updated_policies == []
     assert ionscale_repo.revoked_accounts == []
@@ -131,7 +160,9 @@ def test_membership_sync_waits_for_commit(ionscale_repo, commit_callbacks):
 @pytest.mark.django_db
 def test_membership_delete_revokes_access(ionscale_repo, commit_callbacks):
     owner = User.objects.create(username="owner")
-    organization, _ = _org_with_mesh("ionscale-revoke-org", owner, ionscale_repo, commit_callbacks)
+    organization, _ = _org_with_mesh(
+        "ionscale-revoke-org", owner, ionscale_repo, commit_callbacks
+    )
     member = User.objects.create(username="member")
     with commit_callbacks():
         membership = Membership.objects.create(user=member, organization=organization)
@@ -148,15 +179,23 @@ def test_membership_delete_revokes_access(ionscale_repo, commit_callbacks):
 
 
 @pytest.mark.django_db
-def test_membership_delete_survives_control_plane_outage(ionscale_repo, commit_callbacks, caplog):
+def test_membership_delete_survives_control_plane_outage(
+    ionscale_repo, commit_callbacks, caplog
+):
     owner = User.objects.create(username="owner")
-    organization, _ = _org_with_mesh("ionscale-outage-org", owner, ionscale_repo, commit_callbacks)
+    organization, _ = _org_with_mesh(
+        "ionscale-outage-org", owner, ionscale_repo, commit_callbacks
+    )
     member = User.objects.create(username="member")
     with commit_callbacks():
         membership = Membership.objects.create(user=member, organization=organization)
 
-    ionscale_repo.fail_with["revoke_account"] = IonscaleError("unavailable", "connection refused")
-    ionscale_repo.fail_with["update_policy"] = IonscaleError("unavailable", "connection refused")
+    ionscale_repo.fail_with["revoke_account"] = IonscaleError(
+        "unavailable", "connection refused"
+    )
+    ionscale_repo.fail_with["update_policy"] = IonscaleError(
+        "unavailable", "connection refused"
+    )
 
     membership_pk = membership.pk
     with caplog.at_level(logging.ERROR, logger="ionscale.sync"), commit_callbacks():
@@ -167,11 +206,17 @@ def test_membership_delete_survives_control_plane_outage(ionscale_repo, commit_c
 
 
 @pytest.mark.django_db
-def test_organization_delete_tears_down_tailnet_without_revoking(ionscale_repo, commit_callbacks):
+def test_organization_delete_tears_down_tailnet_without_revoking(
+    ionscale_repo, commit_callbacks
+):
     owner = User.objects.create(username="owner")
-    organization, _ = _org_with_mesh("ionscale-doomed-org", owner, ionscale_repo, commit_callbacks)
+    organization, _ = _org_with_mesh(
+        "ionscale-doomed-org", owner, ionscale_repo, commit_callbacks
+    )
     with commit_callbacks():
-        Membership.objects.create(user=User.objects.create(username="member"), organization=organization)
+        Membership.objects.create(
+            user=User.objects.create(username="member"), organization=organization
+        )
     ionscale_repo.updated_policies.clear()
 
     with commit_callbacks():
@@ -188,8 +233,12 @@ def test_organization_delete_tears_down_tailnet_without_revoking(ionscale_repo, 
 def test_user_delete_revokes_in_every_organization(ionscale_repo, commit_callbacks):
     owner_a = User.objects.create(username="owner-a")
     owner_b = User.objects.create(username="owner-b")
-    org_a, _ = _org_with_mesh("ionscale-org-a", owner_a, ionscale_repo, commit_callbacks)
-    org_b, _ = _org_with_mesh("ionscale-org-b", owner_b, ionscale_repo, commit_callbacks)
+    org_a, _ = _org_with_mesh(
+        "ionscale-org-a", owner_a, ionscale_repo, commit_callbacks
+    )
+    org_b, _ = _org_with_mesh(
+        "ionscale-org-b", owner_b, ionscale_repo, commit_callbacks
+    )
 
     with commit_callbacks():
         member = User.objects.create(username="member")
@@ -206,13 +255,18 @@ def test_user_delete_revokes_in_every_organization(ionscale_repo, commit_callbac
     assert sorted(ionscale_repo.revoked_accounts) == sorted(
         [(str(member_pk), str(org_a.pk)), (str(member_pk), str(org_b.pk))]
     )
-    assert {t for t, _ in ionscale_repo.updated_policies} == {"ionscale-org-a", "ionscale-org-b"}
+    assert {t for t, _ in ionscale_repo.updated_policies} == {
+        "ionscale-org-a",
+        "ionscale-org-b",
+    }
 
 
 @pytest.mark.django_db
 def test_deactivating_user_revokes_everywhere(ionscale_repo, commit_callbacks):
     owner = User.objects.create(username="owner")
-    organization, _ = _org_with_mesh("ionscale-deactivate-org", owner, ionscale_repo, commit_callbacks)
+    organization, _ = _org_with_mesh(
+        "ionscale-deactivate-org", owner, ionscale_repo, commit_callbacks
+    )
     member = User.objects.create(username="member")
     with commit_callbacks():
         Membership.objects.create(user=member, organization=organization)
@@ -236,7 +290,9 @@ def test_create_ionscale_layer_syncs_existing_members(ionscale_repo, commit_call
     with commit_callbacks():
         # owner is required; the org post_save signal makes ``first_user`` an admin
         # member, so only ``second_user``'s membership is created explicitly.
-        organization = Organization.objects.create(slug="ionscale-create-org", owner=first_user)
+        organization = Organization.objects.create(
+            slug="ionscale-create-org", owner=first_user
+        )
         Membership.objects.create(user=second_user, organization=organization)
     # no layer existed yet, so the membership commits had nothing to push
     assert ionscale_repo.updated_policies == []
@@ -269,31 +325,50 @@ def test_create_auth_key_passes_expiry_in_seconds():
     repo = _repo()
     out = "\nGenerated new auth key\nBe sure to copy your new key below. It won't be shown in full again.\n\n  a1b2c3d4e5f6_secret\n"
     with mock.patch.object(repo, "_run_command", return_value=out) as run:
-        assert repo.create_auth_key("tn", tags=["tag:mesh-9"], expiry_seconds=900) == "a1b2c3d4e5f6_secret"
+        assert (
+            repo.create_auth_key("tn", tags=["tag:mesh-9"], expiry_seconds=900)
+            == "a1b2c3d4e5f6_secret"
+        )
     args = run.call_args.args[0]
     assert args[args.index("--expiry") + 1] == "900s"
 
 
 def test_delete_auth_key_resolves_the_id_by_key_prefix():
     repo = _repo()
-    with mock.patch.object(repo, "_run_command", side_effect=[AUTH_KEYS_LIST_OUTPUT, "Auth key deleted."]) as run:
+    with mock.patch.object(
+        repo, "_run_command", side_effect=[AUTH_KEYS_LIST_OUTPUT, "Auth key deleted."]
+    ) as run:
         assert repo.delete_auth_key("tn", "a1b2c3d4e5f6_secret") is True
     assert run.call_args_list[0].args[0] == ["auth-keys", "list", "--tailnet", "tn"]
-    assert run.call_args_list[1].args[0] == ["auth-keys", "delete", "--id", "221707112168816001"]
+    assert run.call_args_list[1].args[0] == [
+        "auth-keys",
+        "delete",
+        "--id",
+        "221707112168816001",
+    ]
 
 
 def test_delete_auth_key_of_an_unknown_key_is_a_noop():
     repo = _repo()
-    with mock.patch.object(repo, "_run_command", return_value=AUTH_KEYS_LIST_OUTPUT) as run:
+    with mock.patch.object(
+        repo, "_run_command", return_value=AUTH_KEYS_LIST_OUTPUT
+    ) as run:
         assert repo.delete_auth_key("tn", "nothere_secret") is False
     assert run.call_count == 1
 
 
 def test_delete_machine():
     repo = _repo()
-    with mock.patch.object(repo, "_run_command", return_value="Machine deleted.") as run:
+    with mock.patch.object(
+        repo, "_run_command", return_value="Machine deleted."
+    ) as run:
         repo.delete_machine("221707112168816643")
-    assert run.call_args.args[0] == ["machines", "delete", "--machine-id", "221707112168816643"]
+    assert run.call_args.args[0] == [
+        "machines",
+        "delete",
+        "--machine-id",
+        "221707112168816643",
+    ]
 
 
 def test_machine_list_reads_connected_as_live():
@@ -307,21 +382,32 @@ def test_machine_list_reads_connected_as_live():
 
 
 @pytest.mark.django_db
-def test_scoped_members_cannot_log_devices_in_until_they_are_full_members(ionscale_repo, commit_callbacks):
+def test_scoped_members_cannot_log_devices_in_until_they_are_full_members(
+    ionscale_repo, commit_callbacks
+):
     """A guest of some collaborations is on the tailnet through their apps'
     sidecars alone (which reach only the hub); their own devices stay out of
     `autogroup:member` until they become a full member."""
     from fakts.models import Hub
-    from karakter import models as karakter_models, collaboration_grants
+    from karakter import collaboration_grants
+    from karakter import models as karakter_models
     from karakter.invites import redeem_invite
     from tests import factories
 
     owner = User.objects.create(username="scoped-owner")
-    organization, _ = _org_with_mesh("ionscale-scoped", owner, ionscale_repo, commit_callbacks)
-    hub = Hub.objects.create(organization=organization, name="hub", identifier="scoped-hub", creator=owner)
+    organization, _ = _org_with_mesh(
+        "ionscale-scoped", owner, ionscale_repo, commit_callbacks
+    )
+    hub = Hub.objects.create(
+        organization=organization, name="hub", identifier="scoped-hub", creator=owner
+    )
     instance = factories.make_service_instance(hub=hub)
     invite = karakter_models.Invite.objects.create(
-        created_by=owner, created_for=organization, shared_collaborations=[{"instance": str(instance.pk), "collaboration": "1", "roles": []}]
+        created_by=owner,
+        created_for=organization,
+        shared_collaborations=[
+            {"instance": str(instance.pk), "collaboration": "1", "roles": []}
+        ],
     )
     visitor = User.objects.create(username="scoped-visitor")
 
@@ -335,4 +421,7 @@ def test_scoped_members_cannot_log_devices_in_until_they_are_full_members(ionsca
     with commit_callbacks():
         collaboration_grants.upgrade_to_full(membership)
 
-    assert set(ionscale_repo.updated_policies[-1][1]["subs"]) == {str(owner.pk), str(visitor.pk)}
+    assert set(ionscale_repo.updated_policies[-1][1]["subs"]) == {
+        str(owner.pk),
+        str(visitor.pk),
+    }

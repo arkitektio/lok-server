@@ -43,7 +43,11 @@ def test_a_said_reach_is_stored_as_what_it_reads_back_as(reach, host):
     assert alias.effective_reach == reach
     # Validated again, as part of a request: the same alias.
     again = base_models.StagingAlias.model_validate(alias.model_dump())
-    assert (again.kind, again.scope, again.effective_reach) == (alias.kind, alias.scope, reach)
+    assert (again.kind, again.scope, again.effective_reach) == (
+        alias.kind,
+        alias.scope,
+        reach,
+    )
 
 
 def test_a_mesh_alias_without_a_host_is_the_placeholder_lok_fills_in():
@@ -62,8 +66,15 @@ def test_an_internal_alias_cannot_be_checked_by_lok():
 
 
 def test_lok_checks_is_publics_new_name():
-    assert staged(reach="public", host="lab.example.org", lok_checks=True).public is True
-    assert staged(reach="public", host="lab.example.org", public=True, lok_checks=False).public is False
+    assert (
+        staged(reach="public", host="lab.example.org", lok_checks=True).public is True
+    )
+    assert (
+        staged(
+            reach="public", host="lab.example.org", public=True, lok_checks=False
+        ).public
+        is False
+    )
 
 
 def test_an_older_hubs_alias_validates_the_same_twice():
@@ -94,8 +105,12 @@ def test_apps_are_told_the_reach_and_the_kind_older_ones_read(alias, reach, kind
         instances=[
             base_models.InstanceRequest(
                 identifier="inst-1",
-                manifest=base_models.ServiceManifest(identifier="com.example.svc", version="1.0.0"),
-                aliases=[base_models.StagingAlias(id="a", port=80, challenge="ht", **alias)],
+                manifest=base_models.ServiceManifest(
+                    identifier="com.example.svc", version="1.0.0"
+                ),
+                aliases=[
+                    base_models.StagingAlias(id="a", port=80, challenge="ht", **alias)
+                ],
             )
         ],
     )

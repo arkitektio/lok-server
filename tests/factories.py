@@ -15,10 +15,10 @@ from uuid import uuid4
 
 from django.utils import timezone
 
-from karakter.models import Organization, User, Membership
 from fakts import models as fmodels
-from fakts.models import generate_client_id, generate_client_secret
 from fakts.enums import ClientKindChoices, ClientRoleChoices
+from fakts.models import generate_client_id, generate_client_secret
+from karakter.models import Membership, Organization, User
 
 _seq = itertools.count(1)
 
@@ -41,12 +41,16 @@ def make_organization(owner: User | None = None, **kw) -> Organization:
     return Organization.objects.create(owner=owner, **kw)
 
 
-def make_membership(user: User | None = None, organization: Organization | None = None, **kw) -> Membership:
+def make_membership(
+    user: User | None = None, organization: Organization | None = None, **kw
+) -> Membership:
     if user is None:
         user = make_user()
     if organization is None:
         organization = make_organization()
-    membership, _ = Membership.objects.get_or_create(user=user, organization=organization, defaults=kw)
+    membership, _ = Membership.objects.get_or_create(
+        user=user, organization=organization, defaults=kw
+    )
     return membership
 
 
@@ -58,7 +62,10 @@ def make_oauth2_client(membership: Membership | None = None, **kw) -> fmodels.Cl
     kw.setdefault("client_id", generate_client_id())
     kw.setdefault("client_secret", generate_client_secret())
     kw.setdefault("token_endpoint_auth_method", "client_secret_post")
-    kw.setdefault("grant_types", "authorization_code refresh_token client_credentials urn:ietf:params:oauth:grant-type:device_code")
+    kw.setdefault(
+        "grant_types",
+        "authorization_code refresh_token client_credentials urn:ietf:params:oauth:grant-type:device_code",
+    )
     kw.setdefault("scope", "openid profile email")
     kw.setdefault("organization", membership.organization)
     return fmodels.Client.objects.create(membership=membership, **kw)
@@ -80,7 +87,9 @@ def make_release(app: fmodels.App | None = None, **kw) -> fmodels.Release:
     return fmodels.Release.objects.create(app=app, **kw)
 
 
-def make_client(membership: Membership | None = None, release: fmodels.Release | None = None, **kw) -> fmodels.Client:
+def make_client(
+    membership: Membership | None = None, release: fmodels.Release | None = None, **kw
+) -> fmodels.Client:
     """A bound unified client (identity + app side in one row)."""
     if membership is None:
         membership = make_membership()
@@ -104,7 +113,10 @@ def make_client(membership: Membership | None = None, release: fmodels.Release |
     kw.setdefault("role", ClientRoleChoices.INTERFACE.value)
     kw.setdefault("client_id", generate_client_id())
     kw.setdefault("token_endpoint_auth_method", "none")
-    kw.setdefault("grant_types", "urn:ietf:params:oauth:grant-type:device_code refresh_token authorization_code")
+    kw.setdefault(
+        "grant_types",
+        "urn:ietf:params:oauth:grant-type:device_code refresh_token authorization_code",
+    )
     kw.setdefault("scope", "openid profile email")
     return fmodels.Client.objects.create(release=release, membership=membership, **kw)
 
@@ -127,14 +139,18 @@ def make_service(organization: Organization | None = None, **kw) -> fmodels.Serv
     return fmodels.Service.objects.create(**kw)
 
 
-def make_service_release(service: fmodels.Service | None = None, **kw) -> fmodels.ServiceRelease:
+def make_service_release(
+    service: fmodels.Service | None = None, **kw
+) -> fmodels.ServiceRelease:
     if service is None:
         service = make_service()
     kw.setdefault("version", "1.0.0")
     return fmodels.ServiceRelease.objects.create(service=service, **kw)
 
 
-def make_service_instance(hub: fmodels.Hub | None = None, release: fmodels.ServiceRelease | None = None, **kw) -> fmodels.ServiceInstance:
+def make_service_instance(
+    hub: fmodels.Hub | None = None, release: fmodels.ServiceRelease | None = None, **kw
+) -> fmodels.ServiceInstance:
     if hub is None:
         hub = make_hub()
     if release is None:
@@ -152,7 +168,12 @@ def make_device_code(**kw) -> fmodels.DeviceCode:
     kw.setdefault("secret", f"device-secret-{_n()}-{uuid4().hex}")
     kw.setdefault(
         "staging_manifest",
-        {"identifier": "com.example.app", "version": "1.0.0", "scopes": [], "requirements": []},
+        {
+            "identifier": "com.example.app",
+            "version": "1.0.0",
+            "scopes": [],
+            "requirements": [],
+        },
     )
     kw.setdefault("expires_at", timezone.now() + timedelta(seconds=300))
     if "client" not in kw:

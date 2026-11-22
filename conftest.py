@@ -24,7 +24,9 @@ from dokker import PortNotFoundError, testing
 # presigned GET to read them) went untested.
 
 # This file sits at the repo root, so the compose file is under tests/.
-COMPOSE = os.path.join(os.path.dirname(__file__), "tests", "integration", "docker-compose.yaml")
+COMPOSE = os.path.join(
+    os.path.dirname(__file__), "tests", "integration", "docker-compose.yaml"
+)
 
 #: Must match tests/integration/configs/rustfs.yaml and tests/config.test.yaml.
 S3_ACCESS_KEY = "lok_access_key"
@@ -67,8 +69,12 @@ def backend_stack():
                 if s3_port is None:
                     s3_port = e.get_port("rustfs", 9000)
                 with psycopg.connect(
-                    dbname="testdb", user="test", password="test",
-                    host="localhost", port=db_port, connect_timeout=1,
+                    dbname="testdb",
+                    user="test",
+                    password="test",
+                    host="localhost",
+                    port=db_port,
+                    connect_timeout=1,
                 ) as connection:
                     with connection.cursor() as cursor:
                         cursor.execute("SELECT 1")
@@ -97,7 +103,12 @@ def _wait_for_rustfs(port: int, deadline: float) -> None:
         try:
             # RustFS's native health endpoint (it also serves MinIO's
             # /minio/health/live as a compat shim; prefer its own).
-            if urllib.request.urlopen(f"http://localhost:{port}/health", timeout=2).status == 200:
+            if (
+                urllib.request.urlopen(
+                    f"http://localhost:{port}/health", timeout=2
+                ).status
+                == 200
+            ):
                 return
         except (urllib.error.URLError, urllib.error.HTTPError, OSError):
             pass

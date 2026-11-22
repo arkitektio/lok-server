@@ -1,14 +1,15 @@
-from kante import Info
+import kante
 import strawberry
+from graphql import GraphQLError
+from kante import Info
+
 from api.management import types
-from karakter import models
-from fakts import models as fakts_models
 from api.management.authz import assert_owner_or_admin, get_or_denied
 from api.management.device_code_authz import resolve_device_code_with_proof
 from fakts import logic
-import kante
+from fakts import models as fakts_models
 from ionscale.acl import relay_tag, reserved_tags
-from graphql import GraphQLError
+from karakter import models
 
 
 @kante.input
@@ -31,7 +32,9 @@ class AcceptMeshDeviceCodeInput:
     )
 
 
-def accept_mesh_device_code(info: Info, input: AcceptMeshDeviceCodeInput) -> types.ManagementMeshDeviceCode:
+def accept_mesh_device_code(
+    info: Info, input: AcceptMeshDeviceCodeInput
+) -> types.ManagementMeshDeviceCode:
     """
     Authorize a machine's request to join an organization's mesh.
 
@@ -84,7 +87,9 @@ class DeclineMeshDeviceCodeInput:
     )
 
 
-def decline_mesh_device_code(info: Info, input: DeclineMeshDeviceCodeInput) -> types.ManagementMeshDeviceCode:
+def decline_mesh_device_code(
+    info: Info, input: DeclineMeshDeviceCodeInput
+) -> types.ManagementMeshDeviceCode:
     """Decline a machine's request to join the mesh, marking the device code as denied."""
     device_code = resolve_device_code_with_proof(
         fakts_models.MeshDeviceCode, device_code_id=input.device_code, code=input.code

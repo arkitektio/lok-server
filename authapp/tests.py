@@ -5,7 +5,6 @@ from django.urls import reverse
 from fakts.models import Client
 from karakter.models import Membership, Organization
 
-
 User = get_user_model()
 
 

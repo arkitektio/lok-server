@@ -28,14 +28,42 @@ SERVICES = "lok_services"
 ALL = "lok_all"
 
 LOK_SCOPES = (
-    LokScope(READ, "See your organizations, their members, groups and roles, and the devices, apps, hubs and services registered with them."),
-    LokScope(PROFILE, "Change your profile, your groups' profiles, your devices and your colours in an organization, and upload the images they show."),
-    LokScope(ORGANIZATIONS, "Create organizations, invite people, add them, and accept or decline who asks to join."),
-    LokScope(MANDATES, "Issue and revoke mandates and their keys, which let an app act on your behalf."),
-    LokScope(MESSAGES, "Send notifications, acknowledge yours, and register where you receive them."),
-    LokScope(SERVICES, "Register and change service instances, and render their configuration."),
+    LokScope(
+        READ,
+        "See your organizations, their members, groups and roles, and the devices, apps, hubs and services registered with them.",
+    ),
+    LokScope(
+        PROFILE,
+        "Change your profile, your groups' profiles, your devices and your colours in an organization, and upload the images they show.",
+    ),
+    LokScope(
+        ORGANIZATIONS,
+        "Create organizations, invite people, add them, and accept or decline who asks to join.",
+    ),
+    LokScope(
+        MANDATES,
+        "Issue and revoke mandates and their keys, which let an app act on your behalf.",
+    ),
+    LokScope(
+        MESSAGES,
+        "Send notifications, acknowledge yours, and register where you receive them.",
+    ),
+    LokScope(
+        SERVICES,
+        "Register and change service instances, and render their configuration.",
+    ),
     LokScope(ALL, "Do everything in Lok on your behalf.", is_all_scope=True),
 )
 
 
-__all__ = ["ALL", "LOK_SCOPES", "MANDATES", "MESSAGES", "ORGANIZATIONS", "PROFILE", "READ", "SERVICES", "LokScope"]
+__all__ = [
+    "ALL",
+    "LOK_SCOPES",
+    "MANDATES",
+    "MESSAGES",
+    "ORGANIZATIONS",
+    "PROFILE",
+    "READ",
+    "SERVICES",
+    "LokScope",
+]

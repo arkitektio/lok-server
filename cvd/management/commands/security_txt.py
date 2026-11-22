@@ -15,8 +15,12 @@ class Command(BaseCommand):
             raise CommandError("No `security:` block in the config.")
         days = (sec.expires - datetime.date.today()).days
         if days <= 0:
-            raise CommandError(f"security.expires ({sec.expires}) has passed: set a new date before signing.")
+            raise CommandError(
+                f"security.expires ({sec.expires}) has passed: set a new date before signing."
+            )
         if days > 366:
             # TR-03183-3 4.2.9b / 4.5.3f: at most a year ahead.
-            self.stderr.write(f"warning: security.expires is {days} days ahead; BSI asks for at most a year.")
+            self.stderr.write(
+                f"warning: security.expires is {days} days ahead; BSI asks for at most a year."
+            )
         self.stdout.write(render_security_txt(sec), ending="")

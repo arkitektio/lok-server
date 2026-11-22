@@ -1,7 +1,8 @@
-from django.core.management.base import BaseCommand
 from django.conf import settings
-from fakts import models
+from django.core.management.base import BaseCommand
 from pydantic import BaseModel
+
+from fakts import models
 
 
 class OpenIDAppConfig(BaseModel):

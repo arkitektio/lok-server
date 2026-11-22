@@ -1,12 +1,12 @@
 import logging
 
 import strawberry
+from graphql import GraphQLError
 from kante.types import Info
 
-from karakter import models
 from api.management import types
 from api.management.authz import DENIED, get_or_denied, get_user
-from graphql import GraphQLError
+from karakter import models
 from karakter.authz import resolve_own_media_store
 
 logger = logging.getLogger(__name__)
@@ -28,7 +28,9 @@ def create_profile(info: Info, input: CreateProfileInput) -> types.ManagementPro
 
     # A post_save signal creates a Profile for every new user, so a plain
     # create() always hit the OneToOne unique constraint: upsert instead.
-    profile, _ = models.Profile.objects.update_or_create(user=user, defaults={"name": input.name, "bio": input.bio})
+    profile, _ = models.Profile.objects.update_or_create(
+        user=user, defaults={"name": input.name, "bio": input.bio}
+    )
     return profile
 
 

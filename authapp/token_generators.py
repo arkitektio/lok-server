@@ -16,37 +16,43 @@ Notes:
   signing and must remain secret in settings.
 """
 
-from authlib.oauth2.rfc9068 import JWTBearerTokenGenerator
+from typing import Any
+
 from authlib.oauth2.rfc6749.errors import InvalidClientError, InvalidGrantError
-from joserfc.jwk import RSAKey
-from cryptography.hazmat.primitives import serialization
+from authlib.oauth2.rfc9068 import JWTBearerTokenGenerator
 from cryptography.hazmat.backends import default_backend
+from cryptography.hazmat.primitives import serialization
 from django.conf import settings
-from typing import Any, Optional
 from django.core.exceptions import ObjectDoesNotExist
+from joserfc.jwk import RSAKey
 
 # Load RSA private key (used for signing). The settings.PRIVATE_KEY must
 # contain the PEM-encoded private key string.
-private_key = serialization.load_pem_private_key(settings.PRIVATE_KEY.encode("utf-8"), password=None, backend=default_backend())
+private_key = serialization.load_pem_private_key(
+    settings.PRIVATE_KEY.encode("utf-8"), password=None, backend=default_backend()
+)
 
 # Generate a JWK representation from the private key. This JWK is the
 # signing key returned by get_jwks(); it must retain the private material
 # (private=True). The public JWK set published to consumers is built
 # separately from settings.PUBLIC_KEY in authapp/views.py.
 jwk = RSAKey.import_key(settings.PRIVATE_KEY)
-jwk_dict = jwk.as_dict(private=True, kid=settings.KEY_ID, use="sig")  # signing key — MUST include private material
+jwk_dict = jwk.as_dict(
+    private=True, kid=settings.KEY_ID, use="sig"
+)  # signing key — MUST include private material
 
 # The *public* half of the same key, as published at /o/jwks/ and used by every
 # in-process verifier (e.g. the bearer validator). This is the ONLY JWK that may
 # ever leave this module towards anything that is not the signer.
 public_jwk_dict = jwk.as_dict(private=False, kid=settings.KEY_ID, use="sig")
-assert not any(k in public_jwk_dict for k in ("d", "p", "q", "dp", "dq", "qi")), "public JWK leaked private members"
+assert not any(k in public_jwk_dict for k in ("d", "p", "q", "dp", "dq", "qi")), (
+    "public JWK leaked private members"
+)
 
 
 def public_jwks() -> dict:
     """The published JWK set ({"keys": [...]}) — public members only."""
     return {"keys": [public_jwk_dict]}
-
 
 
 def _actor_claim(client: Any) -> dict:
@@ -59,11 +65,22 @@ def _actor_claim(client: Any) -> dict:
     if mandate is None:
         return {}
     if mandate.parent_id is not None:
-        return {"act": {"client_app": mandate.parent.agent_identifier, "mandate": str(mandate.parent_id)}}
+        return {
+            "act": {
+                "client_app": mandate.parent.agent_identifier,
+                "mandate": str(mandate.parent_id),
+            }
+        }
     issuer = mandate.issuing_client
     if issuer is not None and issuer.release_id is not None:
-        return {"act": {"client_app": issuer.release.app.identifier, "mandate": str(mandate.pk)}}
+        return {
+            "act": {
+                "client_app": issuer.release.app.identifier,
+                "mandate": str(mandate.pk),
+            }
+        }
     return {}
+
 
 class MyJWTBearerTokenGenerator(JWTBearerTokenGenerator):
     """Custom JWT Bearer token generator that adds application claims.
@@ -106,7 +123,9 @@ class MyJWTBearerTokenGenerator(JWTBearerTokenGenerator):
                 description="Client is no longer attached to an organization membership."
             ) from exc
 
-    def get_extra_claims(self, client: Any, grant_type: Any, user: Any, scope: Optional[str]) -> dict:
+    def get_extra_claims(
+        self, client: Any, grant_type: Any, user: Any, scope: str | None
+    ) -> dict:
         """Construct application-specific claims to include in the JWT.
 
         Behavior and assumptions:
@@ -158,7 +177,9 @@ class MyJWTBearerTokenGenerator(JWTBearerTokenGenerator):
             from karakter.collaboration_grants import live_collaborations
 
             scope_claims["roles"] = []
-            scope_claims["collabs"] = live_collaborations(membership, self._instance_pks(client))
+            scope_claims["collabs"] = live_collaborations(
+                membership, self._instance_pks(client)
+            )
         else:
             scope_claims["roles"] = [role.identifier for role in membership.roles.all()]
 
@@ -174,9 +195,15 @@ class MyJWTBearerTokenGenerator(JWTBearerTokenGenerator):
             "preferred_username": membership.user.username,
             "sub": str(membership.user.id),
             "scope": scope,
-            "client_app": fakts_client.release.app.identifier if fakts_client and fakts_client.release and fakts_client.release.app else None,
-            "client_release": fakts_client.release.version if fakts_client and fakts_client.release else None,
-            "client_device": fakts_client.node.node_id if fakts_client and fakts_client.node else None,
+            "client_app": fakts_client.release.app.identifier
+            if fakts_client and fakts_client.release and fakts_client.release.app
+            else None,
+            "client_release": fakts_client.release.version
+            if fakts_client and fakts_client.release
+            else None,
+            "client_device": fakts_client.node.node_id
+            if fakts_client and fakts_client.node
+            else None,
             "client_role": fakts_client.role if fakts_client else None,
             # The hub the token is for: its own uuid. A service names itself only within its
             # hub (`aud: mikro`), so this is what tells two hubs' services apart. An app's token
@@ -196,7 +223,9 @@ class MyJWTBearerTokenGenerator(JWTBearerTokenGenerator):
             return fakts_client.hub
         from fakts.models import Hub
 
-        hubs = Hub.objects.filter(instances__mappings__client=fakts_client).distinct()[:2]
+        hubs = Hub.objects.filter(instances__mappings__client=fakts_client).distinct()[
+            :2
+        ]
         return hubs[0] if len(hubs) == 1 else None
 
     def _instance_pks(self, client: Any) -> list[int]:
@@ -215,9 +244,13 @@ class MyJWTBearerTokenGenerator(JWTBearerTokenGenerator):
         fakts_client = self._get_app_client(client)
         if fakts_client is None:
             return []
-        return sorted(set(fakts_client.mappings.values_list("instance__instance_id", flat=True)))
+        return sorted(
+            set(fakts_client.mappings.values_list("instance__instance_id", flat=True))
+        )
 
-    def get_audiences(self, client: Any, user: Any, scope: Optional[str]) -> str | list[str]:
+    def get_audiences(
+        self, client: Any, user: Any, scope: str | None
+    ) -> str | list[str]:
         """Return the audience claim(s) for the token.
 
         For a fakts client the audiences are the **names of the services** it was composed for,

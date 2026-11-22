@@ -25,7 +25,7 @@ from django.db import transaction
 from django.db.models import F
 from django.utils import timezone
 
-from karakter import models, collaboration_grants
+from karakter import collaboration_grants, models
 
 
 class InviteError(Exception):
@@ -49,7 +49,9 @@ def _assign_invite_roles(membership: models.Membership, invite: models.Invite) -
     if invite_roles.exists():
         membership.roles.set(invite_roles)
         return
-    guest_role = models.Role.objects.filter(identifier="guest", organization=invite.created_for).first()
+    guest_role = models.Role.objects.filter(
+        identifier="guest", organization=invite.created_for
+    ).first()
     if guest_role is not None:
         membership.roles.add(guest_role)
 
@@ -60,16 +62,24 @@ def redeem_invite(invite: models.Invite, user) -> models.Membership:
     invite = models.Invite.objects.select_for_update().get(pk=invite.pk)
     check_acceptable(invite)
     organization = invite.created_for
-    membership = models.Membership.objects.filter(user=user, organization=organization).first()
+    membership = models.Membership.objects.filter(
+        user=user, organization=organization
+    ).first()
 
     if invite.is_collaboration_invite:
         if membership is not None and not membership.is_scoped:
             return membership  # a full member: nothing to grant, nothing spent
         if membership is None:
-            membership = models.Membership.objects.create(user=user, organization=organization, created_through=invite)
+            membership = models.Membership.objects.create(
+                user=user, organization=organization, created_through=invite
+            )
         try:
             changed = collaboration_grants.grant_collaborations(
-                membership, invite.shared_collaborations or [], invite=invite, granted_by=invite.created_by, mesh=invite.mesh
+                membership,
+                invite.shared_collaborations or [],
+                invite=invite,
+                granted_by=invite.created_by,
+                mesh=invite.mesh,
             )
         except ValidationError as e:
             raise InviteError(" ".join(e.messages)) from e
@@ -93,7 +103,9 @@ def redeem_invite(invite: models.Invite, user) -> models.Membership:
         membership.created_through = invite
         membership.save(update_fields=["created_through"])
     else:
-        membership = models.Membership.objects.create(user=user, organization=organization, created_through=invite)
+        membership = models.Membership.objects.create(
+            user=user, organization=organization, created_through=invite
+        )
     _assign_invite_roles(membership, invite)
     invite.uses = F("uses") + 1
     invite.save(update_fields=["uses"])

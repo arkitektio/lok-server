@@ -32,7 +32,9 @@ class HubHealthSignal(BaseModel):
 
 
 system_message_channel = build_channel(SystemMessageSignal, name="lok_system_messages")
-membership_request_channel = build_channel(MembershipRequestSignal, name="lok_membership_requests")
+membership_request_channel = build_channel(
+    MembershipRequestSignal, name="lok_membership_requests"
+)
 hub_health_channel = build_channel(HubHealthSignal, name="lok_hub_health")
 
 

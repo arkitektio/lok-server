@@ -1,5 +1,6 @@
 from django.core.exceptions import ObjectDoesNotExist
 from kante.types import Info
+
 from karakter import types
 
 

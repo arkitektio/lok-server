@@ -1,5 +1,6 @@
 from django.urls import path
-from .views import organization_detail, change_org, accept_invite, leave_org
+
+from .views import accept_invite, change_org, leave_org, organization_detail
 
 urlpatterns = [
     path("organization/<slug:slug>/", organization_detail, name="organization_detail"),

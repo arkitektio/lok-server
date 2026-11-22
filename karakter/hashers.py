@@ -4,8 +4,6 @@ import hmac
 from django.conf import settings
 
 
-
-
 def hash_device_id(raw_device_id: str, organization) -> str:
     """Deterministic, non-reversible, per-organization hash of a raw device id.
 

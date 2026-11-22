@@ -22,7 +22,11 @@ from tests.conftest import build_auth_context
 def _principal():
     membership = factories.make_membership()
     client = factories.make_client(membership=membership)
-    return build_auth_context(membership.user, membership.organization, client), membership, client
+    return (
+        build_auth_context(membership.user, membership.organization, client),
+        membership,
+        client,
+    )
 
 
 def _assert_denied(result):
@@ -54,7 +58,8 @@ async def test_device_by_device_id_hashes_the_raw_id():
     assert result.data["deviceByDeviceId"] == {"id": str(device.id), "name": "laptop"}
 
     result = await schema.execute(
-        'query { deviceByDeviceId(id: "never-registered") { id } }', context_value=context
+        'query { deviceByDeviceId(id: "never-registered") { id } }',
+        context_value=context,
     )
     _assert_denied(result)
 
@@ -72,7 +77,9 @@ async def test_client_kind_covers_hub_and_relying_party():
 
     hub, rp, mobile = await sync_to_async(_clients)()
 
-    result = await schema.execute("query { clients { id kind } }", context_value=context)
+    result = await schema.execute(
+        "query { clients { id kind } }", context_value=context
+    )
     assert not result.errors, result.errors
     kinds = {row["id"]: row["kind"] for row in result.data["clients"]}
     assert kinds[str(hub.id)] == "HUB"
@@ -89,7 +96,14 @@ async def test_release_requirements_serialise():
         app = factories.make_app(organization=membership.organization)
         return factories.make_release(
             app=app,
-            requirements=[{"key": "mikro", "service": "live.arkitekt.mikro", "optional": False, "description": None}],
+            requirements=[
+                {
+                    "key": "mikro",
+                    "service": "live.arkitekt.mikro",
+                    "optional": False,
+                    "description": None,
+                }
+            ],
         )
 
     release = await sync_to_async(_release)()
@@ -101,7 +115,12 @@ async def test_release_requirements_serialise():
     )
     assert not result.errors, result.errors
     assert result.data["release"]["requirements"] == [
-        {"key": "mikro", "service": "live.arkitekt.mikro", "optional": False, "description": None}
+        {
+            "key": "mikro",
+            "service": "live.arkitekt.mikro",
+            "optional": False,
+            "description": None,
+        }
     ]
 
 
@@ -127,7 +146,11 @@ async def test_malformed_ids_are_a_clean_denial(query):
 
     _assert_denied(result)
     message = result.errors[0].message
-    assert "invalid literal" not in message and "ValueError" not in message and "UUID" not in message, message
+    assert (
+        "invalid literal" not in message
+        and "ValueError" not in message
+        and "UUID" not in message
+    ), message
 
 
 @pytest.mark.django_db(transaction=True)
@@ -139,7 +162,9 @@ async def test_null_filters_variable_on_a_scoped_list_works():
     def _device():
         from fakts.models import Device
 
-        return Device.objects.create(organization=membership.organization, node_id="n", name="d")
+        return Device.objects.create(
+            organization=membership.organization, node_id="n", name="d"
+        )
 
     device = await sync_to_async(_device)()
 
@@ -191,7 +216,11 @@ def _sample(gql_type):
             return {"contains": "x"}
         # Every required field (an input like `{ instance, collaboration }`),
         # or else the first one.
-        required = {name: _sample(field.type) for name, field in fields.items() if isinstance(field.type, GraphQLNonNull)}
+        required = {
+            name: _sample(field.type)
+            for name, field in fields.items()
+            if isinstance(field.type, GraphQLNonNull)
+        }
         if required:
             return required
         name, field = next(iter(fields.items()))
@@ -225,12 +254,18 @@ def _filterable_root_fields():
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-@pytest.mark.parametrize("field_name,filter_type_name,filters", _filterable_root_fields())
-async def test_every_root_filter_executes_without_field_error(field_name, filter_type_name, filters):
+@pytest.mark.parametrize(
+    "field_name,filter_type_name,filters", _filterable_root_fields()
+)
+async def test_every_root_filter_executes_without_field_error(
+    field_name, filter_type_name, filters
+):
     context, _membership, _client = await sync_to_async(_principal)()
 
     query = f"query ($filters: {filter_type_name}) {{ {field_name}(filters: $filters) {{ __typename }} }}"
-    result = await schema.execute(query, context_value=context, variable_values={"filters": filters})
+    result = await schema.execute(
+        query, context_value=context, variable_values={"filters": filters}
+    )
 
     assert not result.errors, f"{field_name} with {filters}: {result.errors}"
     assert result.data[field_name] is not None

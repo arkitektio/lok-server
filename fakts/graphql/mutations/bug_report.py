@@ -33,16 +33,29 @@ SCREENSHOT_SIGNATURES = {
 }
 
 
-@strawberry.input(description="A bug report from inside a client. Which client, release and organization it belongs to is read from the token, not from here.")
+@strawberry.input(
+    description="A bug report from inside a client. Which client, release and organization it belongs to is read from the token, not from here."
+)
 class CreateBugReportInput:
-    description: str = strawberry.field(description="What happened, in the reporter's words.")
-    title: str | None = strawberry.field(default=None, description="A short name; the first line of the description when omitted.")
+    description: str = strawberry.field(
+        description="What happened, in the reporter's words."
+    )
+    title: str | None = strawberry.field(
+        default=None,
+        description="A short name; the first line of the description when omitted.",
+    )
     expected: str | None = None
-    route: str | None = strawberry.field(default=None, description="The page the reporter was on.")
+    route: str | None = strawberry.field(
+        default=None, description="The page the reporter was on."
+    )
     app_version: str | None = None
     platform: str | None = None
-    diagnostics: JSON | None = strawberry.field(default=None, description="What the client recorded. At most 512 KB as JSON.")
-    screenshot: str | None = strawberry.field(default=None, description="A data URL (JPEG, PNG or WebP) of at most 1 MB.")
+    diagnostics: JSON | None = strawberry.field(
+        default=None, description="What the client recorded. At most 512 KB as JSON."
+    )
+    screenshot: str | None = strawberry.field(
+        default=None, description="A data URL (JPEG, PNG or WebP) of at most 1 MB."
+    )
 
 
 def _parse_screenshot(data_url: str | None) -> tuple[bytes | None, str | None]:
@@ -54,7 +67,9 @@ def _parse_screenshot(data_url: str | None) -> tuple[bytes | None, str | None]:
     content_type = header[len("data:") : -len(";base64")].lower()
     signatures = SCREENSHOT_SIGNATURES.get(content_type)
     if signatures is None:
-        raise GraphQLError(f"Unsupported screenshot type '{content_type}'. Allowed: {', '.join(sorted(SCREENSHOT_SIGNATURES))}.")
+        raise GraphQLError(
+            f"Unsupported screenshot type '{content_type}'. Allowed: {', '.join(sorted(SCREENSHOT_SIGNATURES))}."
+        )
     # Four base64 characters carry three bytes: refuse before decoding.
     if len(payload) > SCREENSHOT_MAX_BYTES * 4 // 3 + 4:
         raise GraphQLError("The screenshot is larger than 1 MB.")
@@ -116,17 +131,28 @@ def create_bug_report(info: Info, input: CreateBugReportInput) -> types.BugRepor
     if len(description) > DESCRIPTION_MAX_CHARS:
         raise GraphQLError("The description is too long.")
 
-    diagnostics = _without_nul(input.diagnostics) if input.diagnostics is not None else {}
+    diagnostics = (
+        _without_nul(input.diagnostics) if input.diagnostics is not None else {}
+    )
     if not isinstance(diagnostics, dict):
         raise GraphQLError("The diagnostics must be an object.")
     if len(json.dumps(diagnostics)) > DIAGNOSTICS_MAX_BYTES:
-        raise GraphQLError("The diagnostics are larger than 512 KB. Leave a part out and send again.")
+        raise GraphQLError(
+            "The diagnostics are larger than 512 KB. Leave a part out and send again."
+        )
 
     screenshot, content_type = _parse_screenshot(input.screenshot)
 
     since = timezone.now() - datetime.timedelta(hours=1)
-    if fakts_models.BugReport.objects.filter(reporter=user, created_at__gte=since).count() >= REPORTS_PER_HOUR:
-        raise GraphQLError("You have filed a lot of reports in the last hour. Try again later.")
+    if (
+        fakts_models.BugReport.objects.filter(
+            reporter=user, created_at__gte=since
+        ).count()
+        >= REPORTS_PER_HOUR
+    ):
+        raise GraphQLError(
+            "You have filed a lot of reports in the last hour. Try again later."
+        )
 
     title = _clip(input.title, 200) or description.splitlines()[0][:200]
     report = fakts_models.BugReport.objects.create(
@@ -144,7 +170,12 @@ def create_bug_report(info: Info, input: CreateBugReportInput) -> types.BugRepor
         screenshot=screenshot,
         screenshot_content_type=content_type,
     )
-    logger.info("Bug report %s filed by user %s from client %s", report.pk, user.id, client.client_id)
+    logger.info(
+        "Bug report %s filed by user %s from client %s",
+        report.pk,
+        user.id,
+        client.client_id,
+    )
     return report
 
 
@@ -190,8 +221,12 @@ def unresolve_bug_report(info: Info, input: UnresolveBugReportInput) -> types.Bu
 @strawberry.input
 class ForwardBugReportInput:
     id: strawberry.ID
-    url: str | None = strawberry.field(default=None, description="The issue the report became, when it is known.")
-    forwarded: bool = strawberry.field(default=True, description="False takes the mark back.")
+    url: str | None = strawberry.field(
+        default=None, description="The issue the report became, when it is known."
+    )
+    forwarded: bool = strawberry.field(
+        default=True, description="False takes the mark back."
+    )
 
 
 def forward_bug_report(info: Info, input: ForwardBugReportInput) -> types.BugReport:
@@ -222,7 +257,15 @@ def forward_bug_report(info: Info, input: ForwardBugReportInput) -> types.BugRep
         report.github_issue_state = None
         report.screenshot_token = None
         report.save(
-            update_fields=["forwarded_at", "forwarded_by", "forwarded_url", "github_repo", "github_issue_number", "github_issue_state", "screenshot_token"]
+            update_fields=[
+                "forwarded_at",
+                "forwarded_by",
+                "forwarded_url",
+                "github_repo",
+                "github_issue_number",
+                "github_issue_state",
+                "screenshot_token",
+            ]
         )
     return report
 
@@ -236,7 +279,9 @@ def delete_bug_report(info: Info, input: DeleteBugReportInput) -> strawberry.ID:
     """Delete a bug report and its screenshot. An admin's, or the reporter's own."""
     report = get_scoped_or_denied(fakts_models.BugReport.objects, info, pk=input.id)
     user = get_user(info)
-    if report.reporter_id != user.id and not roles.is_owner_or_admin(user, report.organization):
+    if report.reporter_id != user.id and not roles.is_owner_or_admin(
+        user, report.organization
+    ):
         raise GraphQLError(DENIED)
     report_id = strawberry.ID(str(report.pk))
     report.delete()

@@ -4,6 +4,7 @@ from django.conf import settings
 
 from fakts.models import IonscaleLayer
 from karakter.models import Membership
+
 from . import base_models
 from .repo import get_ionscale_repo
 
@@ -11,6 +12,7 @@ from .repo import get_ionscale_repo
 def desired_tailnet_name(organization) -> str:
     """The tailnet is named after the organization: its id, which a rename never changes (see ``ensure_org_mesh``)."""
     return str(organization.pk)
+
 
 logger = logging.getLogger(__name__)
 
@@ -29,7 +31,9 @@ def ionscale_configured() -> bool:
     )
 
 
-def magic_dns_name(name: str | None, tailnet: str | None, fqdn: str | None = None) -> str | None:
+def magic_dns_name(
+    name: str | None, tailnet: str | None, fqdn: str | None = None
+) -> str | None:
     """A machine's MagicDNS name: the FQDN ionscale reports if any, else derived.
 
     ionscale namespaces machines under their tailnet, so the derived form is
@@ -153,14 +157,18 @@ def replace_org_mesh(layer: IonscaleLayer) -> IonscaleLayer:
     sync(layer)
     apply_dns_config(layer, raise_on_error=True)
     if not apply_acl_policy(organization.pk):
-        raise RuntimeError(f"Could not apply the ACL policy to the new tailnet {layer.tailnet_name}")
+        raise RuntimeError(
+            f"Could not apply the ACL policy to the new tailnet {layer.tailnet_name}"
+        )
 
     from fakts.models import Hub
     from fakts.services.mesh import forget_hub_mesh_hosts
 
     # Keys no hub or enrollment points at (hand-made keys, keys whose revoke
     # failed on rotation) are dead now and nothing would ever clean them up.
-    layer.auth_keys.filter(hubs__isnull=True, app_mesh_enrollments__isnull=True).delete()
+    layer.auth_keys.filter(
+        hubs__isnull=True, app_mesh_enrollments__isnull=True
+    ).delete()
 
     # The hubs' last reported mesh hosts point into the old tailnet; drop them
     # (and the cached lookups) until the hubs report from the new one.
@@ -168,7 +176,11 @@ def replace_org_mesh(layer: IonscaleLayer) -> IonscaleLayer:
     forget_hub_mesh_hosts(hubs.values_list("pk", flat=True))
     hubs.update(mesh_connected=None, mesh_host="")
 
-    logger.warning("Replaced the mesh tailnet %s of organization %s", layer.tailnet_name, organization)
+    logger.warning(
+        "Replaced the mesh tailnet %s of organization %s",
+        layer.tailnet_name,
+        organization,
+    )
     return layer
 
 
@@ -182,7 +194,9 @@ def sync(layer: IonscaleLayer) -> IonscaleLayer:
     `subs` across.
     """
     if not ionscale_configured():
-        logger.warning("Ionscale is not configured; skipping member sync for mesh %s", layer)
+        logger.warning(
+            "Ionscale is not configured; skipping member sync for mesh %s", layer
+        )
         return layer
 
     # Full members only. A guest of some collaborations (a scoped membership,
@@ -190,7 +204,13 @@ def sync(layer: IonscaleLayer) -> IonscaleLayer:
     # so they never join `autogroup:member` and its member-to-member rule. Their
     # apps still enroll as sidecars (`tag:app-<n>`), which reach only the hub the
     # app is bound to (ionscale.acl).
-    members = Membership.objects.filter(organization=layer.organization, collaboration_grants__isnull=True).select_related("user").order_by("id")
+    members = (
+        Membership.objects.filter(
+            organization=layer.organization, collaboration_grants__isnull=True
+        )
+        .select_related("user")
+        .order_by("id")
+    )
 
     repo = get_ionscale_repo()
 
@@ -214,7 +234,9 @@ def sync(layer: IonscaleLayer) -> IonscaleLayer:
     return layer
 
 
-def apply_dns_config(layer: IonscaleLayer, raise_on_error: bool = False) -> IonscaleLayer:
+def apply_dns_config(
+    layer: IonscaleLayer, raise_on_error: bool = False
+) -> IonscaleLayer:
     """Push the mesh's desired DNS state (MagicDNS + HTTPS certs) to ionscale.
 
     Kept separate from `sync` (which runs on every membership change) so a DNS/ACME

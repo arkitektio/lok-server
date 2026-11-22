@@ -25,21 +25,33 @@ query {
 def _setup(caller_is_owner: bool):
     organization = factories.make_organization()
     factories.make_membership(user=organization.owner, organization=organization)
-    instance = factories.make_service_instance(hub=factories.make_hub(organization=organization))
+    instance = factories.make_service_instance(
+        hub=factories.make_hub(organization=organization)
+    )
     invite = models.Invite.objects.create(
         created_by=organization.owner,
         created_for=organization,
-        shared_collaborations=[{"instance": instance.pk, "collaboration": "12", "roles": []}],
+        shared_collaborations=[
+            {"instance": instance.pk, "collaboration": "12", "roles": []}
+        ],
     )
     guest = factories.make_membership(organization=organization, created_through=invite)
-    models.CollaborationGrant.objects.create(membership=guest, instance=instance, collaboration_id="12", granted_by=organization.owner, granted_through=invite)
+    models.CollaborationGrant.objects.create(
+        membership=guest,
+        instance=instance,
+        collaboration_id="12",
+        granted_by=organization.owner,
+        granted_through=invite,
+    )
 
     if caller_is_owner:
         caller = organization.owner
     else:
         caller = factories.make_membership(organization=organization).user
     membership = organization.memberships.get(user=caller)
-    context = build_auth_context(caller, organization, factories.make_client(membership=membership))
+    context = build_auth_context(
+        caller, organization, factories.make_client(membership=membership)
+    )
     return context, str(invite.token)
 
 

@@ -32,11 +32,19 @@ DEVICE_CODE_GRANT = "urn:ietf:params:oauth:grant-type:device_code"
 
 
 def _post(client, name, payload, **kw):
-    return client.post(reverse(name), data=json.dumps(payload), content_type="application/json", **kw)
+    return client.post(
+        reverse(name), data=json.dumps(payload), content_type="application/json", **kw
+    )
 
 
 def _manifest(version="1.0.0", **extra):
-    return {"identifier": "com.example.errors", "version": version, "scopes": [], "requirements": [], **extra}
+    return {
+        "identifier": "com.example.errors",
+        "version": version,
+        "scopes": [],
+        "requirements": [],
+        **extra,
+    }
 
 
 def _bearer_headers(fakts_client, exp_offset=60, **claim_overrides):
@@ -60,7 +68,9 @@ def _bearer_headers(fakts_client, exp_offset=60, **claim_overrides):
 @pytest.mark.django_db
 def test_start_malformed_json_returns_error(client):
     # Body is not valid JSON -> json.loads raises -> malformed envelope (key "error").
-    resp = client.post(reverse("app_authorization"), data="{not json", content_type="application/json")
+    resp = client.post(
+        reverse("app_authorization"), data="{not json", content_type="application/json"
+    )
     assert resp.status_code == 400
     body = resp.json()
     assert body["status"] == "error"
@@ -72,7 +82,11 @@ def test_start_malformed_json_returns_error(client):
 def test_start_invalid_body_returns_validation_details(client):
     # Valid JSON but not a valid DeviceCodeStartRequest (manifest missing) ->
     # 400 invalid_request with pydantic's error details.
-    resp = client.post(reverse("app_authorization"), data=json.dumps({"nope": 1}), content_type="application/json")
+    resp = client.post(
+        reverse("app_authorization"),
+        data=json.dumps({"nope": 1}),
+        content_type="application/json",
+    )
     assert resp.status_code == 400
     body = resp.json()
     assert body["error"] == "invalid_request"
@@ -93,7 +107,9 @@ def test_get_on_post_only_view_returns_405(client):
 
 @pytest.mark.django_db
 def test_expired_code_yields_expired_token_at_token_endpoint(client):
-    device_code = factories.make_device_code(expires_at=timezone.now() - timedelta(seconds=1))
+    device_code = factories.make_device_code(
+        expires_at=timezone.now() - timedelta(seconds=1)
+    )
 
     resp = client.post(
         reverse("token"),
@@ -111,7 +127,9 @@ def test_expired_code_yields_expired_token_at_token_endpoint(client):
 @pytest.mark.django_db
 def test_purge_reaps_expired_unapproved_codes_and_their_clients(client):
 
-    device_code = factories.make_device_code(expires_at=timezone.now() - timedelta(seconds=1))
+    device_code = factories.make_device_code(
+        expires_at=timezone.now() - timedelta(seconds=1)
+    )
     orphan_client_id = device_code.client.client_id
 
     purged = device_codes.purge_expired_device_codes()
@@ -216,7 +234,12 @@ def test_report_with_unknown_client_id_is_401(client):
     headers = _bearer_headers(fakts_client)
     fakts_client.delete()  # cascades onto the fakts client
 
-    resp = _post(client, "fakts:report", {"functional": False, "alias_reports": {}}, headers=headers)
+    resp = _post(
+        client,
+        "fakts:report",
+        {"functional": False, "alias_reports": {}},
+        headers=headers,
+    )
     assert resp.status_code == 401
 
 

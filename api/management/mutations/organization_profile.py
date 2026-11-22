@@ -3,10 +3,9 @@ import logging
 import strawberry
 from kante.types import Info
 
-from karakter import models
 from api.management import types
-from api.management.authz import DENIED, assert_owner_or_admin, get_or_denied
-from graphql import GraphQLError
+from api.management.authz import assert_owner_or_admin, get_or_denied
+from karakter import models
 from karakter.authz import resolve_own_media_store
 
 logger = logging.getLogger(__name__)
@@ -18,7 +17,9 @@ class CreateOrganizationProfileInput:
     name: str
 
 
-def create_organization_profile(info: Info, input: CreateOrganizationProfileInput) -> types.ManagementOrganizationProfile:
+def create_organization_profile(
+    info: Info, input: CreateOrganizationProfileInput
+) -> types.ManagementOrganizationProfile:
     """Create (or, since a profile row is auto-created for every organization,
     update) the organization's profile."""
     organization = get_or_denied(models.Organization.objects, pk=input.organization)
@@ -42,7 +43,9 @@ class UpdateOrganizationProfileInput:
     avatar: strawberry.ID | None = None
 
 
-def update_organization_profile(info: Info, input: UpdateOrganizationProfileInput) -> types.ManagementOrganizationProfile:
+def update_organization_profile(
+    info: Info, input: UpdateOrganizationProfileInput
+) -> types.ManagementOrganizationProfile:
     profile = get_or_denied(models.OrganizationProfile.objects, pk=input.id)
 
     assert_owner_or_admin(info, profile.organization)
@@ -62,7 +65,9 @@ class DeleteOrganizationProfileInput:
     id: strawberry.ID
 
 
-def delete_organization_profile(info: Info, input: DeleteOrganizationProfileInput) -> strawberry.ID:
+def delete_organization_profile(
+    info: Info, input: DeleteOrganizationProfileInput
+) -> strawberry.ID:
     profile = get_or_denied(models.OrganizationProfile.objects, pk=input.id)
     assert_owner_or_admin(info, profile.organization)
     profile.delete()

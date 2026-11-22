@@ -19,10 +19,10 @@ from fakts.services import hubs
 from tests import factories
 from tests.conftest import build_auth_context
 
-
 # --------------------------------------------------------------------------- #
 # Backward compatibility: the field defaults to False everywhere.
 # --------------------------------------------------------------------------- #
+
 
 def test_staging_alias_defaults_public_false():
     """A StagingAlias payload that omits ``public`` still parses (default False)."""
@@ -53,9 +53,12 @@ def test_instance_alias_model_defaults_public_false():
 # to_url() must propagate ``public`` onto the resolved Alias.
 # --------------------------------------------------------------------------- #
 
+
 def _linking_context() -> base_models.LinkingContext:
     return base_models.LinkingContext(
-        request=base_models.LinkingRequest(host="linked.example.com", port="8080", is_secure=True),
+        request=base_models.LinkingRequest(
+            host="linked.example.com", port="8080", is_secure=True
+        ),
         manifest=base_models.Manifest(identifier="com.example.app", version="1.0.0"),
         client=base_models.LinkingClient(
             authorization_grant_type="authorization_code",
@@ -80,7 +83,9 @@ def test_to_url_propagates_public_for_absolute_alias():
 @pytest.mark.django_db
 def test_to_url_defaults_public_false():
     instance = factories.make_service_instance()
-    alias = models.InstanceAlias.objects.create(instance=instance, host="example.com", kind="absolute")
+    alias = models.InstanceAlias.objects.create(
+        instance=instance, host="example.com", kind="absolute"
+    )
     url = alias.to_url(_linking_context())
     assert url.public is False
 
@@ -89,15 +94,20 @@ def test_to_url_defaults_public_false():
 # Hub service persists ``public`` from the staging alias.
 # --------------------------------------------------------------------------- #
 
+
 def _hub_manifest(*, public: bool) -> base_models.HubManifest:
     return base_models.HubManifest(
         identifier="com.example.comp",
         instances=[
             base_models.InstanceRequest(
                 identifier="inst-1",
-                manifest=base_models.ServiceManifest(identifier="com.example.svc", version="1.0.0"),
+                manifest=base_models.ServiceManifest(
+                    identifier="com.example.svc", version="1.0.0"
+                ),
                 aliases=[
-                    base_models.StagingAlias(id="alias-1", host="example.com", challenge="ht", public=public),
+                    base_models.StagingAlias(
+                        id="alias-1", host="example.com", challenge="ht", public=public
+                    ),
                 ],
             )
         ],
@@ -125,6 +135,7 @@ def test_create_hub_defaults_public_false():
 # --------------------------------------------------------------------------- #
 # The field is exposed on the GraphQL types.
 # --------------------------------------------------------------------------- #
+
 
 def test_public_field_exposed_on_management_graphql_types():
     # ManagementInstanceAlias and the pydantic StagingAlias both carry `public`.
@@ -174,12 +185,16 @@ def _mutation_setup():
     # Alias mutations are owner/admin-only (an alias is a routing entry), so the
     # caller is the organization's owner.
     organization = factories.make_organization()
-    membership = factories.make_membership(user=organization.owner, organization=organization)
+    membership = factories.make_membership(
+        user=organization.owner, organization=organization
+    )
     # auth resolves the OAuth2Client back to its backing fakts Client
     request_client = factories.make_client(membership=membership)
     hub = factories.make_hub(organization=membership.organization)
     instance = factories.make_service_instance(hub=hub)
-    context = build_auth_context(membership.user, membership.organization, request_client)
+    context = build_auth_context(
+        membership.user, membership.organization, request_client
+    )
     return context, instance
 
 
@@ -305,13 +320,16 @@ async def test_delete_alias_mutation_removes_alias():
 
     assert not result.errors, result.errors
     assert result.data["deleteAlias"] == str(alias.id)
-    exists = await sync_to_async(models.InstanceAlias.objects.filter(id=alias.id).exists)()
+    exists = await sync_to_async(
+        models.InstanceAlias.objects.filter(id=alias.id).exists
+    )()
     assert exists is False
 
 
 # --------------------------------------------------------------------------- #
 # to_url() tells the client how the alias is reached (``kind``).
 # --------------------------------------------------------------------------- #
+
 
 def test_alias_defaults_kind_absolute():
     """Callers that never mention ``kind`` (e.g. the self alias) stay absolute."""
@@ -323,7 +341,9 @@ def test_alias_defaults_kind_absolute():
 @pytest.mark.parametrize("kind", ["absolute", "docker"])
 def test_to_url_propagates_kind(kind):
     instance = factories.make_service_instance()
-    alias = models.InstanceAlias.objects.create(instance=instance, host="example.com", kind=kind)
+    alias = models.InstanceAlias.objects.create(
+        instance=instance, host="example.com", kind=kind
+    )
     assert alias.to_url(_linking_context()).kind == kind
 
 
@@ -331,6 +351,7 @@ def test_to_url_propagates_kind(kind):
 # kind: relative is gone. It resolved against the host a client reached the
 # coordination server on, which is not where a hub's services live.
 # --------------------------------------------------------------------------- #
+
 
 @pytest.mark.django_db
 def test_instance_alias_model_defaults_kind_absolute():
@@ -354,24 +375,42 @@ async def test_create_alias_mutation_refuses_a_relative_alias():
     result = await management_schema.execute(
         CREATE_ALIAS,
         context_value=context,
-        variable_values={"input": {"instance": str(instance.id), "port": 80, "host": "example.com", "kind": "relative"}},
+        variable_values={
+            "input": {
+                "instance": str(instance.id),
+                "port": 80,
+                "host": "example.com",
+                "kind": "relative",
+            }
+        },
     )
 
     assert result.errors
     assert "Unknown alias kind 'relative'" in str(result.errors[0])
-    assert not await sync_to_async(models.InstanceAlias.objects.filter(instance=instance).exists)()
+    assert not await sync_to_async(
+        models.InstanceAlias.objects.filter(instance=instance).exists
+    )()
 
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
 async def test_update_alias_mutation_refuses_a_relative_alias():
     context, instance = await sync_to_async(_mutation_setup)()
-    alias = await sync_to_async(models.InstanceAlias.objects.create)(instance=instance, host="example.com", kind="absolute")
+    alias = await sync_to_async(models.InstanceAlias.objects.create)(
+        instance=instance, host="example.com", kind="absolute"
+    )
 
     result = await management_schema.execute(
         UPDATE_ALIAS,
         context_value=context,
-        variable_values={"input": {"id": str(alias.id), "port": 80, "host": "example.com", "kind": "relative"}},
+        variable_values={
+            "input": {
+                "id": str(alias.id),
+                "port": 80,
+                "host": "example.com",
+                "kind": "relative",
+            }
+        },
     )
 
     assert result.errors
@@ -384,10 +423,14 @@ async def test_update_alias_mutation_refuses_a_relative_alias():
 # environment. Every client gets them; the challenge decides who can use them.
 # --------------------------------------------------------------------------- #
 
+
 def test_docker_staging_alias_needs_a_host():
     with pytest.raises(ValidationError):
         base_models.StagingAlias(id="d", kind="docker")
-    assert base_models.StagingAlias(id="d", kind="docker", host="gateway").host == "gateway"
+    assert (
+        base_models.StagingAlias(id="d", kind="docker", host="gateway").host
+        == "gateway"
+    )
 
 
 def test_docker_staging_alias_cannot_be_public():
@@ -401,10 +444,20 @@ def test_docker_staging_alias_cannot_be_public():
 def test_docker_alias_renders_its_stored_address_not_the_request_host():
     instance = factories.make_service_instance()
     alias = models.InstanceAlias.objects.create(
-        instance=instance, host="gateway", port=80, ssl=False, path="rekuest", kind="docker"
+        instance=instance,
+        host="gateway",
+        port=80,
+        ssl=False,
+        path="rekuest",
+        kind="docker",
     )
     rendered = alias.to_url(_linking_context())
-    assert (rendered.host, rendered.port, rendered.ssl, rendered.path) == ("gateway", 80, False, "rekuest")
+    assert (rendered.host, rendered.port, rendered.ssl, rendered.path) == (
+        "gateway",
+        80,
+        False,
+        "rekuest",
+    )
     assert rendered.model_dump()["kind"] == "docker"
     assert rendered.public is False
 
@@ -413,8 +466,12 @@ def test_docker_alias_renders_its_stored_address_not_the_request_host():
 def test_docker_alias_is_rendered_next_to_the_others():
     """No audience filtering: every client of the instance gets the docker alias."""
     instance = factories.make_service_instance()
-    models.InstanceAlias.objects.create(instance=instance, host="gateway", port=80, ssl=False, kind="docker")
-    models.InstanceAlias.objects.create(instance=instance, host="public.example", port=443, kind="absolute")
+    models.InstanceAlias.objects.create(
+        instance=instance, host="gateway", port=80, ssl=False, kind="docker"
+    )
+    models.InstanceAlias.objects.create(
+        instance=instance, host="public.example", port=443, kind="absolute"
+    )
 
     claim = instance.render(_linking_context())
     assert sorted(a.kind for a in claim.aliases) == ["absolute", "docker"]
@@ -427,9 +484,19 @@ def test_create_hub_persists_docker_alias():
         instances=[
             base_models.InstanceRequest(
                 identifier="inst-1",
-                manifest=base_models.ServiceManifest(identifier="com.example.svc", version="1.0.0"),
+                manifest=base_models.ServiceManifest(
+                    identifier="com.example.svc", version="1.0.0"
+                ),
                 aliases=[
-                    base_models.StagingAlias(id="docker", kind="docker", host="gateway", port=80, ssl=False, path="svc", challenge="ht"),
+                    base_models.StagingAlias(
+                        id="docker",
+                        kind="docker",
+                        host="gateway",
+                        port=80,
+                        ssl=False,
+                        path="svc",
+                        challenge="ht",
+                    ),
                 ],
             )
         ],
@@ -437,7 +504,12 @@ def test_create_hub_persists_docker_alias():
     hubs.create_hub_from_manifest(manifest, factories.make_organization())
 
     alias = models.InstanceAlias.objects.get(name="docker")
-    assert (alias.kind, alias.host, alias.port, alias.ssl) == ("docker", "gateway", 80, False)
+    assert (alias.kind, alias.host, alias.port, alias.ssl) == (
+        "docker",
+        "gateway",
+        80,
+        False,
+    )
 
 
 @pytest.mark.django_db(transaction=True)
@@ -448,7 +520,14 @@ async def test_create_alias_mutation_creates_docker_alias():
     result = await management_schema.execute(
         CREATE_ALIAS,
         context_value=context,
-        variable_values={"input": {"instance": str(instance.id), "port": 80, "host": "gateway", "kind": "docker"}},
+        variable_values={
+            "input": {
+                "instance": str(instance.id),
+                "port": 80,
+                "host": "gateway",
+                "kind": "docker",
+            }
+        },
     )
 
     assert not result.errors, result.errors
@@ -464,12 +543,22 @@ async def test_create_alias_mutation_rejects_public_docker_alias():
     result = await management_schema.execute(
         CREATE_ALIAS,
         context_value=context,
-        variable_values={"input": {"instance": str(instance.id), "port": 80, "host": "gateway", "kind": "docker", "public": True}},
+        variable_values={
+            "input": {
+                "instance": str(instance.id),
+                "port": 80,
+                "host": "gateway",
+                "kind": "docker",
+                "public": True,
+            }
+        },
     )
 
     assert result.errors
     assert "cannot be public" in str(result.errors[0])
-    assert not await sync_to_async(models.InstanceAlias.objects.filter(instance=instance).exists)()
+    assert not await sync_to_async(
+        models.InstanceAlias.objects.filter(instance=instance).exists
+    )()
 
 
 @pytest.mark.django_db(transaction=True)
@@ -483,7 +572,14 @@ async def test_update_alias_mutation_rejects_turning_a_public_alias_into_docker(
     result = await management_schema.execute(
         UPDATE_ALIAS,
         context_value=context,
-        variable_values={"input": {"id": str(alias.id), "port": 80, "host": "gateway", "kind": "docker"}},
+        variable_values={
+            "input": {
+                "id": str(alias.id),
+                "port": 80,
+                "host": "gateway",
+                "kind": "docker",
+            }
+        },
     )
 
     assert result.errors

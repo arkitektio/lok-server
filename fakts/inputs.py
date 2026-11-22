@@ -1,28 +1,30 @@
-import strawberry
-from strawberry.experimental import pydantic
-from fakts.base_models import Manifest, LinkingContext, LinkingRequest, PublicSource
-from typing import Optional
-from pydantic import BaseModel, Field
-from fakts import enums
 import enum
+
+import strawberry
+from pydantic import BaseModel, Field
+from strawberry.experimental import pydantic
+
+from fakts import enums
+from fakts.base_models import LinkingContext, LinkingRequest, Manifest, PublicSource
 
 
 class RequirementModel(BaseModel):
     service: str
     optional: bool = False
-    description: Optional[str] = None
+    description: str | None = None
     key: str
-    version: Optional[str] = None
+    version: str | None = None
 
 
 @pydantic.input(RequirementModel)
 class RequirementInput:
     service: str
     optional: bool = False
-    description: Optional[str] = None
+    description: str | None = None
     key: str
-    version: Optional[str] = strawberry.field(
-        default=None, description="The service versions the client was written for, as a specifier (advisory)."
+    version: str | None = strawberry.field(
+        default=None,
+        description="The service versions the client was written for, as a specifier (advisory).",
     )
 
 
@@ -42,22 +44,22 @@ class PublicSourceInput:
 class ManifestInput:
     identifier: str
     version: str
-    title: Optional[str] = None
-    description: Optional[str] = None
-    logo: Optional[str] = None
+    title: str | None = None
+    description: str | None = None
+    logo: str | None = None
     scopes: list[str]
-    device_id: Optional[str] = strawberry.field(
+    device_id: str | None = strawberry.field(
         default=None, description="The device the client runs on."
     )
-    node_id: Optional[str] = strawberry.field(
+    node_id: str | None = strawberry.field(
         default=None, deprecation_reason="Use deviceId."
     )
     requirements: list[RequirementInput] = Field(default_factory=list)
     authors: list[str] = Field(default_factory=list)
     keywords: list[str] = Field(default_factory=list)
-    license: Optional[str] = None
-    homepage: Optional[str] = None
-    repo_url: Optional[str] = None
+    license: str | None = None
+    homepage: str | None = None
+    repo_url: str | None = None
     public_sources: list[PublicSourceInput] | None = None
 
 

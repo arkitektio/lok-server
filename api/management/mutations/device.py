@@ -1,11 +1,12 @@
-from kante import Info
-import strawberry
-from api.management import types
-from karakter import models
-from karakter.hashers import hash_device_id
 import kante
+import strawberry
+from kante import Info
+
+from api.management import types
 from api.management.authz import assert_member, get_or_denied
 from fakts import models as fakts_models
+from karakter import models
+from karakter.hashers import hash_device_id
 
 
 @kante.input
@@ -23,7 +24,11 @@ def create_device(info: Info, input: CreateDeviceInput) -> types.ManagementDevic
 
     assert_member(info, organization)
 
-    c, _ = fakts_models.Device.objects.update_or_create(organization=organization, node_id=hash_device_id(input.device_id, organization), defaults=dict(name=input.name))
+    c, _ = fakts_models.Device.objects.update_or_create(
+        organization=organization,
+        node_id=hash_device_id(input.device_id, organization),
+        defaults=dict(name=input.name),
+    )
 
     return c
 

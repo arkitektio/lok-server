@@ -1,15 +1,26 @@
-import subprocess
-import os
-import shutil
-import re
 import json
 import logging
-from typing import List, Dict, Any, Union, Optional, Protocol, runtime_checkable
+import os
+import re
+import shutil
+import subprocess
 from pathlib import Path
-from .base_models import Tailnet, TailnetCreate, Machine, MachineDetail, DNSConfig, TailnetLockStatus, NodeLockState, TailnetUser
-from .errors import IonscaleError
+from typing import Any, Protocol, runtime_checkable
+
 from django.conf import settings
 from django.utils.module_loading import import_string
+
+from .base_models import (
+    DNSConfig,
+    Machine,
+    MachineDetail,
+    NodeLockState,
+    Tailnet,
+    TailnetCreate,
+    TailnetLockStatus,
+    TailnetUser,
+)
+from .errors import IonscaleError
 
 logger = logging.getLogger(__name__)
 
@@ -26,26 +37,39 @@ class IonscaleRepo(Protocol):
     surface as :class:`ionscale.errors.IonscaleError`.
     """
 
-    def list_tailnets(self) -> List[Tailnet]: ...
-    def list_machines(self, tailnet: str) -> List[Machine]: ...
+    def list_tailnets(self) -> list[Tailnet]: ...
+    def list_machines(self, tailnet: str) -> list[Machine]: ...
     def get_machine(self, machine_id: str) -> MachineDetail: ...
     def create_tailnet(self, tailnet_input: TailnetCreate) -> Tailnet: ...
-    def get_tailnet_by_organization(self, organization: str) -> Optional[Tailnet]: ...
-    def update_tailnet(self, tailnet: str, *, name: Optional[str] = ..., **flags: bool) -> Tailnet: ...
+    def get_tailnet_by_organization(self, organization: str) -> Tailnet | None: ...
+    def update_tailnet(
+        self, tailnet: str, *, name: str | None = ..., **flags: bool
+    ) -> Tailnet: ...
     def delete_tailnet(self, tailnet: str, force: bool = ...) -> None: ...
-    def get_policy(self, tailnet: str) -> Dict[str, Any]: ...
-    def update_policy(self, tailnet: str, policy: Union[Dict[str, Any], str, Path]) -> str: ...
+    def get_policy(self, tailnet: str) -> dict[str, Any]: ...
+    def update_policy(
+        self, tailnet: str, policy: dict[str, Any] | str | Path
+    ) -> str: ...
     def get_acl_policy(self, tailnet: str) -> str: ...
-    def set_acl_policy(self, tailnet: str, policy: Dict[str, Any]) -> None: ...
+    def set_acl_policy(self, tailnet: str, policy: dict[str, Any]) -> None: ...
     def set_dns_config(self, tailnet: str, config: DNSConfig) -> str: ...
-    def create_auth_key(self, tailnet: str, ephemeral: bool = ..., pre_authorized: bool = ..., tags: List[str] = ..., expiry_seconds: Optional[int] = ...) -> str: ...
+    def create_auth_key(
+        self,
+        tailnet: str,
+        ephemeral: bool = ...,
+        pre_authorized: bool = ...,
+        tags: list[str] = ...,
+        expiry_seconds: int | None = ...,
+    ) -> str: ...
     def delete_auth_key(self, tailnet: str, key_value: str) -> bool: ...
     def delete_machine(self, machine_id: str) -> None: ...
     def get_tailnet_lock_status(self, tailnet: str) -> TailnetLockStatus: ...
     def enable_tailnet_lock(self, tailnet: str) -> None: ...
     def disable_tailnet_lock(self, tailnet: str) -> None: ...
-    def list_users(self, tailnet: str) -> List[TailnetUser]: ...
-    def revoke_account(self, external_id: str, organization: Optional[str] = ...) -> List[str]: ...
+    def list_users(self, tailnet: str) -> list[TailnetUser]: ...
+    def revoke_account(
+        self, external_id: str, organization: str | None = ...
+    ) -> list[str]: ...
 
 
 class IonscaleRepository:
@@ -83,7 +107,7 @@ class IonscaleRepository:
             raise ValueError(f"Invalid {what}: {value!r}")
         return text
 
-    def _run_command(self, args: List[str], command_type: str = "tailnet") -> str:
+    def _run_command(self, args: list[str], command_type: str = "tailnet") -> str:
         """
         Executes the ionscale CLI command securely.
         :param args: Command arguments
@@ -93,8 +117,10 @@ class IonscaleRepository:
         # assuming the CLI can read it or we pass it via stdin.
         # Ionscale CLI requires the flag, so we pass it in the args but execute carefully.
 
-        base_cmd = [self.binary,  *args]
-        logger.debug("Running ionscale CLI: %s", " ".join(base_cmd))  # safe: the key travels in env, not args
+        base_cmd = [self.binary, *args]
+        logger.debug(
+            "Running ionscale CLI: %s", " ".join(base_cmd)
+        )  # safe: the key travels in env, not args
 
         try:
             result = subprocess.run(
@@ -114,16 +140,18 @@ class IonscaleRepository:
         except subprocess.CalledProcessError as e:
             # Clean the error message to avoid leaking keys if they appear in stderr
             clean_error = e.stderr.replace(self.admin_key, "***")
-            raise IonscaleError(_cli_error_code(clean_error), f"Ionscale CLI Error: {clean_error}")
+            raise IonscaleError(
+                _cli_error_code(clean_error), f"Ionscale CLI Error: {clean_error}"
+            )
 
-    def list_tailnets(self) -> List[Tailnet]:
+    def list_tailnets(self) -> list[Tailnet]:
         """
         Runs `ionscale tailnet list` and parses the output.
         """
         output = self._run_command(["tailnet", "list"])
         return self._parse_list_output(output)
 
-    def list_machines(self, tailnet: str) -> List[Machine]:
+    def list_machines(self, tailnet: str) -> list[Machine]:
         """
         Runs `ionscale machines list --tailnet <tailnet>` and parses the output.
         """
@@ -135,7 +163,12 @@ class IonscaleRepository:
         Runs `ionscale machines get --machine-id <machine_id>` and parses the output.
         """
         output = self._run_command(
-            ["machines", "get", "--machine-id", self._check_arg(machine_id, "machine id")]
+            [
+                "machines",
+                "get",
+                "--machine-id",
+                self._check_arg(machine_id, "machine id"),
+            ]
         )
         return self._parse_machine_detail_output(output)
 
@@ -148,7 +181,10 @@ class IonscaleRepository:
         if tailnet_input.organization:
             # Create-time only: ionscale has no RPC that rebinds an existing
             # tailnet, so getting this wrong means a manual DB fix.
-            args += ["--org", self._check_arg(tailnet_input.organization, "organization")]
+            args += [
+                "--org",
+                self._check_arg(tailnet_input.organization, "organization"),
+            ]
         self._run_command(args)
 
         # Since create command output might be sparse, we fetch the specific tailnet
@@ -185,7 +221,7 @@ class IonscaleRepository:
 
         return self._run_command(args)
 
-    def update_policy(self, tailnet: str, policy: Union[Dict[str, Any], str, Path]) -> str:
+    def update_policy(self, tailnet: str, policy: dict[str, Any] | str | Path) -> str:
         """
         Updates the policy for a tailnet.
 
@@ -208,13 +244,25 @@ class IonscaleRepository:
         # Determine if we need to create a temporary file
         if isinstance(policy, dict):
             # Convert dict to JSON and write to temp file
-            with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
+            with tempfile.NamedTemporaryFile(
+                mode="w", suffix=".json", delete=False
+            ) as f:
                 json.dump(policy, f, indent=2)
                 temp_file = f.name
 
             try:
-                output = self._run_command(["tailnets", "set-iam-policy", "--tailnet", tailnet, "--file", temp_file], command_type="iam")
-                
+                output = self._run_command(
+                    [
+                        "tailnets",
+                        "set-iam-policy",
+                        "--tailnet",
+                        tailnet,
+                        "--file",
+                        temp_file,
+                    ],
+                    command_type="iam",
+                )
+
                 return output
             finally:
                 # Clean up temp file
@@ -225,16 +273,31 @@ class IonscaleRepository:
             policy_path = Path(policy)
             if policy_path.exists():
                 # It's a file path
-                output = self._run_command(["tailnets", "set-iam-policy", "--tailnet", tailnet, "--file", str(policy_path)], command_type="iam")
+                output = self._run_command(
+                    [
+                        "tailnets",
+                        "set-iam-policy",
+                        "--tailnet",
+                        tailnet,
+                        "--file",
+                        str(policy_path),
+                    ],
+                    command_type="iam",
+                )
                 return output
             else:
                 # Assume it's a JSON string, write to temp file
-                with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
+                with tempfile.NamedTemporaryFile(
+                    mode="w", suffix=".json", delete=False
+                ) as f:
                     f.write(policy)
                     temp_file = f.name
 
                 try:
-                    output = self._run_command(["update-policy", "--tailnet", tailnet, "--file", temp_file], command_type="iam")
+                    output = self._run_command(
+                        ["update-policy", "--tailnet", tailnet, "--file", temp_file],
+                        command_type="iam",
+                    )
                     return output
                 finally:
                     # Clean up temp file
@@ -242,7 +305,7 @@ class IonscaleRepository:
         else:
             raise ValueError("policy must be a dict, JSON string, or file path")
 
-    def _parse_list_output(self, cli_output: str) -> List[Tailnet]:
+    def _parse_list_output(self, cli_output: str) -> list[Tailnet]:
         """
         Parses the ASCII table output from Ionscale into Pydantic models.
 
@@ -275,7 +338,7 @@ class IonscaleRepository:
 
         return tailnets
 
-    def _parse_machine_list_output(self, cli_output: str) -> List[Machine]:
+    def _parse_machine_list_output(self, cli_output: str) -> list[Machine]:
         """
         Parses the aligned ASCII table from `ionscale machines list` into Machine models.
 
@@ -296,14 +359,14 @@ class IonscaleRepository:
         header_cols = re.split(r"\s{2,}", lines[0].strip())
         idx = {col.strip().lower(): i for i, col in enumerate(header_cols)}
 
-        def _col(parts: List[str], label: str) -> Optional[str]:
+        def _col(parts: list[str], label: str) -> str | None:
             i = idx.get(label)
             if i is None or i >= len(parts):
                 return None
             value = parts[i].strip()
             return value or None
 
-        machines: List[Machine] = []
+        machines: list[Machine] = []
         for line in lines[1:]:
             # NOTE: this assumes only *trailing* columns (TAGS) can be empty. If a middle
             # column is ever blank (e.g. a machine with no IPv6 yet), the 2+-space split
@@ -316,25 +379,31 @@ class IonscaleRepository:
             # `machines list` has no explicit online column: LAST_SEEN reads "Connected"
             # for live nodes; a very recent humanized time ("a minute ago") also counts.
             last_seen = (_col(parts, "last_seen") or "").lower()
-            connected = any(token in last_seen for token in ("connected", "now", "second", "minute"))
+            connected = any(
+                token in last_seen for token in ("connected", "now", "second", "minute")
+            )
 
             tags_raw = _col(parts, "tags") or ""
             tags = [t for t in re.split(r"[,\s]+", tags_raw) if t]
 
             authorized_raw = _col(parts, "authorized")
-            authorized = authorized_raw.lower() == "true" if authorized_raw is not None else None
+            authorized = (
+                authorized_raw.lower() == "true" if authorized_raw is not None else None
+            )
 
-            machines.append(Machine(
-                id=m_id,
-                name=_col(parts, "name") or "",
-                tailnet=_col(parts, "tailnet"),
-                ipv4=_col(parts, "ipv4"),
-                ipv6=_col(parts, "ipv6"),
-                ephemeral=(_col(parts, "ephemeral") or "false").lower() == "true",
-                connected=connected,
-                tags=tags,
-                authorized=authorized,
-            ))
+            machines.append(
+                Machine(
+                    id=m_id,
+                    name=_col(parts, "name") or "",
+                    tailnet=_col(parts, "tailnet"),
+                    ipv4=_col(parts, "ipv4"),
+                    ipv6=_col(parts, "ipv6"),
+                    ephemeral=(_col(parts, "ephemeral") or "false").lower() == "true",
+                    connected=connected,
+                    tags=tags,
+                    authorized=authorized,
+                )
+            )
 
         return machines
 
@@ -345,20 +414,20 @@ class IonscaleRepository:
         """
         lines = cli_output.splitlines()
         data = {}
-        
+
         for line in lines:
             line = line.strip()
             if not line:
                 continue
-                
+
             # Try splitting by 2 or more spaces first (column format)
-            parts = re.split(r'\s{2,}', line)
+            parts = re.split(r"\s{2,}", line)
             if len(parts) >= 2:
                 key = parts[0].strip().lower().replace(" ", "_")
                 value = parts[1].strip()
                 data[key] = value
                 continue
-                
+
             # Fallback to colon separation
             if ":" in line:
                 key, value = line.split(":", 1)
@@ -370,19 +439,26 @@ class IonscaleRepository:
             tailnet=data.get("tailnet"),
             ipv4=data.get("tailscale_ipv4", data.get("ipv4")),
             ipv6=data.get("tailscale_ipv6", data.get("ipv6")),
-            connected=False, # Not present in detail view usually
+            connected=False,  # Not present in detail view usually
             ephemeral=data.get("ephemeral", "false").lower() == "true",
-            last_seen=None, # "a few seconds ago" is not easily parsable to datetime without logic
+            last_seen=None,  # "a few seconds ago" is not easily parsable to datetime without logic
             os=data.get("os"),
-            key_expiry=None, # "in 6 months" — not yet parsed to a datetime
-            authorized=None, # Not sourced from the CLI yet -> unknown, not a hard False
-            is_external=None, # Not sourced from the CLI yet -> unknown, not a hard False
+            key_expiry=None,  # "in 6 months" — not yet parsed to a datetime
+            authorized=None,  # Not sourced from the CLI yet -> unknown, not a hard False
+            is_external=None,  # Not sourced from the CLI yet -> unknown, not a hard False
             # The MagicDNS name, if the CLI exposes it. Preferred over deriving it from
             # name+suffix on the GraphQL layer. Key name varies, so probe a few likely labels.
             fqdn=data.get("fqdn", data.get("dns_name", data.get("magic_dns_name"))),
         )
-    
-    def create_auth_key(self, tailnet: str, ephemeral: bool = False, pre_authorized: bool = True, tags: List[str] = None, expiry_seconds: Optional[int] = None) -> str:
+
+    def create_auth_key(
+        self,
+        tailnet: str,
+        ephemeral: bool = False,
+        pre_authorized: bool = True,
+        tags: list[str] = None,
+        expiry_seconds: int | None = None,
+    ) -> str:
         """
         Runs `ionscale auth-keys create` and returns the key. Without
         ``expiry_seconds`` the CLI's own default (180d) applies.
@@ -390,20 +466,22 @@ class IonscaleRepository:
         args = ["auth-keys", "create", "--tailnet", tailnet]
         if expiry_seconds:
             args.extend(["--expiry", f"{int(expiry_seconds)}s"])
-        
+
         if ephemeral:
             args.append("--ephemeral")
-        
+
         if pre_authorized:
             args.append("--pre-authorized")
-            
+
         if tags:
             for tag in tags:
                 args.extend(["--tag", self._check_arg(tag, "tag")])
 
         output = self._run_command(args, command_type="auth-keys")
-        
-        match = re.search(r"Generated new auth key.*?again\.\s+(\S+)", output, re.DOTALL)
+
+        match = re.search(
+            r"Generated new auth key.*?again\.\s+(\S+)", output, re.DOTALL
+        )
         if match:
             return match.group(1).strip()
         else:
@@ -418,28 +496,49 @@ class IonscaleRepository:
         deleted or expired and reaped).
         """
         prefix = key_value.split("_", 1)[0]
-        output = self._run_command(["auth-keys", "list", "--tailnet", tailnet], command_type="auth-keys")
+        output = self._run_command(
+            ["auth-keys", "list", "--tailnet", tailnet], command_type="auth-keys"
+        )
         lines = [line for line in output.strip().splitlines() if line.strip()]
         for line in lines[1:]:
             parts = re.split(r"\s{2,}", line.strip())
             if len(parts) >= 2 and parts[1].rstrip(".") == prefix:
-                self._run_command(["auth-keys", "delete", "--id", self._check_arg(parts[0], "auth key id")], command_type="auth-keys")
+                self._run_command(
+                    [
+                        "auth-keys",
+                        "delete",
+                        "--id",
+                        self._check_arg(parts[0], "auth key id"),
+                    ],
+                    command_type="auth-keys",
+                )
                 return True
         return False
 
     def delete_machine(self, machine_id: str) -> None:
         """Runs `ionscale machines delete --machine-id <machine_id>`."""
-        self._run_command(["machines", "delete", "--machine-id", self._check_arg(machine_id, "machine id")])
+        self._run_command(
+            [
+                "machines",
+                "delete",
+                "--machine-id",
+                self._check_arg(machine_id, "machine id"),
+            ]
+        )
 
-
-    def get_policy(self, tailnet: str) -> Dict[str, Any]:
+    def get_policy(self, tailnet: str) -> dict[str, Any]:
         """Runs `ionscale tailnets get-iam-policy` and returns the parsed policy.
 
         The CLI already emits plain JSON here, no flag needed. Used to preserve
         the parts of the policy lok does not own (see manager.sync).
         """
         output = self._run_command(
-            ["tailnets", "get-iam-policy", "--tailnet", self._check_arg(tailnet, "tailnet")]
+            [
+                "tailnets",
+                "get-iam-policy",
+                "--tailnet",
+                self._check_arg(tailnet, "tailnet"),
+            ]
         )
         if not output.strip():
             return {}
@@ -450,9 +549,16 @@ class IonscaleRepository:
 
     def get_acl_policy(self, tailnet: str) -> str:
         """Runs `ionscale tailnets get-acl-policy`: the raw (HuJSON) ACL policy text."""
-        return self._run_command(["tailnets", "get-acl-policy", "--tailnet", self._check_arg(tailnet, "tailnet")])
+        return self._run_command(
+            [
+                "tailnets",
+                "get-acl-policy",
+                "--tailnet",
+                self._check_arg(tailnet, "tailnet"),
+            ]
+        )
 
-    def set_acl_policy(self, tailnet: str, policy: Dict[str, Any]) -> None:
+    def set_acl_policy(self, tailnet: str, policy: dict[str, Any]) -> None:
         """Runs `ionscale tailnets set-acl-policy --file <json>` (replaces the whole ACL policy)."""
         import tempfile
 
@@ -460,7 +566,16 @@ class IonscaleRepository:
             json.dump(policy, f, indent=2)
             temp_file = f.name
         try:
-            self._run_command(["tailnets", "set-acl-policy", "--tailnet", self._check_arg(tailnet, "tailnet"), "--file", temp_file])
+            self._run_command(
+                [
+                    "tailnets",
+                    "set-acl-policy",
+                    "--tailnet",
+                    self._check_arg(tailnet, "tailnet"),
+                    "--file",
+                    temp_file,
+                ]
+            )
         finally:
             os.unlink(temp_file)
 
@@ -472,7 +587,13 @@ class IonscaleRepository:
         without adding another.
         """
         output = self._run_command(
-            ["tailnets", "tailnet-lock-status", "--tailnet", self._check_arg(tailnet, "tailnet"), "--json"]
+            [
+                "tailnets",
+                "tailnet-lock-status",
+                "--tailnet",
+                self._check_arg(tailnet, "tailnet"),
+                "--json",
+            ]
         )
         try:
             data = json.loads(output)
@@ -498,23 +619,40 @@ class IonscaleRepository:
         """Grants the tailnet-lock capability. Does NOT create a key authority --
         only `tailscale lock init` on a client can do that."""
         self._run_command(
-            ["tailnets", "enable-tailnet-lock", "--tailnet", self._check_arg(tailnet, "tailnet")]
+            [
+                "tailnets",
+                "enable-tailnet-lock",
+                "--tailnet",
+                self._check_arg(tailnet, "tailnet"),
+            ]
         )
 
     def disable_tailnet_lock(self, tailnet: str) -> None:
         """Revokes the capability. ionscale refuses this while a key authority is
         active, surfacing as a RuntimeError from the CLI."""
         self._run_command(
-            ["tailnets", "disable-tailnet-lock", "--tailnet", self._check_arg(tailnet, "tailnet")]
+            [
+                "tailnets",
+                "disable-tailnet-lock",
+                "--tailnet",
+                self._check_arg(tailnet, "tailnet"),
+            ]
         )
 
-    def get_tailnet_by_organization(self, organization: str) -> Optional[Tailnet]:
+    def get_tailnet_by_organization(self, organization: str) -> Tailnet | None:
         # `tailnets list` has no organization column; the HTTP repository is
         # needed for a reliable lookup.
-        raise IonscaleError("unimplemented", "get_tailnet_by_organization requires ionscale.service_token")
+        raise IonscaleError(
+            "unimplemented",
+            "get_tailnet_by_organization requires ionscale.service_token",
+        )
 
-    def update_tailnet(self, tailnet: str, *, name: Optional[str] = None, **flags: bool) -> Tailnet:
-        raise IonscaleError("unimplemented", "update_tailnet requires ionscale.service_token")
+    def update_tailnet(
+        self, tailnet: str, *, name: str | None = None, **flags: bool
+    ) -> Tailnet:
+        raise IonscaleError(
+            "unimplemented", "update_tailnet requires ionscale.service_token"
+        )
 
     def delete_tailnet(self, tailnet: str, force: bool = False) -> None:
         args = ["tailnets", "delete", "--tailnet", self._check_arg(tailnet, "tailnet")]
@@ -522,11 +660,20 @@ class IonscaleRepository:
             args.append("--force")
         self._run_command(args)
 
-    def list_users(self, tailnet: str) -> List[TailnetUser]:
-        raise IonscaleError("unimplemented", "list_users requires ionscale.service_token")
+    def list_users(self, tailnet: str) -> list[TailnetUser]:
+        raise IonscaleError(
+            "unimplemented", "list_users requires ionscale.service_token"
+        )
 
-    def revoke_account(self, external_id: str, organization: Optional[str] = None) -> List[str]:
-        args = ["users", "revoke-account", "--external-id", self._check_arg(external_id, "external id")]
+    def revoke_account(
+        self, external_id: str, organization: str | None = None
+    ) -> list[str]:
+        args = [
+            "users",
+            "revoke-account",
+            "--external-id",
+            self._check_arg(external_id, "external id"),
+        ]
         if organization:
             args += ["--org", self._check_arg(organization, "organization")]
         try:
@@ -541,8 +688,16 @@ class IonscaleRepository:
 def _cli_error_code(stderr: str) -> str:
     """Best-effort mapping of connect error text as printed by the CLI."""
     text = stderr.lower()
-    for code in ("not_found", "already_exists", "permission_denied", "unauthenticated",
-                 "invalid_argument", "failed_precondition", "unavailable", "unimplemented"):
+    for code in (
+        "not_found",
+        "already_exists",
+        "permission_denied",
+        "unauthenticated",
+        "invalid_argument",
+        "failed_precondition",
+        "unavailable",
+        "unimplemented",
+    ):
         if code in text:
             return code
     return "unknown"
@@ -580,7 +735,7 @@ def _build_default_repo() -> IonscaleRepo:
     )
 
 
-_repo: Optional[IonscaleRepo] = None
+_repo: IonscaleRepo | None = None
 
 
 def get_ionscale_repo() -> IonscaleRepo:
@@ -597,7 +752,7 @@ def get_ionscale_repo() -> IonscaleRepo:
     return _repo
 
 
-def set_ionscale_repo(repo: Optional[IonscaleRepo]) -> None:
+def set_ionscale_repo(repo: IonscaleRepo | None) -> None:
     """Install an explicit repository (e.g. a fake in tests). Pass ``None`` to clear."""
     global _repo
     _repo = repo

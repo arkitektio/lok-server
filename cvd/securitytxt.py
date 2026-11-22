@@ -55,7 +55,11 @@ def render_security_txt(sec: SecuritySettings) -> str:
     ]
     if sec.csaf:
         lines += ["", "# Our security advisories", f"CSAF: {sec.csaf}"]
-    lines += ["", "# Expiry date of this file", f"Expires: {expires_value(sec.expires)}"]
+    lines += [
+        "",
+        "# Expiry date of this file",
+        f"Expires: {expires_value(sec.expires)}",
+    ]
 
     for line in lines:
         # TR-03183-3 4.2.1c: only ASCII 0x20-0x7E outside comments.

@@ -26,9 +26,7 @@ def _two_principals():
 
     theirs = factories.make_membership()
     their_client = factories.make_client(membership=theirs)
-    their_context = build_auth_context(
-        theirs.user, theirs.organization, their_client
-    )
+    their_context = build_auth_context(theirs.user, theirs.organization, their_client)
     return my_context, mine, their_context, theirs
 
 
@@ -64,7 +62,9 @@ async def test_cannot_rename_another_tenants_device():
     def _their_device():
         from fakts.models import Device
 
-        return Device.objects.create(organization=theirs.organization, node_id="node-x", name="theirs")
+        return Device.objects.create(
+            organization=theirs.organization, node_id="node-x", name="theirs"
+        )
 
     device = await sync_to_async(_their_device)()
 
@@ -105,7 +105,9 @@ async def test_cannot_overwrite_another_users_profile():
     my_context, _mine, _their_context, theirs = await sync_to_async(_two_principals)()
 
     def _their_profile():
-        profile, _ = Profile.objects.get_or_create(user=theirs.user, defaults={"name": "theirs"})
+        profile, _ = Profile.objects.get_or_create(
+            user=theirs.user, defaults={"name": "theirs"}
+        )
         profile.name = "theirs"
         profile.save()
         return profile
@@ -115,7 +117,9 @@ async def test_cannot_overwrite_another_users_profile():
     result = await schema.execute(
         UPDATE_PROFILE,
         context_value=my_context,
-        variable_values={"input": {"id": str(profile.id), "name": "pwned", "avatar": "1"}},
+        variable_values={
+            "input": {"id": str(profile.id), "name": "pwned", "avatar": "1"}
+        },
     )
 
     _assert_denied(result)

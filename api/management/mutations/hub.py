@@ -4,9 +4,8 @@ import strawberry
 from kante.types import Info
 
 from api.management import types
-from api.management.authz import DENIED, assert_owner_or_admin, get_or_denied
+from api.management.authz import assert_owner_or_admin, get_or_denied
 from fakts import models as fakts_models
-from graphql import GraphQLError
 
 logger = logging.getLogger(__name__)
 

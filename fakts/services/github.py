@@ -25,7 +25,7 @@ import secrets
 import threading
 import time
 from dataclasses import dataclass
-from datetime import datetime, timezone as dt_timezone
+from datetime import UTC, datetime
 
 import httpx
 import jwt
@@ -44,7 +44,9 @@ TIMEOUT = 10.0
 # Tests replace this with an ``httpx.MockTransport`` that plays GitHub.
 transport: httpx.BaseTransport | None = None
 
-_REPO_URL = re.compile(r"^https?://(?:www\.)?github\.com/([A-Za-z0-9-]+)/([A-Za-z0-9._-]+?)(?:\.git)?/*(?:[/?#].*)?$")
+_REPO_URL = re.compile(
+    r"^https?://(?:www\.)?github\.com/([A-Za-z0-9-]+)/([A-Za-z0-9._-]+?)(?:\.git)?/*(?:[/?#].*)?$"
+)
 
 
 class GithubError(Exception):
@@ -60,7 +62,10 @@ def repo_of(client: models.Client | None) -> str | None:
     if client is None:
         return None
     for source in client.public_sources or []:
-        if not isinstance(source, dict) or (source.get("kind") or "").lower() != "github":
+        if (
+            not isinstance(source, dict)
+            or (source.get("kind") or "").lower() != "github"
+        ):
             continue
         match = _REPO_URL.match((source.get("url") or "").strip())
         if match:
@@ -81,14 +86,22 @@ def _http() -> httpx.Client:
         base_url=settings.GITHUB_APP.api_url.rstrip("/"),
         timeout=TIMEOUT,
         transport=transport,
-        headers={"Accept": "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28", "User-Agent": "lok-bug-reports"},
+        headers={
+            "Accept": "application/vnd.github+json",
+            "X-GitHub-Api-Version": "2022-11-28",
+            "User-Agent": "lok-bug-reports",
+        },
     )
 
 
 def _app_jwt() -> str:
     now = int(time.time())
     # Backdated a minute for clock drift; GitHub allows at most ten minutes.
-    payload = {"iat": now - 60, "exp": now + 9 * 60, "iss": str(settings.GITHUB_APP.app_id)}
+    payload = {
+        "iat": now - 60,
+        "exp": now + 9 * 60,
+        "iss": str(settings.GITHUB_APP.app_id),
+    }
     return jwt.encode(payload, settings.GITHUB_APP.private_key_pem(), algorithm="RS256")
 
 
@@ -117,7 +130,10 @@ def installation_id(repo: str) -> int | None:
         return cached[0]
     try:
         with _http() as http:
-            response = http.get(f"/repos/{repo}/installation", headers={"Authorization": f"Bearer {_app_jwt()}"})
+            response = http.get(
+                f"/repos/{repo}/installation",
+                headers={"Authorization": f"Bearer {_app_jwt()}"},
+            )
     except httpx.HTTPError as e:
         raise GithubError(f"GitHub could not be reached: {e}") from e
     if response.status_code == 404:
@@ -127,7 +143,10 @@ def installation_id(repo: str) -> int | None:
     else:
         raise GithubError(f"GitHub refused the App ({response.status_code}).")
     with _lock:
-        _installations[repo] = (found, now + (INSTALLATION_TTL if found else NOT_INSTALLED_TTL))
+        _installations[repo] = (
+            found,
+            now + (INSTALLATION_TTL if found else NOT_INSTALLED_TTL),
+        )
     return found
 
 
@@ -139,16 +158,23 @@ def _installation_token(installation: int) -> str:
         return cached[0]
     try:
         with _http() as http:
-            response = http.post(f"/app/installations/{installation}/access_tokens", headers={"Authorization": f"Bearer {_app_jwt()}"})
+            response = http.post(
+                f"/app/installations/{installation}/access_tokens",
+                headers={"Authorization": f"Bearer {_app_jwt()}"},
+            )
     except httpx.HTTPError as e:
         raise GithubError(f"GitHub could not be reached: {e}") from e
     if response.status_code != 201:
-        raise GithubError(f"GitHub did not hand out an installation token ({response.status_code}).")
+        raise GithubError(
+            f"GitHub did not hand out an installation token ({response.status_code})."
+        )
     data = response.json()
     ttl = 50 * 60.0
     expires = data.get("expires_at")
     if expires:
-        left = (datetime.fromisoformat(expires.replace("Z", "+00:00")) - datetime.now(dt_timezone.utc)).total_seconds()
+        left = (
+            datetime.fromisoformat(expires.replace("Z", "+00:00")) - datetime.now(UTC)
+        ).total_seconds()
         ttl = max(0.0, left - 5 * 60)
     with _lock:
         _tokens[installation] = (data["token"], now + ttl)
@@ -162,7 +188,7 @@ def _installation_token(installation: int) -> str:
 def _clock(at) -> str:
     if not isinstance(at, (int, float)):
         return ""
-    return datetime.fromtimestamp(at / 1000, dt_timezone.utc).strftime("%H:%M:%S")
+    return datetime.fromtimestamp(at / 1000, UTC).strftime("%H:%M:%S")
 
 
 def _fence(text: str) -> list[str]:
@@ -203,7 +229,10 @@ def issue_body(report: models.BugReport) -> str:
     pinned = d.get("pinned")
     if isinstance(pinned, dict):
         title = f"{pinned['title']}: " if pinned.get("title") else ""
-        lines += ["### The error this report is about", f"{title}{pinned.get('message') or ''}"]
+        lines += [
+            "### The error this report is about",
+            f"{title}{pinned.get('message') or ''}",
+        ]
         if pinned.get("technical"):
             lines += _fence(pinned["technical"])
         lines.append("")
@@ -212,7 +241,9 @@ def issue_body(report: models.BugReport) -> str:
         lines.append("### Recent errors")
         for error in reversed(errors):
             title = f"{error['title']}: " if error.get("title") else ""
-            lines.append(f"- {_clock(error.get('at'))} {title}{error.get('message') or ''}")
+            lines.append(
+                f"- {_clock(error.get('at'))} {title}{error.get('message') or ''}"
+            )
             if error.get("technical"):
                 lines += _fence(error["technical"])
         lines.append("")
@@ -220,7 +251,11 @@ def issue_body(report: models.BugReport) -> str:
     if requests:
         lines.append("### Failed requests")
         for request in reversed(requests):
-            status = f" HTTP {request['status']}" if request.get("status") is not None else ""
+            status = (
+                f" HTTP {request['status']}"
+                if request.get("status") is not None
+                else ""
+            )
             message = str(request.get("message") or "").split("\n")[0]
             lines.append(
                 f"- {_clock(request.get('at'))} {request.get('service') or ''} {request.get('kind') or ''} "
@@ -230,12 +265,17 @@ def issue_body(report: models.BugReport) -> str:
     steps = [s for s in d.get("steps") or [] if isinstance(s, dict)]
     if steps:
         lines.append("### Steps before the report")
-        lines += [f"- {_clock(s.get('at'))} {s.get('kind') or ''} {s.get('label') or ''}" for s in steps]
+        lines += [
+            f"- {_clock(s.get('at'))} {s.get('kind') or ''} {s.get('label') or ''}"
+            for s in steps
+        ]
         lines.append("")
     return "\n".join(lines).strip()
 
 
-def _finish_body(report: models.BugReport, body: str, screenshot_url: str | None) -> str:
+def _finish_body(
+    report: models.BugReport, body: str, screenshot_url: str | None
+) -> str:
     tail = []
     if screenshot_url:
         tail += ["", "### Screenshot", f"![screenshot]({screenshot_url})"]
@@ -278,7 +318,13 @@ def publish_screenshot(report: models.BugReport) -> str:
     return report.screenshot_token
 
 
-def file_issue(report: models.BugReport, user, title: str, body: str, screenshot_url: str | None = None) -> models.BugReport:
+def file_issue(
+    report: models.BugReport,
+    user,
+    title: str,
+    body: str,
+    screenshot_url: str | None = None,
+) -> models.BugReport:
     """Open the issue in the report's repository and record where it went."""
     repo = repo_of(report.client)
     if repo is None:
@@ -296,14 +342,26 @@ def file_issue(report: models.BugReport, user, title: str, body: str, screenshot
     try:
         with _http() as http:
             headers = {"Authorization": f"Bearer {token}"}
-            response = http.post(f"/repos/{repo}/issues", json={**payload, "labels": labels} if labels else payload, headers=headers)
+            response = http.post(
+                f"/repos/{repo}/issues",
+                json={**payload, "labels": labels} if labels else payload,
+                headers=headers,
+            )
             if response.status_code == 422 and labels:
                 # A label the App may not create: open the issue without labels.
-                response = http.post(f"/repos/{repo}/issues", json=payload, headers=headers)
+                response = http.post(
+                    f"/repos/{repo}/issues", json=payload, headers=headers
+                )
     except httpx.HTTPError as e:
         raise GithubError(f"GitHub could not be reached: {e}") from e
     if response.status_code != 201:
-        logger.warning("GitHub refused an issue for bug report %s in %s: %s %s", report.pk, repo, response.status_code, response.text[:500])
+        logger.warning(
+            "GitHub refused an issue for bug report %s in %s: %s %s",
+            report.pk,
+            repo,
+            response.status_code,
+            response.text[:500],
+        )
         raise GithubError(f"GitHub refused the issue ({response.status_code}).")
     issue = response.json()
 
@@ -313,8 +371,19 @@ def file_issue(report: models.BugReport, user, title: str, body: str, screenshot
     report.forwarded_url = issue.get("html_url")
     report.forwarded_at = timezone.now()
     report.forwarded_by = user
-    report.save(update_fields=["github_repo", "github_issue_number", "github_issue_state", "forwarded_url", "forwarded_at", "forwarded_by"])
-    logger.info("Bug report %s forwarded to %s#%s", report.pk, repo, report.github_issue_number)
+    report.save(
+        update_fields=[
+            "github_repo",
+            "github_issue_number",
+            "github_issue_state",
+            "forwarded_url",
+            "forwarded_at",
+            "forwarded_by",
+        ]
+    )
+    logger.info(
+        "Bug report %s forwarded to %s#%s", report.pk, repo, report.github_issue_number
+    )
     return report
 
 
@@ -341,16 +410,24 @@ def apply_issue_event(payload: dict) -> int:
     if not repo or not isinstance(number, int):
         return 0
     changed = 0
-    for report in models.BugReport.objects.filter(github_repo__iexact=repo, github_issue_number=number):
+    for report in models.BugReport.objects.filter(
+        github_repo__iexact=repo, github_issue_number=number
+    ):
         report.github_issue_state = "closed" if action == "closed" else "open"
         fields = ["github_issue_state"]
         if action == "closed" and report.resolved_at is None:
-            reason = " as not planned" if issue.get("state_reason") == "not_planned" else ""
+            reason = (
+                " as not planned" if issue.get("state_reason") == "not_planned" else ""
+            )
             report.resolved_at = timezone.now()
             report.resolved_by = None
             report.resolution_note = f"Closed on GitHub{reason}: {issue.get('html_url') or f'{repo}#{number}'}"
             fields += ["resolved_at", "resolved_by", "resolution_note"]
-        elif action == "reopened" and report.resolved_at is not None and (report.resolution_note or "").startswith("Closed on GitHub"):
+        elif (
+            action == "reopened"
+            and report.resolved_at is not None
+            and (report.resolution_note or "").startswith("Closed on GitHub")
+        ):
             # Reopen only what the webhook closed: an admin's own resolution stands.
             report.resolved_at = None
             report.resolved_by = None

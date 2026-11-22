@@ -71,7 +71,9 @@ def build_acl_policy(organization) -> dict:
 
     # hub pk -> app sidecar tags allowed to reach it
     reach: dict[int, set[str]] = {}
-    enrollments = models.AppMeshEnrollment.objects.filter(organization_id=org_id, auth_key__isnull=False)
+    enrollments = models.AppMeshEnrollment.objects.filter(
+        organization_id=org_id, auth_key__isnull=False
+    )
     for enrollment in enrollments:
         hub_ids = (
             live_clients(
@@ -87,17 +89,27 @@ def build_acl_policy(organization) -> dict:
         )
         # A guest (a membership with grants, live or not) reaches no further than
         # their mesh grants; one left with none reaches nothing.
-        guest = Membership.objects.filter(pk=enrollment.membership_id, collaboration_grants__isnull=False).first()
+        guest = Membership.objects.filter(
+            pk=enrollment.membership_id, collaboration_grants__isnull=False
+        ).first()
         if guest is not None:
             hub_ids = set(hub_ids) & mesh_hub_ids(guest)
         for hub_id in hub_ids:
             reach.setdefault(hub_id, set()).add(enrollment.tag)
 
     for hub_id in sorted(reach):
-        acls.append({"action": "accept", "src": sorted(reach[hub_id]), "dst": [f"{HUB_TAG_PREFIX}{hub_id}:*"]})
+        acls.append(
+            {
+                "action": "accept",
+                "src": sorted(reach[hub_id]),
+                "dst": [f"{HUB_TAG_PREFIX}{hub_id}:*"],
+            }
+        )
 
     # Everyone the rules above put on the mesh may use the organization's relays.
-    sidecars = {tag for tags in reach.values() for tag in tags} | {f"{HUB_TAG_PREFIX}{hub_id}" for hub_id in reach}
+    sidecars = {tag for tags in reach.values() for tag in tags} | {
+        f"{HUB_TAG_PREFIX}{hub_id}" for hub_id in reach
+    }
     users = peers + sorted(sidecars)
     relay = relay_tag(org_id)
     grants = [
@@ -131,7 +143,9 @@ def apply_acl_policy(organization_id) -> bool:
     if layer is None:
         return False
     try:
-        get_ionscale_repo().set_acl_policy(layer.tailnet_name, build_acl_policy(organization_id))
+        get_ionscale_repo().set_acl_policy(
+            layer.tailnet_name, build_acl_policy(organization_id)
+        )
     except Exception:
         logger.exception(
             "Could not apply the ACL policy to tailnet %s; `manage.py reconcile_meshes --sidecars` repairs it",
@@ -149,7 +163,10 @@ def schedule_acl_apply(organization_id) -> None:
         return
     # One apply per organization per transaction, however many rows changed.
     for _, func, *_rest in connection.run_on_commit:
-        if getattr(func, "_acl_organization", None) == organization_id and not func._acl_done:
+        if (
+            getattr(func, "_acl_organization", None) == organization_id
+            and not func._acl_done
+        ):
             return
 
     def _run() -> None:

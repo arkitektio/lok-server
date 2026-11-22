@@ -1,23 +1,22 @@
-import secrets as _secrets
 import datetime
-from django.conf import settings
-from django.db import models
-from django.utils import timezone
-from typing import Dict, Any
-from django.contrib.auth import get_user_model
-from django_choices_field import TextChoicesField
+import secrets as _secrets
+import uuid
 
 # Create your models here.
-from typing import List
-import uuid
-from typing import Optional
+from typing import Any
+
 from authlib.oauth2.rfc6749 import ClientMixin
 from authlib.oauth2.rfc6749.errors import InvalidClientError
-from fakts import fields, enums
-from django.db.models import Q  # noqa: F401  (re-exported as fakts.models.Q)
+from django.conf import settings
+from django.contrib.auth import get_user_model
 from django.contrib.auth.models import AbstractUser, Group  # noqa: F401  (AbstractUser re-exported as fakts.models.AbstractUser)
+from django.db import models
+from django.db.models import Q  # noqa: F401  (re-exported as fakts.models.Q)
+from django.utils import timezone
+from django_choices_field import TextChoicesField
+
+from fakts import base_models, enums, errors, fields
 from karakter.models import MediaStore, Organization
-from fakts import base_models, errors
 
 
 def generate_client_id() -> str:
@@ -38,17 +37,35 @@ def generate_device_secret() -> str:
 
 class KommunityPartner(models.Model):
     name = models.CharField(max_length=1000)
-    description = models.TextField(default="No description available", null=True, blank=True)
+    description = models.TextField(
+        default="No description available", null=True, blank=True
+    )
     short_description = models.CharField(max_length=280, null=True, blank=True)
     logo_url = models.CharField(max_length=1000, null=True, blank=True)
     image_url = models.CharField(max_length=1000, null=True, blank=True)
     website_url = models.CharField(max_length=1000, null=True, blank=True)
     identifier = fields.IdentifierField(unique=True)
     auth_url = models.CharField(max_length=1000, null=True, blank=True)
-    license_agreement = models.TextField(null=True, blank=True, help_text="Optional license agreement text shown before connecting this partner.")
-    pre_authorize_hook = models.CharField(max_length=1000, null=True, blank=True, help_text="Optional hook called after creating a partner hub. The response must explicitly approve the hub.")
-    pre_authorize_token = models.CharField(max_length=1000, null=True, blank=True, help_text="Optional bearer token sent to the pre-authorize hook.")
-    oauth_client = models.ForeignKey("Client", on_delete=models.CASCADE, null=True, related_name="kommunity_partners")
+    license_agreement = models.TextField(
+        null=True,
+        blank=True,
+        help_text="Optional license agreement text shown before connecting this partner.",
+    )
+    pre_authorize_hook = models.CharField(
+        max_length=1000,
+        null=True,
+        blank=True,
+        help_text="Optional hook called after creating a partner hub. The response must explicitly approve the hub.",
+    )
+    pre_authorize_token = models.CharField(
+        max_length=1000,
+        null=True,
+        blank=True,
+        help_text="Optional bearer token sent to the pre-authorize hook.",
+    )
+    oauth_client = models.ForeignKey(
+        "Client", on_delete=models.CASCADE, null=True, related_name="kommunity_partners"
+    )
     partner_kind = models.CharField(
         max_length=50,
         choices=[(e.value, e.name) for e in enums.PartnerKind],
@@ -60,7 +77,11 @@ class KommunityPartner(models.Model):
         help_text="The kind of kommunity",
     )
     auto_configure = models.BooleanField(default=False)
-    preconfigured_hub = models.JSONField(help_text="A preconfigured hub that gets created in an organization when this partner is applied to it.", null=True, blank=True)
+    preconfigured_hub = models.JSONField(
+        help_text="A preconfigured hub that gets created in an organization when this partner is applied to it.",
+        null=True,
+        blank=True,
+    )
     filter_config = models.JSONField(
         help_text="Filter conditions to determine which users/organizations this partner applies to. Example: {'email_domain_equals': ['example.com', 'test.org'], 'email_domain_ends_with': ['edu']}",
         null=True,
@@ -72,7 +93,7 @@ class KommunityPartner(models.Model):
         return f"{self.identifier}"
 
     @property
-    def preconfigured_hub_as_model(self) -> Optional[base_models.HubManifest]:
+    def preconfigured_hub_as_model(self) -> base_models.HubManifest | None:
         if not self.preconfigured_hub:
             return None
         return base_models.HubManifest(**self.preconfigured_hub)
@@ -94,7 +115,9 @@ class KommunityPartner(models.Model):
             return True
 
         user_email = getattr(user, "email", None) or ""
-        user_email_domain = user_email.split("@")[-1].lower() if "@" in user_email else ""
+        user_email_domain = (
+            user_email.split("@")[-1].lower() if "@" in user_email else ""
+        )
         username = getattr(user, "username", "") or ""
 
         # Check email_domain_equals
@@ -137,7 +160,9 @@ class Layer(models.Model):
         related_name="layers",
     )
     logo = models.ForeignKey(MediaStore, on_delete=models.CASCADE, null=True)
-    description = models.TextField(default="No description available", null=True, blank=True)
+    description = models.TextField(
+        default="No description available", null=True, blank=True
+    )
     dns_probe = models.TextField(default="No probe available", null=True, blank=True)
     get_probe = models.TextField(default="No probe available", null=True, blank=True)
     kind = models.CharField(
@@ -163,11 +188,23 @@ class IonscaleLayer(Layer):
 
 
 class IonscaleAuthKey(models.Model):
-    hub = models.ForeignKey("Hub", on_delete=models.CASCADE, related_name="ionscale_auth_keys", null=True, blank=True)
-    layer = models.ForeignKey(IonscaleLayer, on_delete=models.CASCADE, related_name="auth_keys")
+    hub = models.ForeignKey(
+        "Hub",
+        on_delete=models.CASCADE,
+        related_name="ionscale_auth_keys",
+        null=True,
+        blank=True,
+    )
+    layer = models.ForeignKey(
+        IonscaleLayer, on_delete=models.CASCADE, related_name="auth_keys"
+    )
     key = models.CharField(max_length=1000)
     created_at = models.DateTimeField(auto_now_add=True)
-    creator = models.ForeignKey(get_user_model(), on_delete=models.CASCADE, related_name="created_ionscale_auth_keys")
+    creator = models.ForeignKey(
+        get_user_model(),
+        on_delete=models.CASCADE,
+        related_name="created_ionscale_auth_keys",
+    )
     ephemeral = models.BooleanField(default=False)
     tags = models.JSONField(default=list)
 
@@ -185,7 +222,9 @@ class Service(models.Model):
         help_text="The organization this service registration belongs to.",
     )
     logo = models.ForeignKey(MediaStore, on_delete=models.CASCADE, null=True)
-    description = models.TextField(default="No description available", null=True, blank=True)
+    description = models.TextField(
+        default="No description available", null=True, blank=True
+    )
 
     class Meta:
         constraints = [
@@ -198,7 +237,7 @@ class Service(models.Model):
     def __str__(self):
         return f"{self.identifier}"
 
-    def validate_instance(self, instance: Dict[str, Any]) -> List[str]:
+    def validate_instance(self, instance: dict[str, Any]) -> list[str]:
         errors = []
         warnings = []
 
@@ -209,7 +248,9 @@ class Service(models.Model):
 
 
 class ServiceRelease(models.Model):
-    service = models.ForeignKey(Service, on_delete=models.CASCADE, related_name="releases")
+    service = models.ForeignKey(
+        Service, on_delete=models.CASCADE, related_name="releases"
+    )
     version = fields.VersionField()
 
     class Meta:
@@ -240,10 +281,19 @@ class ServiceInstance(models.Model):
         related_name="instances",
         help_text="The service this is an instance of: its release's, held here so that a hub runs one instance of a service per instance_id",
     )
-    release = models.ForeignKey(ServiceRelease, on_delete=models.CASCADE, related_name="instances")
+    release = models.ForeignKey(
+        ServiceRelease, on_delete=models.CASCADE, related_name="instances"
+    )
     logo = models.ForeignKey(MediaStore, on_delete=models.CASCADE, null=True)
-    instance_id = models.CharField(max_length=1000, help_text="The service's name in its hub (`mikro`): unique there, and what tokens for it name as their audience.")
-    private_key = models.TextField(help_text="The private key of the instance, used for signing claims.", null=True, blank=True)
+    instance_id = models.CharField(
+        max_length=1000,
+        help_text="The service's name in its hub (`mikro`): unique there, and what tokens for it name as their audience.",
+    )
+    private_key = models.TextField(
+        help_text="The private key of the instance, used for signing claims.",
+        null=True,
+        blank=True,
+    )
     steward = models.ForeignKey(
         get_user_model(),
         on_delete=models.CASCADE,
@@ -256,15 +306,33 @@ class ServiceInstance(models.Model):
         related_name="service_instances",
         help_text="The organization that owns this instance. If null the instance is global.",
     )
-    device = models.ForeignKey("Device", on_delete=models.CASCADE, null=True, blank=True, related_name="service_instances")
+    device = models.ForeignKey(
+        "Device",
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name="service_instances",
+    )
     template = models.TextField()
-    denied_users = models.ManyToManyField(get_user_model(), related_name="denied_instances")
+    denied_users = models.ManyToManyField(
+        get_user_model(), related_name="denied_instances"
+    )
     denied_groups = models.ManyToManyField(Group, related_name="denied_instances")
-    allowed_users = models.ManyToManyField(get_user_model(), related_name="allowed_instances")
+    allowed_users = models.ManyToManyField(
+        get_user_model(), related_name="allowed_instances"
+    )
     allowed_groups = models.ManyToManyField(Group, related_name="allowed_instances")
-    allowed_organizations = models.ManyToManyField(Organization, related_name="allowed_instances")
-    public_key = models.TextField(null=True, blank=True, help_text="The public key of the instance, if applicable.")
-    token = models.CharField(max_length=1000, help_text="The token of the instance, used for authentication.")
+    allowed_organizations = models.ManyToManyField(
+        Organization, related_name="allowed_instances"
+    )
+    public_key = models.TextField(
+        null=True,
+        blank=True,
+        help_text="The public key of the instance, if applicable.",
+    )
+    token = models.CharField(
+        max_length=1000, help_text="The token of the instance, used for authentication."
+    )
 
     def __str__(self):
         return f"{self.release}:{self.instance_id}"
@@ -272,7 +340,10 @@ class ServiceInstance(models.Model):
     def save(self, *args, **kwargs) -> None:
         """Save the instance, with its release's service: a new release of the same service is the same instance."""
         self.service = self.release.service
-        if kwargs.get("update_fields") is not None and "release" in kwargs["update_fields"]:
+        if (
+            kwargs.get("update_fields") is not None
+            and "release" in kwargs["update_fields"]
+        ):
             kwargs["update_fields"] = {*kwargs["update_fields"], "service"}
         super().save(*args, **kwargs)
 
@@ -288,7 +359,11 @@ class ServiceInstance(models.Model):
             ),
         ]
 
-    def render(self, context: base_models.LinkingContext, rules: "dict[int, list[AliasRule]] | None" = None) -> base_models.InstanceClaim:
+    def render(
+        self,
+        context: base_models.LinkingContext,
+        rules: "dict[int, list[AliasRule]] | None" = None,
+    ) -> base_models.InstanceClaim:
         """Render the aliases the client is handed, in the hub owner's order
         (``fakts.services.alias_priority``): ``rules`` are those that name the client, by alias id."""
         from fakts.services.alias_priority import effective_priority
@@ -302,12 +377,22 @@ class ServiceInstance(models.Model):
                 url = alias.to_url(context)
                 # An unresolvable mesh alias (hub node not on the mesh) is left out.
                 if url is not None:
-                    ranked.append((priority, alias.id, url.model_copy(update={"priority": priority})))
+                    ranked.append(
+                        (
+                            priority,
+                            alias.id,
+                            url.model_copy(update={"priority": priority}),
+                        )
+                    )
             except AssertionError as e:
-                raise errors.InstanceAliasNotFound(f"Error rendering alias {alias}: {str(e)}")
+                raise errors.InstanceAliasNotFound(
+                    f"Error rendering alias {alias}: {str(e)}"
+                )
         urls = [url for _, _, url in sorted(ranked, key=lambda entry: entry[:2])]
 
-        challenge_key = {"kind": "ed25519", "key": self.public_key} if self.public_key else None
+        challenge_key = (
+            {"kind": "ed25519", "key": self.public_key} if self.public_key else None
+        )
         certificate = self.hub.tls_certificate if self.hub_id else None
 
         return base_models.InstanceClaim(
@@ -315,7 +400,9 @@ class ServiceInstance(models.Model):
             identifier=self.instance_id,
             aliases=urls,
             challenge_key=challenge_key,
-            tls=base_models.TlsClaim(certificates=[certificate]) if certificate else None,
+            tls=base_models.TlsClaim(certificates=[certificate])
+            if certificate
+            else None,
         )
 
 
@@ -325,17 +412,33 @@ class InstancePermission(models.Model):
         choices=[(e.value, e.name) for e in enums.InstancePermissionKind],
         help_text="Allow or deny access",
     )
-    organization = models.ForeignKey(Organization, on_delete=models.CASCADE, related_name="instance_permissions")
-    user = models.ForeignKey(get_user_model(), on_delete=models.CASCADE, related_name="instance_permissions", null=True, blank=True)
-    instance = models.ForeignKey(ServiceInstance, on_delete=models.CASCADE, related_name="permissions")
+    organization = models.ForeignKey(
+        Organization, on_delete=models.CASCADE, related_name="instance_permissions"
+    )
+    user = models.ForeignKey(
+        get_user_model(),
+        on_delete=models.CASCADE,
+        related_name="instance_permissions",
+        null=True,
+        blank=True,
+    )
+    instance = models.ForeignKey(
+        ServiceInstance, on_delete=models.CASCADE, related_name="permissions"
+    )
 
 
 class InstanceAlias(models.Model):
     """An alias for a service instance. This is used to provide a more user-friendly name for the instance."""
 
-    layer = models.ForeignKey(Layer, on_delete=models.CASCADE, related_name="aliases", null=True, blank=True)
-    instance = models.ForeignKey(ServiceInstance, on_delete=models.CASCADE, related_name="aliases")
-    name = models.CharField(max_length=1000, null=True, blank=True, help_text="The name of the alias")
+    layer = models.ForeignKey(
+        Layer, on_delete=models.CASCADE, related_name="aliases", null=True, blank=True
+    )
+    instance = models.ForeignKey(
+        ServiceInstance, on_delete=models.CASCADE, related_name="aliases"
+    )
+    name = models.CharField(
+        max_length=1000, null=True, blank=True, help_text="The name of the alias"
+    )
     host = models.CharField(
         max_length=1000,
         null=True,
@@ -365,23 +468,41 @@ class InstanceAlias(models.Model):
         help_text=""""A challenge URL to verify the alias on the client. If it returns a 200 OK, the alias is valid. It can additionally return a JSON object with a `challenge
         key that contains the challenge to be solved by the client.""",
     )
-    path = models.CharField(max_length=1000, null=True, blank=True, help_text="The path of the alias,")
-    scope = models.CharField(max_length=20, default="local", help_text="The scope of the alias. 'local' means that the alias is only available within the local network. 'network' means that the alias is available within the organization's network.")
+    path = models.CharField(
+        max_length=1000, null=True, blank=True, help_text="The path of the alias,"
+    )
+    scope = models.CharField(
+        max_length=20,
+        default="local",
+        help_text="The scope of the alias. 'local' means that the alias is only available within the local network. 'network' means that the alias is available within the organization's network.",
+    )
     priority = models.PositiveSmallIntegerField(
         null=True,
         blank=True,
         help_text="Where the hub's owner ranks this alias, lower first. Unset: its reach's default (internal 10, loopback 20, lan 30, mesh 40, public 50; one more for the other of plain and https).",
     )
-    enabled = models.BooleanField(default=True, help_text="Whether clients are handed this alias at all.")
+    enabled = models.BooleanField(
+        default=True, help_text="Whether clients are handed this alias at all."
+    )
     probe_status = TextChoicesField(
         choices_enum=enums.AliasProbeStatusChoices,
         null=True,
         blank=True,
         help_text="The outcome of lok's last probe of this alias's signed challenge (public aliases only). Null if never probed.",
     )
-    probed_at = models.DateTimeField(null=True, blank=True, help_text="When lok last probed this alias.")
-    probe_http_status = models.IntegerField(null=True, blank=True, help_text="The HTTP status the last probe got, if it got one.")
-    probe_latency_ms = models.IntegerField(null=True, blank=True, help_text="How long the last probe's request took, in milliseconds.")
+    probed_at = models.DateTimeField(
+        null=True, blank=True, help_text="When lok last probed this alias."
+    )
+    probe_http_status = models.IntegerField(
+        null=True,
+        blank=True,
+        help_text="The HTTP status the last probe got, if it got one.",
+    )
+    probe_latency_ms = models.IntegerField(
+        null=True,
+        blank=True,
+        help_text="How long the last probe's request took, in milliseconds.",
+    )
     last_verified_at = models.DateTimeField(
         null=True,
         blank=True,
@@ -418,7 +539,11 @@ class InstanceAlias(models.Model):
             # so only clients on the mesh pass its challenge.
             from fakts.services.mesh import resolve_hub_mesh_host
 
-            host = resolve_hub_mesh_host(self.instance.hub) if self.instance.hub_id else None
+            host = (
+                resolve_hub_mesh_host(self.instance.hub)
+                if self.instance.hub_id
+                else None
+            )
             if host is None:
                 return None
             return base_models.Alias(
@@ -471,9 +596,9 @@ class MandateQuerySet(models.QuerySet):
         One row is enough: revoking pushes down to every child at once, and a child
         never outlives its parent (see ``fakts.services.mandates``)."""
         now = timezone.now()
-        return self.filter(revoked_at__isnull=True, membership__user__is_active=True).filter(
-            Q(expires_at__isnull=True) | Q(expires_at__gt=now)
-        )
+        return self.filter(
+            revoked_at__isnull=True, membership__user__is_active=True
+        ).filter(Q(expires_at__isnull=True) | Q(expires_at__gt=now))
 
 
 class Mandate(models.Model):
@@ -503,7 +628,9 @@ class Mandate(models.Model):
         related_name="granted_mandates",
         help_text="The grantor: every client logged in under this mandate acts as this membership.",
     )
-    organization = models.ForeignKey(Organization, on_delete=models.CASCADE, related_name="mandates")
+    organization = models.ForeignKey(
+        Organization, on_delete=models.CASCADE, related_name="mandates"
+    )
     hub = models.ForeignKey(
         "Hub",
         on_delete=models.CASCADE,
@@ -518,7 +645,12 @@ class Mandate(models.Model):
         choices_enum=enums.MandateOriginChoices,
         help_text="Who issued this mandate. It dies with its issuer.",
     )
-    label = models.CharField(max_length=1000, blank=True, default="", help_text="A human name for the mandate.")
+    label = models.CharField(
+        max_length=1000,
+        blank=True,
+        default="",
+        help_text="A human name for the mandate.",
+    )
     key_hash = models.CharField(
         max_length=64,
         unique=True,
@@ -526,7 +658,12 @@ class Mandate(models.Model):
         blank=True,
         help_text="SHA-256 (hex) of the mandate key. Unique across revoked mandates too: a revoked key never works again.",
     )
-    key_prefix = models.CharField(max_length=12, blank=True, default="", help_text="The first characters of the key, to recognise it by.")
+    key_prefix = models.CharField(
+        max_length=12,
+        blank=True,
+        default="",
+        help_text="The first characters of the key, to recognise it by.",
+    )
     agent_identifier = fields.IdentifierField(
         null=True,
         blank=True,
@@ -562,7 +699,10 @@ class Mandate(models.Model):
         blank=True,
         help_text="Keyed: how many clients (one per device) may log in with the key. Agent: how many live keyed children it may have. Null means unlimited.",
     )
-    allow_mesh = models.BooleanField(default=False, help_text="Whether a client logging in with the key may ask for a mesh key.")
+    allow_mesh = models.BooleanField(
+        default=False,
+        help_text="Whether a client logging in with the key may ask for a mesh key.",
+    )
     parent = models.ForeignKey(
         "self",
         on_delete=models.CASCADE,
@@ -579,13 +719,34 @@ class Mandate(models.Model):
         related_name="issued_mandates",
         help_text="The app client that issued this mandate (itself, or as the agent of `parent`).",
     )
-    config_name = models.CharField(max_length=1000, null=True, blank=True, help_text="The deployment config entry that declares this mandate.")
-    hub_request = models.CharField(max_length=1000, null=True, blank=True, help_text="The identifier of the hub manifest's client request this mandate answers.")
+    config_name = models.CharField(
+        max_length=1000,
+        null=True,
+        blank=True,
+        help_text="The deployment config entry that declares this mandate.",
+    )
+    hub_request = models.CharField(
+        max_length=1000,
+        null=True,
+        blank=True,
+        help_text="The identifier of the hub manifest's client request this mandate answers.",
+    )
     created_at = models.DateTimeField(auto_now_add=True)
-    expires_at = models.DateTimeField(null=True, blank=True, help_text="After this the mandate no longer works. Null: as long as its issuer.")
+    expires_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="After this the mandate no longer works. Null: as long as its issuer.",
+    )
     revoked_at = models.DateTimeField(null=True, blank=True)
-    revocation_reason = models.CharField(max_length=64, choices=enums.MandateRevocationChoices.choices, null=True, blank=True)
-    last_used_at = models.DateTimeField(null=True, blank=True, help_text="When the key was last exchanged for a token.")
+    revocation_reason = models.CharField(
+        max_length=64,
+        choices=enums.MandateRevocationChoices.choices,
+        null=True,
+        blank=True,
+    )
+    last_used_at = models.DateTimeField(
+        null=True, blank=True, help_text="When the key was last exchanged for a token."
+    )
 
     objects = MandateQuerySet.as_manager()
 
@@ -593,18 +754,56 @@ class Mandate(models.Model):
         constraints = [
             models.CheckConstraint(
                 condition=(
-                    Q(claimant="key", key_hash__isnull=False, agent_identifier__isnull=True)
-                    | Q(claimant="agent", key_hash__isnull=True, agent_identifier__isnull=False)
+                    Q(
+                        claimant="key",
+                        key_hash__isnull=False,
+                        agent_identifier__isnull=True,
+                    )
+                    | Q(
+                        claimant="agent",
+                        key_hash__isnull=True,
+                        agent_identifier__isnull=False,
+                    )
                 ),
                 name="A keyed mandate has a key, an agent mandate names an agent",
             ),
             models.CheckConstraint(
                 condition=(
-                    Q(origin="member", parent__isnull=True, issuing_client__isnull=True, config_name__isnull=True, hub_request__isnull=True)
-                    | Q(origin="client", parent__isnull=True, issuing_client__isnull=False, config_name__isnull=True, hub_request__isnull=True)
-                    | Q(origin="agent", parent__isnull=False, issuing_client__isnull=False, config_name__isnull=True, hub_request__isnull=True)
-                    | Q(origin="hub", parent__isnull=True, issuing_client__isnull=True, config_name__isnull=True, hub_request__isnull=False)
-                    | Q(origin="config", parent__isnull=True, issuing_client__isnull=True, config_name__isnull=False, hub_request__isnull=True)
+                    Q(
+                        origin="member",
+                        parent__isnull=True,
+                        issuing_client__isnull=True,
+                        config_name__isnull=True,
+                        hub_request__isnull=True,
+                    )
+                    | Q(
+                        origin="client",
+                        parent__isnull=True,
+                        issuing_client__isnull=False,
+                        config_name__isnull=True,
+                        hub_request__isnull=True,
+                    )
+                    | Q(
+                        origin="agent",
+                        parent__isnull=False,
+                        issuing_client__isnull=False,
+                        config_name__isnull=True,
+                        hub_request__isnull=True,
+                    )
+                    | Q(
+                        origin="hub",
+                        parent__isnull=True,
+                        issuing_client__isnull=True,
+                        config_name__isnull=True,
+                        hub_request__isnull=False,
+                    )
+                    | Q(
+                        origin="config",
+                        parent__isnull=True,
+                        issuing_client__isnull=True,
+                        config_name__isnull=False,
+                        hub_request__isnull=True,
+                    )
                 ),
                 name="A mandate records exactly the issuer its origin names",
             ),
@@ -645,7 +844,9 @@ class Hub(models.Model):
         related_name="hubs",
     )
     identifier = fields.IdentifierField()
-    description = models.TextField(default="No description available", null=True, blank=True)
+    description = models.TextField(
+        default="No description available", null=True, blank=True
+    )
     creator = models.ForeignKey(
         get_user_model(),
         on_delete=models.CASCADE,
@@ -687,11 +888,33 @@ class Hub(models.Model):
         help_text="The one self-signed certificate (PEM) the hub's gateway serves; apps trust exactly it for the hub's "
         "aliases (`fakts.services.hub_tls`). Null for a plain-HTTP hub. Replaced on every re-authorization.",
     )
-    last_seen_at = models.DateTimeField(null=True, blank=True, help_text="When the hub last reported its health (/f/hubhealth/).")
-    last_healthy = models.BooleanField(null=True, blank=True, help_text="Whether the hub's last health report said it was healthy.")
-    version = models.CharField(max_length=1000, blank=True, default="", help_text="The hub software version, as last reported.")
-    mesh_connected = models.BooleanField(null=True, blank=True, help_text="Whether the hub's last health report said its node is on the mesh (null: not reported).")
-    mesh_host = models.CharField(max_length=1000, blank=True, default="", help_text="The hub node's MagicDNS name (or mesh IP), as last reported by the hub.")
+    last_seen_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="When the hub last reported its health (/f/hubhealth/).",
+    )
+    last_healthy = models.BooleanField(
+        null=True,
+        blank=True,
+        help_text="Whether the hub's last health report said it was healthy.",
+    )
+    version = models.CharField(
+        max_length=1000,
+        blank=True,
+        default="",
+        help_text="The hub software version, as last reported.",
+    )
+    mesh_connected = models.BooleanField(
+        null=True,
+        blank=True,
+        help_text="Whether the hub's last health report said its node is on the mesh (null: not reported).",
+    )
+    mesh_host = models.CharField(
+        max_length=1000,
+        blank=True,
+        default="",
+        help_text="The hub node's MagicDNS name (or mesh IP), as last reported by the hub.",
+    )
 
     class Meta:
         constraints = [
@@ -723,7 +946,9 @@ class Hub(models.Model):
     @property
     def last_verified_at(self):
         """When lok last proved one of the hub's public aliases up and authentic (a signed probe)."""
-        return InstanceAlias.objects.filter(instance__hub=self, public=True).aggregate(latest=models.Max("last_verified_at"))["latest"]
+        return InstanceAlias.objects.filter(instance__hub=self, public=True).aggregate(
+            latest=models.Max("last_verified_at")
+        )["latest"]
 
     @property
     def reachable(self) -> bool:
@@ -745,7 +970,9 @@ class HubHealthSnapshot(models.Model):
     """One health report of a hub. Only the latest ``settings.HUB_HEALTH_RETENTION``
     per hub are kept (see ``fakts.services.hubs.report_hub_health``)."""
 
-    hub = models.ForeignKey(Hub, on_delete=models.CASCADE, related_name="health_snapshots")
+    hub = models.ForeignKey(
+        Hub, on_delete=models.CASCADE, related_name="health_snapshots"
+    )
     healthy = models.BooleanField()
     payload = models.JSONField(default=dict, help_text="The raw HubHealthReport.")
     created_at = models.DateTimeField(auto_now_add=True)
@@ -815,9 +1042,13 @@ class DeviceCode(models.Model):
         default="",
         help_text="Space-separated scope granted at accept; becomes the token request's scope.",
     )
-    interval = models.IntegerField(default=5, help_text="Minimum polling interval in seconds (RFC 8628).")
+    interval = models.IntegerField(
+        default=5, help_text="Minimum polling interval in seconds (RFC 8628)."
+    )
     last_polled_at = models.DateTimeField(null=True, blank=True)
-    staging_manifest = models.JSONField(default=dict, help_text="The app Manifest or HubManifest staged at start.")
+    staging_manifest = models.JSONField(
+        default=dict, help_text="The app Manifest or HubManifest staged at start."
+    )
     expires_at = models.DateTimeField()
     denied = models.BooleanField(default=False)
     request_auth_key = models.BooleanField(
@@ -921,9 +1152,17 @@ class AppMeshEnrollment(models.Model):
     """
 
     created_at = models.DateTimeField(auto_now_add=True)
-    organization = models.ForeignKey(Organization, on_delete=models.CASCADE, related_name="app_mesh_enrollments")
-    membership = models.ForeignKey("karakter.Membership", on_delete=models.CASCADE, related_name="app_mesh_enrollments")
-    app = models.ForeignKey("App", on_delete=models.CASCADE, related_name="mesh_enrollments")
+    organization = models.ForeignKey(
+        Organization, on_delete=models.CASCADE, related_name="app_mesh_enrollments"
+    )
+    membership = models.ForeignKey(
+        "karakter.Membership",
+        on_delete=models.CASCADE,
+        related_name="app_mesh_enrollments",
+    )
+    app = models.ForeignKey(
+        "App", on_delete=models.CASCADE, related_name="mesh_enrollments"
+    )
     device = models.ForeignKey(
         "Device",
         on_delete=models.CASCADE,
@@ -1027,7 +1266,9 @@ class Device(models.Model):
         on_delete=models.CASCADE,
         related_name="devices",
     )
-    device_groups = models.ManyToManyField(DeviceGroup, related_name="devices", blank=True)
+    device_groups = models.ManyToManyField(
+        DeviceGroup, related_name="devices", blank=True
+    )
 
     class Meta:
         constraints = [
@@ -1105,7 +1346,9 @@ class Client(models.Model, ClientMixin):
     )
 
     # --- App/deployment side ---------------------------------------------
-    hub = models.ForeignKey(Hub, on_delete=models.CASCADE, related_name="clients", null=True, blank=True)
+    hub = models.ForeignKey(
+        Hub, on_delete=models.CASCADE, related_name="clients", null=True, blank=True
+    )
     functional = models.BooleanField(default=True)
     latest_report_resolved = models.BooleanField(
         default=False,
@@ -1136,7 +1379,9 @@ class Client(models.Model, ClientMixin):
         help_text="The operator who asked for the report; kept for the dashboard's audit trail.",
     )
     name = models.CharField(max_length=1000, default="No name")
-    release = models.ForeignKey(Release, on_delete=models.CASCADE, related_name="clients", null=True, blank=True)
+    release = models.ForeignKey(
+        Release, on_delete=models.CASCADE, related_name="clients", null=True, blank=True
+    )
     kind = TextChoicesField(
         choices_enum=enums.ClientKindChoices,
         default=enums.ClientKindChoices.DEVELOPMENT.value,
@@ -1156,12 +1401,21 @@ class Client(models.Model, ClientMixin):
         help_text="Denormalized from membership (carries constraints and tenant scoping). Null for staged rows and global relying parties.",
     )
     public = models.BooleanField(default=False)
-    node = models.ForeignKey(Device, null=True, blank=True, related_name="clients", on_delete=models.SET_NULL)
+    node = models.ForeignKey(
+        Device, null=True, blank=True, related_name="clients", on_delete=models.SET_NULL
+    )
     public_sources = models.JSONField(default=list)
     created_at = models.DateTimeField(auto_now_add=True)
-    requirements_hash = models.CharField(max_length=1000, unique=False, blank=True, default="")
-    statuses = models.JSONField(default=dict, help_text="Per-requirement grant outcomes: {'key': 'granted'|'denied'|'unavailable'}.")
-    logo = models.ForeignKey(MediaStore, on_delete=models.CASCADE, null=True, blank=True)
+    requirements_hash = models.CharField(
+        max_length=1000, unique=False, blank=True, default=""
+    )
+    statuses = models.JSONField(
+        default=dict,
+        help_text="Per-requirement grant outcomes: {'key': 'granted'|'denied'|'unavailable'}.",
+    )
+    logo = models.ForeignKey(
+        MediaStore, on_delete=models.CASCADE, null=True, blank=True
+    )
     last_reported_at = models.DateTimeField(auto_now=True)
     last_healthy_report = models.ForeignKey(
         "Report",
@@ -1172,7 +1426,9 @@ class Client(models.Model, ClientMixin):
         help_text="The most recent report where the client was functional; null if it has never reported healthy.",
     )
     manifest = models.JSONField(default=dict)
-    scopes = models.ManyToManyField("karakter.Scope", related_name="clients", blank=True)
+    scopes = models.ManyToManyField(
+        "karakter.Scope", related_name="clients", blank=True
+    )
     mandate = models.ForeignKey(
         Mandate,
         on_delete=models.CASCADE,
@@ -1206,7 +1462,14 @@ class Client(models.Model, ClientMixin):
         """The client a token's ``client_id`` claim names: by its own id, or by the
         identity it had under any release it has run. Raises ``DoesNotExist``."""
         clients = cls.objects.all() if queryset is None else queryset
-        return clients.filter(Q(client_id=token_client_id) | Q(identities__token_client_id=token_client_id)).distinct().get()
+        return (
+            clients.filter(
+                Q(client_id=token_client_id)
+                | Q(identities__token_client_id=token_client_id)
+            )
+            .distinct()
+            .get()
+        )
 
     class Meta:
         constraints = [
@@ -1252,7 +1515,9 @@ class Client(models.Model, ClientMixin):
         an unbound client simply cannot get a token."""
         if self.membership_id:
             return self.membership
-        raise InvalidClientError(description="Client is not attached to an organization membership.")
+        raise InvalidClientError(
+            description="Client is not attached to an organization membership."
+        )
 
     @property
     def user_id(self):
@@ -1322,12 +1587,21 @@ class Client(models.Model, ClientMixin):
 
 
 class ServiceInstanceMapping(models.Model):
-    client = models.ForeignKey(Client, on_delete=models.CASCADE, related_name="mappings")
-    instance = models.ForeignKey(ServiceInstance, on_delete=models.CASCADE, related_name="mappings")
+    client = models.ForeignKey(
+        Client, on_delete=models.CASCADE, related_name="mappings"
+    )
+    instance = models.ForeignKey(
+        ServiceInstance, on_delete=models.CASCADE, related_name="mappings"
+    )
     key = models.CharField(max_length=1000)
     description = models.TextField(max_length=1000, null=True, blank=True)
     optional = models.BooleanField(default=False)
-    wants_version = models.CharField(max_length=1000, null=True, blank=True, help_text="The requirement's version specifier (`>=12.1,<14`), if it named one.")
+    wants_version = models.CharField(
+        max_length=1000,
+        null=True,
+        blank=True,
+        help_text="The requirement's version specifier (`>=12.1,<14`), if it named one.",
+    )
 
     class Meta:
         constraints = [
@@ -1346,11 +1620,21 @@ class UsedAlias(models.Model):
     resolved to and whether it was reachable."""
 
     valid = models.BooleanField(default=True)
-    alias = models.ForeignKey(InstanceAlias, on_delete=models.CASCADE, related_name="usages", null=True, blank=True)
-    client = models.ForeignKey(Client, on_delete=models.CASCADE, related_name="used_aliases")
+    alias = models.ForeignKey(
+        InstanceAlias,
+        on_delete=models.CASCADE,
+        related_name="usages",
+        null=True,
+        blank=True,
+    )
+    client = models.ForeignKey(
+        Client, on_delete=models.CASCADE, related_name="used_aliases"
+    )
     key = models.CharField(max_length=1000)
     reason = models.TextField(null=True, blank=True)
-    used_at = models.DateTimeField(auto_now=True, help_text="When the client last reported this usage.")
+    used_at = models.DateTimeField(
+        auto_now=True, help_text="When the client last reported this usage."
+    )
 
     def __str__(self):
         return f"{self.alias} used in {self.key} at {self.used_at}"
@@ -1428,7 +1712,9 @@ class Report(models.Model):
         self.resolution_note = None
         self.save(update_fields=["resolved_at", "resolved_by", "resolution_note"])
         if self.is_latest:
-            Client.objects.filter(pk=self.client_id).update(latest_report_resolved=False)
+            Client.objects.filter(pk=self.client_id).update(
+                latest_report_resolved=False
+            )
 
 
 class ClientIdentity(models.Model):
@@ -1451,8 +1737,12 @@ class ClientIdentity(models.Model):
     identity the services already know.
     """
 
-    client = models.ForeignKey("Client", on_delete=models.CASCADE, related_name="identities")
-    release = models.ForeignKey(Release, on_delete=models.CASCADE, related_name="client_identities")
+    client = models.ForeignKey(
+        "Client", on_delete=models.CASCADE, related_name="identities"
+    )
+    release = models.ForeignKey(
+        Release, on_delete=models.CASCADE, related_name="client_identities"
+    )
     token_client_id = models.CharField(
         max_length=48,
         unique=True,
@@ -1463,7 +1753,9 @@ class ClientIdentity(models.Model):
 
     class Meta:
         constraints = [
-            models.UniqueConstraint(fields=["client", "release"], name="One identity per client and release"),
+            models.UniqueConstraint(
+                fields=["client", "release"], name="One identity per client and release"
+            ),
         ]
 
     def __str__(self):
@@ -1483,9 +1775,23 @@ class BugReport(models.Model):
     newer release, and the report is about the version it was filed from.
     """
 
-    organization = models.ForeignKey(Organization, on_delete=models.CASCADE, related_name="bug_reports")
-    client = models.ForeignKey(Client, on_delete=models.SET_NULL, null=True, blank=True, related_name="bug_reports")
-    release = models.ForeignKey(Release, on_delete=models.SET_NULL, null=True, blank=True, related_name="bug_reports")
+    organization = models.ForeignKey(
+        Organization, on_delete=models.CASCADE, related_name="bug_reports"
+    )
+    client = models.ForeignKey(
+        Client,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="bug_reports",
+    )
+    release = models.ForeignKey(
+        Release,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="bug_reports",
+    )
     reporter = models.ForeignKey(
         get_user_model(),
         on_delete=models.SET_NULL,
@@ -1496,8 +1802,15 @@ class BugReport(models.Model):
     title = models.CharField(max_length=200)
     description = models.TextField()
     expected = models.TextField(null=True, blank=True)
-    route = models.CharField(max_length=500, null=True, blank=True, help_text="The page the reporter was on.")
-    app_version = models.CharField(max_length=100, null=True, blank=True, help_text="The version the client says it runs.")
+    route = models.CharField(
+        max_length=500, null=True, blank=True, help_text="The page the reporter was on."
+    )
+    app_version = models.CharField(
+        max_length=100,
+        null=True,
+        blank=True,
+        help_text="The version the client says it runs.",
+    )
     platform = models.CharField(max_length=300, null=True, blank=True)
     diagnostics = models.JSONField(
         default=dict,
@@ -1527,12 +1840,27 @@ class BugReport(models.Model):
         blank=True,
         related_name="forwarded_bug_reports",
     )
-    forwarded_url = models.URLField(max_length=1000, null=True, blank=True, help_text="The issue it became, when known.")
+    forwarded_url = models.URLField(
+        max_length=1000,
+        null=True,
+        blank=True,
+        help_text="The issue it became, when known.",
+    )
     # Set when lok opened the issue itself through the GitHub App, so the App's
     # webhook can find the report again when the issue is closed or reopened.
-    github_repo = models.CharField(max_length=200, null=True, blank=True, help_text="owner/name of the repository lok opened the issue in.")
+    github_repo = models.CharField(
+        max_length=200,
+        null=True,
+        blank=True,
+        help_text="owner/name of the repository lok opened the issue in.",
+    )
     github_issue_number = models.PositiveIntegerField(null=True, blank=True)
-    github_issue_state = models.CharField(max_length=20, null=True, blank=True, help_text="open or closed, as GitHub last reported it.")
+    github_issue_state = models.CharField(
+        max_length=20,
+        null=True,
+        blank=True,
+        help_text="open or closed, as GitHub last reported it.",
+    )
     screenshot_token = models.CharField(
         max_length=64,
         null=True,
@@ -1559,7 +1887,9 @@ class BugReport(models.Model):
         organization they own or administer, and the ones they filed themselves."""
         from karakter import roles
 
-        return queryset.filter(roles.owner_or_admin_q(user, "organization") | Q(reporter=user)).distinct()
+        return queryset.filter(
+            roles.owner_or_admin_q(user, "organization") | Q(reporter=user)
+        ).distinct()
 
 
 class TailscaleInspector(models.Model):
@@ -1592,7 +1922,9 @@ class AliasRule(models.Model):
     """Disables or re-ranks one alias for some clients: one client, every client of an app, of a
     user, or of a member holding a role (``fakts.services.alias_priority``)."""
 
-    alias = models.ForeignKey(InstanceAlias, on_delete=models.CASCADE, related_name="rules")
+    alias = models.ForeignKey(
+        InstanceAlias, on_delete=models.CASCADE, related_name="rules"
+    )
     effect = models.CharField(
         max_length=10,
         choices=enums.AliasRuleEffectChoices.choices,
@@ -1603,25 +1935,74 @@ class AliasRule(models.Model):
         blank=True,
         help_text="The alias's priority for these clients (effect 'priority' only), lower first.",
     )
-    app = models.ForeignKey(App, on_delete=models.CASCADE, related_name="alias_rules", null=True, blank=True, help_text="Every client of this app.")
-    client = models.ForeignKey(Client, on_delete=models.CASCADE, related_name="alias_rules", null=True, blank=True, help_text="This one client.")
-    user = models.ForeignKey(get_user_model(), on_delete=models.CASCADE, related_name="alias_rules", null=True, blank=True, help_text="Every client of this user.")
-    role = models.ForeignKey("karakter.Role", on_delete=models.CASCADE, related_name="alias_rules", null=True, blank=True, help_text="Every client of a member holding this role.")
+    app = models.ForeignKey(
+        App,
+        on_delete=models.CASCADE,
+        related_name="alias_rules",
+        null=True,
+        blank=True,
+        help_text="Every client of this app.",
+    )
+    client = models.ForeignKey(
+        Client,
+        on_delete=models.CASCADE,
+        related_name="alias_rules",
+        null=True,
+        blank=True,
+        help_text="This one client.",
+    )
+    user = models.ForeignKey(
+        get_user_model(),
+        on_delete=models.CASCADE,
+        related_name="alias_rules",
+        null=True,
+        blank=True,
+        help_text="Every client of this user.",
+    )
+    role = models.ForeignKey(
+        "karakter.Role",
+        on_delete=models.CASCADE,
+        related_name="alias_rules",
+        null=True,
+        blank=True,
+        help_text="Every client of a member holding this role.",
+    )
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
         constraints = [
             models.CheckConstraint(
                 condition=(
-                    models.Q(app__isnull=False, client__isnull=True, user__isnull=True, role__isnull=True)
-                    | models.Q(app__isnull=True, client__isnull=False, user__isnull=True, role__isnull=True)
-                    | models.Q(app__isnull=True, client__isnull=True, user__isnull=False, role__isnull=True)
-                    | models.Q(app__isnull=True, client__isnull=True, user__isnull=True, role__isnull=False)
+                    models.Q(
+                        app__isnull=False,
+                        client__isnull=True,
+                        user__isnull=True,
+                        role__isnull=True,
+                    )
+                    | models.Q(
+                        app__isnull=True,
+                        client__isnull=False,
+                        user__isnull=True,
+                        role__isnull=True,
+                    )
+                    | models.Q(
+                        app__isnull=True,
+                        client__isnull=True,
+                        user__isnull=False,
+                        role__isnull=True,
+                    )
+                    | models.Q(
+                        app__isnull=True,
+                        client__isnull=True,
+                        user__isnull=True,
+                        role__isnull=False,
+                    )
                 ),
                 name="alias_rule_names_one_subject",
             ),
             models.CheckConstraint(
-                condition=models.Q(effect="priority", priority__isnull=False) | models.Q(effect="disable", priority__isnull=True),
+                condition=models.Q(effect="priority", priority__isnull=False)
+                | models.Q(effect="disable", priority__isnull=True),
                 name="alias_rule_priority_iff_ranking",
             ),
         ]

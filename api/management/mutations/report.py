@@ -1,13 +1,12 @@
 import logging
 
 import strawberry
+from django.utils import timezone
 from kante.types import Info
 
-from fakts import models as fakts_models
 from api.management import types
-from django.utils import timezone
-
 from api.management.authz import assert_member, assert_owner_or_admin, get_or_denied
+from fakts import models as fakts_models
 
 logger = logging.getLogger(__name__)
 
@@ -51,14 +50,18 @@ def unresolve_report(info: Info, input: UnresolveReportInput) -> types.Managemen
 
 @strawberry.input
 class RequestClientReportInput:
-    client: strawberry.ID = strawberry.field(description="The client that should re-report its configuration.")
+    client: strawberry.ID = strawberry.field(
+        description="The client that should re-report its configuration."
+    )
     request: bool = strawberry.field(
         default=True,
         description="True to ask the client to report, False to withdraw a pending request.",
     )
 
 
-def request_client_report(info: Info, input: RequestClientReportInput) -> types.ManagementClient:
+def request_client_report(
+    info: Info, input: RequestClientReportInput
+) -> types.ManagementClient:
     """Ask a client to re-report its configuration.
 
     While a request is pending, every token response for this client carries

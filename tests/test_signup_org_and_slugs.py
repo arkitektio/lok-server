@@ -16,7 +16,6 @@ from karakter import managers, slugs
 from karakter.models import Membership, Organization
 from tests import factories
 
-
 # --------------------------------------------------------------------------- #
 # create_user_default_organization (runs from the User post_save signal)
 # --------------------------------------------------------------------------- #
@@ -34,7 +33,11 @@ def test_signup_never_joins_an_existing_organization():
     assert personal.slug == "the-real-acme-org"
     assert not Membership.objects.filter(user=newcomer, organization=victim).exists()
     # The newcomer is admin of their *own* organization only.
-    assert Membership.objects.get(user=newcomer, organization=personal).roles.filter(identifier="admin").exists()
+    assert (
+        Membership.objects.get(user=newcomer, organization=personal)
+        .roles.filter(identifier="admin")
+        .exists()
+    )
 
 
 @pytest.mark.django_db
@@ -63,7 +66,11 @@ def test_integrity_error_is_retried_against_a_fresh_slug():
     assert org is not None
     assert len(calls) == 2
     assert org.owner == user
-    assert Membership.objects.get(user=user, organization=org).roles.filter(identifier="admin").exists()
+    assert (
+        Membership.objects.get(user=user, organization=org)
+        .roles.filter(identifier="admin")
+        .exists()
+    )
 
 
 @pytest.mark.django_db
@@ -71,7 +78,9 @@ def test_exhausted_retries_return_none_without_raising():
     user = factories.make_user(username="unlucky")
     before = Organization.objects.count()
 
-    with mock.patch.object(Organization.objects, "create", side_effect=IntegrityError("duplicate key")):
+    with mock.patch.object(
+        Organization.objects, "create", side_effect=IntegrityError("duplicate key")
+    ):
         assert managers.create_user_default_organization(user) is None
 
     assert Organization.objects.count() == before
@@ -100,7 +109,9 @@ def test_normalize_slug_produces_the_canonical_form(raw, expected):
     assert slugs.normalize_slug(expected) == expected
 
 
-@pytest.mark.parametrize("bad", ["", "-acme-", "Acme", "acme--inc", "acme_inc", "acme inc"])
+@pytest.mark.parametrize(
+    "bad", ["", "-acme-", "Acme", "acme--inc", "acme_inc", "acme inc"]
+)
 def test_validate_slug_rejects_malformed_slugs(bad):
     with pytest.raises(ValueError):
         slugs.validate_slug(bad)

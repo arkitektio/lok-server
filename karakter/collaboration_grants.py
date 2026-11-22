@@ -72,11 +72,19 @@ class CollaborationRef:
 
     def widened(self, roles: Iterable[str]) -> CollaborationRef:
         """The same collaboration with ``roles`` added to its own."""
-        return CollaborationRef(self.instance, self.collaboration, tuple(sorted(set(self.roles) | set(roles))))
+        return CollaborationRef(
+            self.instance,
+            self.collaboration,
+            tuple(sorted(set(self.roles) | set(roles))),
+        )
 
     def as_entry(self) -> dict:
         """The collaboration as an invite stores it."""
-        return {"instance": self.instance, "collaboration": self.collaboration, "roles": list(self.roles)}
+        return {
+            "instance": self.instance,
+            "collaboration": self.collaboration,
+            "roles": list(self.roles),
+        }
 
     def __str__(self) -> str:
         return f"{self.instance}/{self.collaboration}"
@@ -96,20 +104,36 @@ def parse_collaboration(raw) -> CollaborationRef:
     instance = raw.get("instance")
     collaboration = raw.get("collaboration")
     roles = raw.get("roles") or []
-    instance = str(instance).strip() if isinstance(instance, (str, int)) and not isinstance(instance, bool) else ""
+    instance = (
+        str(instance).strip()
+        if isinstance(instance, (str, int)) and not isinstance(instance, bool)
+        else ""
+    )
     collaboration = collaboration.strip() if isinstance(collaboration, str) else ""
     if not INSTANCE_RE.match(instance):
         raise ValidationError(f"'{raw.get('instance')}' is not a service instance id.")
     if not COLLABORATION_RE.match(collaboration):
-        raise ValidationError(f"'{raw.get('collaboration')}' is not a collaboration id. Use letters, digits, '_', '.' and '-' (at most 200).")
+        raise ValidationError(
+            f"'{raw.get('collaboration')}' is not a collaboration id. Use letters, digits, '_', '.' and '-' (at most 200)."
+        )
     if isinstance(roles, str) or not isinstance(roles, Iterable):
-        raise ValidationError("A collaboration's roles must be a list of role identifiers.")
+        raise ValidationError(
+            "A collaboration's roles must be a list of role identifiers."
+        )
     cleaned = set()
     for role in roles:
-        if not isinstance(role, str) or not role.strip() or len(role.strip()) > MAX_ROLE_LENGTH:
+        if (
+            not isinstance(role, str)
+            or not role.strip()
+            or len(role.strip()) > MAX_ROLE_LENGTH
+        ):
             raise ValidationError(f"'{role}' is not a role identifier.")
         cleaned.add(role.strip())
-    return CollaborationRef(instance=str(int(instance)), collaboration=collaboration, roles=tuple(sorted(cleaned)))
+    return CollaborationRef(
+        instance=str(int(instance)),
+        collaboration=collaboration,
+        roles=tuple(sorted(cleaned)),
+    )
 
 
 def _merge(raw: Iterable) -> dict[tuple[str, str], CollaborationRef]:
@@ -126,11 +150,15 @@ def _check_instances(instances: set[str], organization) -> None:
 
     known = {
         str(pk)
-        for pk in ServiceInstance.objects.filter(hub__organization=organization, pk__in=[int(i) for i in instances]).values_list("pk", flat=True)
+        for pk in ServiceInstance.objects.filter(
+            hub__organization=organization, pk__in=[int(i) for i in instances]
+        ).values_list("pk", flat=True)
     }
     unknown = sorted(instances - known, key=int)
     if unknown:
-        raise ValidationError(f"Not a service instance of this organization: {', '.join(unknown)}.")
+        raise ValidationError(
+            f"Not a service instance of this organization: {', '.join(unknown)}."
+        )
 
 
 def normalize_collaborations(raw: list | None, organization=None) -> list[dict]:
@@ -141,17 +169,27 @@ def normalize_collaborations(raw: list | None, organization=None) -> list[dict]:
     role must be one of its roles.
     """
     if not raw:
-        raise ValidationError("A collaboration invite must grant at least one collaboration.")
+        raise ValidationError(
+            "A collaboration invite must grant at least one collaboration."
+        )
     refs = _merge(raw)
     if len(refs) > MAX_COLLABORATIONS_PER_INVITE:
-        raise ValidationError(f"An invite can grant at most {MAX_COLLABORATIONS_PER_INVITE} collaborations.")
+        raise ValidationError(
+            f"An invite can grant at most {MAX_COLLABORATIONS_PER_INVITE} collaborations."
+        )
     if organization is not None:
         _check_instances({ref.instance for ref in refs.values()}, organization)
         roles = {role for ref in refs.values() for role in ref.roles}
-        known = set(models.Role.objects.filter(organization=organization, identifier__in=roles).values_list("identifier", flat=True))
+        known = set(
+            models.Role.objects.filter(
+                organization=organization, identifier__in=roles
+            ).values_list("identifier", flat=True)
+        )
         unknown = sorted(roles - known)
         if unknown:
-            raise ValidationError(f"Not a role of this organization: {', '.join(unknown)}.")
+            raise ValidationError(
+                f"Not a role of this organization: {', '.join(unknown)}."
+            )
     return [ref.as_entry() for ref in refs.values()]
 
 
@@ -173,7 +211,9 @@ def full_member_q(prefix: str, user) -> Q:
 def is_full_member(user, organization) -> bool:
     if organization is None or user is None:
         return False
-    return organization.memberships.filter(user=user, collaboration_grants__isnull=True).exists()
+    return organization.memberships.filter(
+        user=user, collaboration_grants__isnull=True
+    ).exists()
 
 
 def live_grants(membership: models.Membership) -> QuerySet:
@@ -185,7 +225,9 @@ def live_grants(membership: models.Membership) -> QuerySet:
     what reaches the mesh (``mesh_hub_ids``) both start from here.
     """
     granters = models.Membership.objects.filter(
-        organization_id=membership.organization_id, collaboration_grants__isnull=True, user__is_active=True
+        organization_id=membership.organization_id,
+        collaboration_grants__isnull=True,
+        user__is_active=True,
     ).values("user_id")
     return (
         models.CollaborationGrant.objects.filter(membership_id=membership.pk)
@@ -200,10 +242,16 @@ def mesh_hub_ids(membership: models.Membership) -> set[int]:
     Empty for a guest whose grants allow no mesh (or hold no longer), and for a
     full member, who has no grants: callers tell the two apart with ``is_scoped``.
     """
-    return set(live_grants(membership).filter(mesh=True, instance__hub__isnull=False).values_list("instance__hub_id", flat=True))
+    return set(
+        live_grants(membership)
+        .filter(mesh=True, instance__hub__isnull=False)
+        .values_list("instance__hub_id", flat=True)
+    )
 
 
-def live_collaborations(membership: models.Membership, instances: Iterable[int]) -> dict[str, dict[str, list[str]]]:
+def live_collaborations(
+    membership: models.Membership, instances: Iterable[int]
+) -> dict[str, dict[str, list[str]]]:
     """The collaborations a token lists (``collabs``), by service name and collaboration id, with the roles held there.
 
     ``{"mikro": {"12": ["editor"], "9": []}}``. Only the ``instances`` (pks) the token is
@@ -222,7 +270,9 @@ def live_collaborations(membership: models.Membership, instances: Iterable[int])
         live_grants(membership)
         .filter(instance_id__in=instance_ids)
         .order_by("created_at", "id")
-        .values_list("instance__instance_id", "collaboration_id", "roles", "granted_by_id")[:MAX_GRANTS_PER_MEMBERSHIP]
+        .values_list(
+            "instance__instance_id", "collaboration_id", "roles", "granted_by_id"
+        )[:MAX_GRANTS_PER_MEMBERSHIP]
     )
     held: dict[int, set[str]] = {}
     for user_id, identifier in models.Membership.objects.filter(
@@ -232,13 +282,23 @@ def live_collaborations(membership: models.Membership, instances: Iterable[int])
         if identifier:
             held[user_id].add(identifier)
     collaborations: dict[str, dict[str, list[str]]] = {}
-    for name, collaboration_id, roles, granted_by_id in sorted(grants, key=lambda g: (str(g[0]), g[1])):
-        collaborations.setdefault(str(name), {})[collaboration_id] = sorted(set(roles or []) & held.get(granted_by_id, set()))
+    for name, collaboration_id, roles, granted_by_id in sorted(
+        grants, key=lambda g: (str(g[0]), g[1])
+    ):
+        collaborations.setdefault(str(name), {})[collaboration_id] = sorted(
+            set(roles or []) & held.get(granted_by_id, set())
+        )
     return collaborations
 
 
 def grant_collaborations(
-    membership: models.Membership, entries: list, *, invite=None, granted_by=None, expires_at=None, mesh: bool = False
+    membership: models.Membership,
+    entries: list,
+    *,
+    invite=None,
+    granted_by=None,
+    expires_at=None,
+    mesh: bool = False,
 ) -> bool:
     """Add grants to a scoped (or new, role-less) membership. Returns whether anything changed.
 
@@ -248,7 +308,9 @@ def grant_collaborations(
     the mesh.
     """
     if membership.roles.exists():
-        raise ValidationError("This person is already a member; there is nothing to grant them.")
+        raise ValidationError(
+            "This person is already a member; there is nothing to grant them."
+        )
     refs = _merge(entries)
     if not refs:
         raise ValidationError("There is no collaboration to grant.")
@@ -274,7 +336,9 @@ def grant_collaborations(
             changed = True
             existing += 1
             if existing > MAX_GRANTS_PER_MEMBERSHIP:
-                raise ValidationError(f"At most {MAX_GRANTS_PER_MEMBERSHIP} collaborations can be granted to one person.")
+                raise ValidationError(
+                    f"At most {MAX_GRANTS_PER_MEMBERSHIP} collaborations can be granted to one person."
+                )
             continue
         roles = sorted(set(grant.roles or []) | set(ref.roles))
         if roles != sorted(grant.roles or []) or (mesh and not grant.mesh):
@@ -289,7 +353,9 @@ def grant_collaborations(
 
 # Set while a membership is being made a full member: its grants go, the
 # membership stays.
-_upgrading: contextvars.ContextVar[int | None] = contextvars.ContextVar("lok_upgrading_membership", default=None)
+_upgrading: contextvars.ContextVar[int | None] = contextvars.ContextVar(
+    "lok_upgrading_membership", default=None
+)
 
 
 @transaction.atomic
@@ -343,7 +409,11 @@ def _drop_membership_without_grants(sender, instance, origin=None, **kwargs):
     if _origin_model(origin) in (models.Membership, models.Organization, models.User):
         return
     membership = models.Membership.objects.filter(pk=instance.membership_id).first()
-    if membership is not None and not membership.collaboration_grants.exists() and not membership.roles.exists():
+    if (
+        membership is not None
+        and not membership.collaboration_grants.exists()
+        and not membership.roles.exists()
+    ):
         membership.delete()
 
 
@@ -358,7 +428,11 @@ def _reapply_acl_on_grant_change(sender, instance, origin=None, **kwargs):
     """
     from ionscale.acl import schedule_acl_apply
 
-    organization_id = models.Membership.objects.filter(pk=instance.membership_id).values_list("organization_id", flat=True).first()
+    organization_id = (
+        models.Membership.objects.filter(pk=instance.membership_id)
+        .values_list("organization_id", flat=True)
+        .first()
+    )
     if organization_id is not None:
         schedule_acl_apply(organization_id)
 
@@ -367,9 +441,16 @@ def _reapply_acl_on_grant_change(sender, instance, origin=None, **kwargs):
 def _no_roles_for_scoped_members(sender, instance, action, reverse, **kwargs):
     if action != "pre_add":
         return
-    memberships = [instance] if not reverse else list(models.Membership.objects.filter(pk__in=kwargs.get("pk_set") or ()))
+    memberships = (
+        [instance]
+        if not reverse
+        else list(models.Membership.objects.filter(pk__in=kwargs.get("pk_set") or ()))
+    )
     for membership in memberships:
-        if isinstance(membership, models.Membership) and membership.collaboration_grants.exists():
+        if (
+            isinstance(membership, models.Membership)
+            and membership.collaboration_grants.exists()
+        ):
             raise ValidationError(
                 "This person is only a guest of some collaborations. Make them a full member before giving them roles."
             )

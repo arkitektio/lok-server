@@ -32,14 +32,21 @@ def test_a_deactivated_account_refreshes_no_more(client):
 @pytest.mark.django_db
 def test_an_active_account_still_refreshes(client):
     body, token = _granted_session(client)
-    assert _refresh(client, token["refresh_token"], body["client_id"]).status_code == 200
+    assert (
+        _refresh(client, token["refresh_token"], body["client_id"]).status_code == 200
+    )
 
 
 def _context(active: bool):
     membership = factories.make_membership()
     if not active:
         _deactivate(membership.user)
-    return build_auth_context(membership.user, membership.organization, factories.make_client(membership=membership), scope="openid lok_all")
+    return build_auth_context(
+        membership.user,
+        membership.organization,
+        factories.make_client(membership=membership),
+        scope="openid lok_all",
+    )
 
 
 @pytest.mark.django_db(transaction=True)

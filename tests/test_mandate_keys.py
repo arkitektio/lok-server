@@ -26,23 +26,41 @@ from fakts.services import mandates
 from tests import factories
 
 GRANT = "urn:fakts:grant-type:mandate-key"
-APP = {"identifier": "com.example.keyed", "version": "1.0.0", "scopes": [], "requirements": []}
+APP = {
+    "identifier": "com.example.keyed",
+    "version": "1.0.0",
+    "scopes": [],
+    "requirements": [],
+}
 
 
 def _login(client, key, manifest=None, **extra):
     return client.post(
         reverse("token"),
-        data={"grant_type": GRANT, "key": key, "manifest": json.dumps(manifest or APP), **extra},
+        data={
+            "grant_type": GRANT,
+            "key": key,
+            "manifest": json.dumps(manifest or APP),
+            **extra,
+        },
         secure=True,
     )
 
 
 def _decode(access_token: str) -> dict:
-    return jwt.decode(access_token, RSAKey.import_key(settings.PUBLIC_KEY), algorithms=["RS256"]).claims
+    return jwt.decode(
+        access_token, RSAKey.import_key(settings.PUBLIC_KEY), algorithms=["RS256"]
+    ).claims
 
 
 def _pinned(**overrides):
-    return {"identifier": APP["identifier"], "version": "1.0.0", "scopes": [], "requirements": [], **overrides}
+    return {
+        "identifier": APP["identifier"],
+        "version": "1.0.0",
+        "scopes": [],
+        "requirements": [],
+        **overrides,
+    }
 
 
 @pytest.mark.django_db
@@ -101,8 +119,14 @@ def test_a_new_release_updates_the_same_client(client):
 def test_a_key_client_does_not_replace_the_grantors_own_login(client):
     """A key client acts as the grantor; the grantor's own client of the same app survives."""
     mandate, key = factories.make_mandate_key(pin=_pinned())
-    release = factories.make_release(app=factories.make_app(organization=mandate.organization, identifier=APP["identifier"]))
-    own = factories.make_client(membership=mandate.membership, release=release, hub=mandate.hub)
+    release = factories.make_release(
+        app=factories.make_app(
+            organization=mandate.organization, identifier=APP["identifier"]
+        )
+    )
+    own = factories.make_client(
+        membership=mandate.membership, release=release, hub=mandate.hub
+    )
 
     assert _login(client, key).status_code == 200
 
@@ -117,10 +141,15 @@ def test_a_key_client_does_not_replace_the_grantors_own_login(client):
         ({**APP, "version": "9.9.9"}, "pinned to version"),
         ({**APP, "device_id": "node-b"}, "different device"),
         ({**APP, "scopes": ["write"]}, "scope(s) write"),
-        ({**APP, "requirements": [{"key": "x", "service": "live.arkitekt.extra"}]}, "requirement(s) x="),
+        (
+            {**APP, "requirements": [{"key": "x", "service": "live.arkitekt.extra"}]},
+            "requirement(s) x=",
+        ),
     ],
 )
-def test_a_manifest_outside_the_pin_is_refused_before_any_client_exists(client, manifest, fragment):
+def test_a_manifest_outside_the_pin_is_refused_before_any_client_exists(
+    client, manifest, fragment
+):
     _, key = factories.make_mandate_key(pin=_pinned(device_id="node-a"))
     if "device_id" not in manifest:
         manifest = {**manifest, "device_id": "node-a"}
@@ -175,13 +204,17 @@ def test_a_revoked_key_stops_working(client):
     assert resp.status_code == 400
     assert "revoked" in resp.json()["error_description"]
     assert not models.Client.objects.filter(client_id=first["client_id"]).exists()
-    assert not OAuth2Token.objects.filter(client_id=first["client_id"], revoked=False).exists()
+    assert not OAuth2Token.objects.filter(
+        client_id=first["client_id"], revoked=False
+    ).exists()
 
 
 @pytest.mark.django_db
 def test_an_expired_key_stops_working(client):
     mandate, key = factories.make_mandate_key(pin=_pinned())
-    models.Mandate.objects.filter(pk=mandate.pk).update(expires_at=timezone.now() - timedelta(minutes=1))
+    models.Mandate.objects.filter(pk=mandate.pk).update(
+        expires_at=timezone.now() - timedelta(minutes=1)
+    )
 
     resp = _login(client, key)
 
@@ -249,7 +282,11 @@ def test_max_clients_holds_under_concurrent_logins():
     def login(device: str) -> None:
         try:
             barrier.wait()
-            mandates.authenticate_key(MandateKeyGrantRequest(key=key, manifest=Manifest(**{**APP, "device_id": device})))
+            mandates.authenticate_key(
+                MandateKeyGrantRequest(
+                    key=key, manifest=Manifest(**{**APP, "device_id": device})
+                )
+            )
             outcomes.append("ok")
         except mandates.MandateExhausted:
             outcomes.append("exhausted")
@@ -270,7 +307,9 @@ def test_max_clients_holds_under_concurrent_logins():
 def test_the_requested_kind_and_role_are_honoured(client):
     _, key = factories.make_mandate_key(pin=_pinned())
 
-    token = _login(client, key, requested_client_kind="desktop", requested_client_role="agent").json()
+    token = _login(
+        client, key, requested_client_kind="desktop", requested_client_role="agent"
+    ).json()
 
     client_row = models.Client.objects.get(client_id=token["client_id"])
     assert (client_row.kind, client_row.role) == ("desktop", "agent")
@@ -291,17 +330,30 @@ def test_a_key_cannot_log_in_a_hub_or_relying_party(client, kind):
 def mesh_hub():
     organization = factories.make_organization()
     models.IonscaleLayer.objects.create(
-        organization=organization, name="Default", kind="ionscale", identifier=organization.slug, tailnet_name=organization.slug
+        organization=organization,
+        name="Default",
+        kind="ionscale",
+        identifier=organization.slug,
+        tailnet_name=organization.slug,
     )
     return factories.make_hub(organization=organization)
 
 
 @pytest.mark.django_db
-@pytest.mark.parametrize("allow_mesh,request_auth_key,expected", [(True, "true", True), (True, "false", False), (False, "true", False)])
-def test_a_mesh_key_only_when_allowed_and_asked(client, ionscale_repo, mesh_hub, allow_mesh, request_auth_key, expected):
-    _, key = factories.make_mandate_key(hub=mesh_hub, pin=_pinned(), allow_mesh=allow_mesh)
+@pytest.mark.parametrize(
+    "allow_mesh,request_auth_key,expected",
+    [(True, "true", True), (True, "false", False), (False, "true", False)],
+)
+def test_a_mesh_key_only_when_allowed_and_asked(
+    client, ionscale_repo, mesh_hub, allow_mesh, request_auth_key, expected
+):
+    _, key = factories.make_mandate_key(
+        hub=mesh_hub, pin=_pinned(), allow_mesh=allow_mesh
+    )
 
-    token = _login(client, key, {**APP, "device_id": "box"}, request_auth_key=request_auth_key).json()
+    token = _login(
+        client, key, {**APP, "device_id": "box"}, request_auth_key=request_auth_key
+    ).json()
 
     assert ("mesh" in token) is expected
     if expected:
@@ -314,19 +366,31 @@ def test_a_key_client_stays_mesh_live_while_its_mandate_does(client):
 
     mandate, key = factories.make_mandate_key(pin=_pinned())
     token = _login(client, key).json()
-    models.Client.objects.filter(client_id=token["client_id"]).update(created_at=timezone.now() - timedelta(seconds=BACKER_GRACE_SECONDS * 3))
+    models.Client.objects.filter(client_id=token["client_id"]).update(
+        created_at=timezone.now() - timedelta(seconds=BACKER_GRACE_SECONDS * 3)
+    )
     OAuth2Token.objects.filter(client_id=token["client_id"]).update(issued_at=0)
 
-    assert live_clients(models.Client.objects.filter(client_id=token["client_id"])).exists()
-    models.Mandate.objects.filter(pk=mandate.pk).update(expires_at=timezone.now() - timedelta(seconds=1))
-    assert not live_clients(models.Client.objects.filter(client_id=token["client_id"])).exists()
+    assert live_clients(
+        models.Client.objects.filter(client_id=token["client_id"])
+    ).exists()
+    models.Mandate.objects.filter(pk=mandate.pk).update(
+        expires_at=timezone.now() - timedelta(seconds=1)
+    )
+    assert not live_clients(
+        models.Client.objects.filter(client_id=token["client_id"])
+    ).exists()
 
 
 @pytest.mark.django_db
 def test_the_old_redeem_grant_is_gone(client):
     resp = client.post(
         reverse("token"),
-        data={"grant_type": "urn:fakts:grant-type:redeem", "redeem_token": "x" * 40, "manifest": json.dumps(APP)},
+        data={
+            "grant_type": "urn:fakts:grant-type:redeem",
+            "redeem_token": "x" * 40,
+            "manifest": json.dumps(APP),
+        },
         secure=True,
     )
 
@@ -350,14 +414,19 @@ def test_rejecting_a_key_client_withdraws_its_key(client):
 
 @pytest.mark.django_db
 def test_the_org_kill_switch_revokes_every_mandate(client):
-    from api.management.mutations.revoke import RevokeOrganizationSessionsInput, revoke_organization_sessions
+    from api.management.mutations.revoke import (
+        RevokeOrganizationSessionsInput,
+        revoke_organization_sessions,
+    )
 
     mandate, key = factories.make_mandate_key(pin=_pinned())
     assert _login(client, key).status_code == 200
     owner = mandate.organization.owner
     info = SimpleNamespace(context=SimpleNamespace(request=SimpleNamespace(user=owner)))
 
-    revoke_organization_sessions(info, RevokeOrganizationSessionsInput(organization=str(mandate.organization_id)))
+    revoke_organization_sessions(
+        info, RevokeOrganizationSessionsInput(organization=str(mandate.organization_id))
+    )
 
     mandate.refresh_from_db()
     assert mandate.revocation_reason == "organization_revoked"
@@ -375,9 +444,13 @@ DEVICE = {**APP, "device_id": "esp32-a"}
 def test_a_new_key_for_a_device_keeps_its_client_after_the_old_one_expired(client):
     old, old_key = factories.make_mandate_key(pin=_pinned())
     first = _login(client, old_key, DEVICE).json()
-    models.Mandate.objects.filter(pk=old.pk).update(expires_at=timezone.now() - timedelta(minutes=1))
+    models.Mandate.objects.filter(pk=old.pk).update(
+        expires_at=timezone.now() - timedelta(minutes=1)
+    )
 
-    new, new_key = factories.make_mandate_key(hub=old.hub, membership=old.membership, pin=_pinned())
+    new, new_key = factories.make_mandate_key(
+        hub=old.hub, membership=old.membership, pin=_pinned()
+    )
     second = _login(client, new_key, DEVICE).json()
 
     assert second["client_id"] == first["client_id"]
@@ -386,11 +459,15 @@ def test_a_new_key_for_a_device_keeps_its_client_after_the_old_one_expired(clien
 
 
 @pytest.mark.django_db
-def test_a_new_key_takes_the_client_over_early_and_the_old_key_cannot_take_it_back(client):
+def test_a_new_key_takes_the_client_over_early_and_the_old_key_cannot_take_it_back(
+    client,
+):
     old, old_key = factories.make_mandate_key(pin=_pinned())
     first = _login(client, old_key, DEVICE).json()
 
-    _, new_key = factories.make_mandate_key(hub=old.hub, membership=old.membership, pin=_pinned())
+    _, new_key = factories.make_mandate_key(
+        hub=old.hub, membership=old.membership, pin=_pinned()
+    )
     second = _login(client, new_key, DEVICE).json()
     old_again = _login(client, old_key, DEVICE).json()
     new_again = _login(client, new_key, DEVICE).json()
@@ -404,11 +481,15 @@ def test_a_new_key_for_another_device_gets_its_own_client(client):
     old, old_key = factories.make_mandate_key(pin=_pinned())
     first = _login(client, old_key, DEVICE).json()
 
-    _, new_key = factories.make_mandate_key(hub=old.hub, membership=old.membership, pin=_pinned())
+    _, new_key = factories.make_mandate_key(
+        hub=old.hub, membership=old.membership, pin=_pinned()
+    )
     other = _login(client, new_key, {**APP, "device_id": "esp32-b"}).json()
 
     assert other["client_id"] != first["client_id"]
-    assert models.Client.objects.filter(client_id=first["client_id"], mandate=old).exists()
+    assert models.Client.objects.filter(
+        client_id=first["client_id"], mandate=old
+    ).exists()
 
 
 @pytest.mark.django_db
@@ -417,7 +498,9 @@ def test_a_new_key_of_another_grantor_gets_its_own_client(client):
     first = _login(client, old_key, DEVICE).json()
 
     someone_else = factories.make_membership(organization=old.organization)
-    _, new_key = factories.make_mandate_key(hub=old.hub, membership=someone_else, pin=_pinned())
+    _, new_key = factories.make_mandate_key(
+        hub=old.hub, membership=someone_else, pin=_pinned()
+    )
     second = _login(client, new_key, DEVICE).json()
 
     assert second["client_id"] != first["client_id"]
@@ -429,7 +512,11 @@ def test_a_new_key_for_another_app_on_the_device_gets_its_own_client(client):
     first = _login(client, old_key, DEVICE).json()
 
     other_app = {**DEVICE, "identifier": "com.example.other"}
-    _, new_key = factories.make_mandate_key(hub=old.hub, membership=old.membership, pin=_pinned(identifier=other_app["identifier"]))
+    _, new_key = factories.make_mandate_key(
+        hub=old.hub,
+        membership=old.membership,
+        pin=_pinned(identifier=other_app["identifier"]),
+    )
     second = _login(client, new_key, other_app).json()
 
     assert second["client_id"] != first["client_id"]
@@ -441,7 +528,9 @@ def test_after_a_revoke_a_new_key_is_a_new_client(client):
     first = _login(client, old_key, DEVICE).json()
     mandates.revoke_mandate(old)
 
-    _, new_key = factories.make_mandate_key(hub=old.hub, membership=old.membership, pin=_pinned())
+    _, new_key = factories.make_mandate_key(
+        hub=old.hub, membership=old.membership, pin=_pinned()
+    )
     second = _login(client, new_key, DEVICE).json()
 
     assert second["client_id"] != first["client_id"]
@@ -452,8 +541,9 @@ def test_without_a_device_id_a_new_key_is_a_new_client(client):
     old, old_key = factories.make_mandate_key(pin=_pinned())
     first = _login(client, old_key).json()
 
-    _, new_key = factories.make_mandate_key(hub=old.hub, membership=old.membership, pin=_pinned())
+    _, new_key = factories.make_mandate_key(
+        hub=old.hub, membership=old.membership, pin=_pinned()
+    )
     second = _login(client, new_key).json()
 
     assert second["client_id"] != first["client_id"]
-

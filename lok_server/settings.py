@@ -10,9 +10,10 @@ For the full list of settings and their values, see
 https://docs.djangoproject.com/en/4.2/ref/settings/
 """
 
+import os
 from pathlib import Path
 from urllib.parse import urlparse
-import os
+
 from .configuration import Settings
 from .logs import build_logging
 
@@ -175,7 +176,9 @@ HEADLESS_FRONTEND_URLS = {
     for key, path in conf.account.headless_frontend_urls.model_dump().items()
 }
 
-ACCOUNT_EMAIL_VERIFICATION = conf.account.email_verification  # default "none": no SMTP server by default
+ACCOUNT_EMAIL_VERIFICATION = (
+    conf.account.email_verification
+)  # default "none": no SMTP server by default
 
 # Email-verification policy for social/OIDC logins, independent of the local one
 # above. allauth passes SOCIALACCOUNT_EMAIL_VERIFICATION for both social signups and
@@ -192,7 +195,9 @@ if conf.account.social_email_required is not None:
 # Which identifier(s) users log in with, and which fields signup collects.
 # Set account.login_methods to ["email"] in config.yaml to enable login via email.
 ACCOUNT_LOGIN_METHODS = set(conf.account.login_methods)
-ACCOUNT_SIGNUP_FIELDS = conf.account.signup_fields  # always populated (derived if omitted)
+ACCOUNT_SIGNUP_FIELDS = (
+    conf.account.signup_fields
+)  # always populated (derived if omitted)
 
 # Authentikate section
 
@@ -209,7 +214,9 @@ AUTHENTICATION_BACKENDS = [
 USE_X_FORWARDED_HOST = conf.django.use_x_forwarded_host
 
 # Set when run behind a TLS-terminating reverse proxy; None otherwise.
-SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https") if conf.django.secure_proxy_ssl_header else None
+SECURE_PROXY_SSL_HEADER = (
+    ("HTTP_X_FORWARDED_PROTO", "https") if conf.django.secure_proxy_ssl_header else None
+)
 
 
 MIDDLEWARE = [
@@ -238,7 +245,9 @@ MIDDLEWARE = [
 # still works, matching the "soft dependency" note in configuration.py / CONFIG.md.
 # allauth's /config endpoint reports this effective value, so the SPA hides the
 # "Send me a sign-in code" option automatically.
-ACCOUNT_LOGIN_BY_CODE_ENABLED = conf.account.login_by_code_enabled and conf.email is not None
+ACCOUNT_LOGIN_BY_CODE_ENABLED = (
+    conf.account.login_by_code_enabled and conf.email is not None
+)
 MFA_TRUST_ENABLED = conf.account.mfa_trust_enabled  # Allow trusted devices
 # Keep last-seen / IP current on each session so the sessions page is meaningful.
 USERSESSIONS_TRACK_ACTIVITY = True
@@ -262,7 +271,9 @@ USERSESSIONS_TRACK_ACTIVITY = True
 # plain http:// simply gets no WebAuthn API in the browser, and the SPA surfaces
 # that as a failed attempt rather than a missing feature. (http://localhost is a
 # secure context, so local development is unaffected either way.)
-MFA_SUPPORTED_TYPES = ["recovery_codes", "totp"] + (["webauthn"] if conf.account.mfa_webauthn_enabled else [])
+MFA_SUPPORTED_TYPES = ["recovery_codes", "totp"] + (
+    ["webauthn"] if conf.account.mfa_webauthn_enabled else []
+)
 
 # Passkey as a password *replacement* at login, and at signup. allauth ANDs both
 # with "webauthn" in MFA_SUPPORTED_TYPES, and configuration.py rejects the
@@ -273,7 +284,9 @@ MFA_PASSKEY_SIGNUP_ENABLED = conf.account.mfa_passkey_signup_enabled
 # Verify email addresses with a typed code rather than a clicked link. Off by
 # default; required by (and only strictly needed for) passkey signup, which has
 # no password to fall back on.
-ACCOUNT_EMAIL_VERIFICATION_BY_CODE_ENABLED = conf.account.email_verification_by_code_enabled
+ACCOUNT_EMAIL_VERIFICATION_BY_CODE_ENABLED = (
+    conf.account.email_verification_by_code_enabled
+)
 
 # A passkey is bound to a Relying Party ID. allauth derives it per request from
 # the Host header (allauth/mfa/adapter.py:149-154) and offers no setting to
@@ -301,7 +314,9 @@ PRIVACY_GUARDS = conf.privacy_guards
 # S3_PUBLIC_DOMAIN = f"{conf.s3.public.host}:{conf.s3.public.port}"  # TODO: FIx
 AWS_ACCESS_KEY_ID = conf.datalayer.access_key
 AWS_SECRET_ACCESS_KEY = conf.datalayer.secret_key
-AWS_S3_ENDPOINT_URL = f"{conf.datalayer.protocol}://{conf.datalayer.host}:{conf.datalayer.port}"
+AWS_S3_ENDPOINT_URL = (
+    f"{conf.datalayer.protocol}://{conf.datalayer.host}:{conf.datalayer.port}"
+)
 # AWS_S3_PUBLIC_ENDPOINT_URL = (
 #    f"{conf.minio.public.protocol}://{conf.minio.public.host}:{conf.minio.public.port}"
 # )
@@ -315,7 +330,11 @@ MEDIA_BUCKET = conf.datalayer.media.bucket
 AWS_STORAGE_BUCKET_NAME = conf.datalayer.media.bucket
 AWS_DEFAULT_ACL = conf.datalayer.default_acl
 # Derive TLS from the configured protocol unless explicitly overridden.
-_s3_secure = conf.datalayer.secure if conf.datalayer.secure is not None else conf.datalayer.protocol == "https"
+_s3_secure = (
+    conf.datalayer.secure
+    if conf.datalayer.secure is not None
+    else conf.datalayer.protocol == "https"
+)
 AWS_S3_USE_SSL = _s3_secure
 AWS_S3_SECURE_URLS = _s3_secure
 
@@ -323,7 +342,10 @@ CHANNEL_LAYERS = {
     "default": {
         # This example app uses the Redis channel layer implementation channels_redis
         "BACKEND": "channels_redis.core.RedisChannelLayer",
-        "CONFIG": {"hosts": [(conf.redis.host, conf.redis.port)], "prefix": conf.redis.channel_prefix},
+        "CONFIG": {
+            "hosts": [(conf.redis.host, conf.redis.port)],
+            "prefix": conf.redis.channel_prefix,
+        },
     },
 }
 
@@ -452,8 +474,14 @@ STATIC_URL = MY_SCRIPT_NAME.lstrip("/") + "/" + "static/"
 import logging as _cors_logging
 import re as _re
 
-_cors_prefix = _re.escape("/" + MY_SCRIPT_NAME.strip("/")) if MY_SCRIPT_NAME.strip("/") else ""
-CORS_URLS_REGEX = rf"^({_cors_prefix})?/(o/|f/|\.well-known/)" if _cors_prefix else r"^/(o/|f/|\.well-known/)"
+_cors_prefix = (
+    _re.escape("/" + MY_SCRIPT_NAME.strip("/")) if MY_SCRIPT_NAME.strip("/") else ""
+)
+CORS_URLS_REGEX = (
+    rf"^({_cors_prefix})?/(o/|f/|\.well-known/)"
+    if _cors_prefix
+    else r"^/(o/|f/|\.well-known/)"
+)
 CORS_ALLOW_ALL_ORIGINS = conf.django.cors_allow_all_origins
 CORS_ALLOWED_ORIGINS = conf.django.cors_allowed_origins
 # Bearer tokens travel in the Authorization header (not cookies), so it must be
@@ -462,7 +490,9 @@ CORS_ALLOW_CREDENTIALS = False
 
 try:
     from corsheaders.defaults import default_headers as _cors_default_headers  # noqa: E402
-except ImportError:  # pragma: no cover — only an image built before the dependency was added
+except (
+    ImportError
+):  # pragma: no cover — only an image built before the dependency was added
     # Degrade loudly rather than refusing to boot: a lok that serves no CORS
     # headers is strictly what it did before this setting existed, while a
     # crash-looping identity server takes every client down with it.

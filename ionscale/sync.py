@@ -19,7 +19,6 @@ learns about committed state.
 """
 
 import logging
-from typing import Optional
 
 from django.db import transaction
 
@@ -32,7 +31,7 @@ def _configured() -> bool:
     return ionscale_configured()
 
 
-def revoke_member(user_pk, organization_pk: Optional[object] = None) -> None:
+def revoke_member(user_pk, organization_pk: object | None = None) -> None:
     """Revoke an identity's mesh access in one organization (or, with
     ``organization_pk=None``, in every tailnet). Never raises."""
     if not _configured():
@@ -51,7 +50,9 @@ def revoke_member(user_pk, organization_pk: Optional[object] = None) -> None:
         )
         return
     if affected:
-        logger.info("Revoked ionscale access for user %s in tailnets %s", user_pk, affected)
+        logger.info(
+            "Revoked ionscale access for user %s in tailnets %s", user_pk, affected
+        )
 
     # Apps that joined with a minted key own no account: their nodes belong to
     # the tailnet's service user, so RevokeAccount misses them. Deactivation
@@ -60,7 +61,9 @@ def revoke_member(user_pk, organization_pk: Optional[object] = None) -> None:
     # by the enrollment's own pre_delete (see schedule_enrollment_revocation).
     from fakts.models import AppMeshEnrollment
 
-    enrollments = AppMeshEnrollment.objects.filter(membership__user_id=user_pk).select_related("auth_key__layer")
+    enrollments = AppMeshEnrollment.objects.filter(
+        membership__user_id=user_pk
+    ).select_related("auth_key__layer")
     if organization_pk is not None:
         enrollments = enrollments.filter(organization_id=organization_pk)
     for enrollment in enrollments:
@@ -69,7 +72,7 @@ def revoke_member(user_pk, organization_pk: Optional[object] = None) -> None:
             revoke_enrollment_nodes(*target)
 
 
-def _enrollment_target(enrollment) -> Optional[tuple[str, str, Optional[str]]]:
+def _enrollment_target(enrollment) -> tuple[str, str, str | None] | None:
     """(tailnet, tag, live key) of a mesh enrollment, or None without a mesh.
 
     An enrollment is an ``AppMeshEnrollment`` (``tag``) or a ``Hub``
@@ -85,7 +88,7 @@ def _enrollment_target(enrollment) -> Optional[tuple[str, str, Optional[str]]]:
     return layer.tailnet_name, tag, key
 
 
-def revoke_enrollment_nodes(tailnet: str, tag: str, key_value: Optional[str]) -> None:
+def revoke_enrollment_nodes(tailnet: str, tag: str, key_value: str | None) -> None:
     """Delete an enrollment's nodes (every node carrying its tag) and its live
     key. Never raises."""
     if not _configured():
@@ -100,7 +103,11 @@ def revoke_enrollment_nodes(tailnet: str, tag: str, key_value: Optional[str]) ->
             if tag in machine.tags:
                 repo.delete_machine(machine.id)
     except Exception:
-        logger.exception("Could not remove the mesh nodes tagged %s from tailnet %s; remove them manually", tag, tailnet)
+        logger.exception(
+            "Could not remove the mesh nodes tagged %s from tailnet %s; remove them manually",
+            tag,
+            tailnet,
+        )
 
 
 def resync_organization(organization_pk) -> None:
@@ -109,6 +116,7 @@ def resync_organization(organization_pk) -> None:
     if not _configured():
         return
     from fakts.models import IonscaleLayer
+
     from .manager import sync
 
     for layer in IonscaleLayer.objects.filter(organization_id=organization_pk):
@@ -136,9 +144,13 @@ def teardown_tailnet(tailnet_name: str) -> None:
     except IonscaleError as exc:
         if exc.code == "not_found":
             return
-        logger.exception("Could not delete tailnet %s; delete it manually", tailnet_name)
+        logger.exception(
+            "Could not delete tailnet %s; delete it manually", tailnet_name
+        )
     except Exception:
-        logger.exception("Could not delete tailnet %s; delete it manually", tailnet_name)
+        logger.exception(
+            "Could not delete tailnet %s; delete it manually", tailnet_name
+        )
 
 
 def provision_organization_mesh(organization_pk) -> None:
@@ -164,7 +176,9 @@ def provision_organization_mesh(organization_pk) -> None:
         if organization is not None:
             ensure_org_mesh(organization)
     except Exception:
-        logger.exception("Could not provision the mesh of organization %s", organization_pk)
+        logger.exception(
+            "Could not provision the mesh of organization %s", organization_pk
+        )
 
 
 def schedule_mesh_provisioning(organization_pk) -> None:

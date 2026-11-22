@@ -7,8 +7,8 @@ user's *membership* in the chosen organization, so every code is org-scoped.
 PKCE is required for public clients at token exchange.
 """
 
-import hashlib
 import base64
+import hashlib
 from urllib.parse import parse_qs, urlparse
 
 import pytest
@@ -20,7 +20,9 @@ from tests import factories
 def _setup():
     membership = factories.make_membership()
     # A separate OAuth2 client acting as the relying party being authorized.
-    rp = factories.make_oauth2_client(membership=membership, redirect_uris="https://rp.example/callback")
+    rp = factories.make_oauth2_client(
+        membership=membership, redirect_uris="https://rp.example/callback"
+    )
     return membership.user, membership.organization, rp
 
 
@@ -68,7 +70,11 @@ def test_get_with_unknown_client_errors_without_redirect(client):
 
     resp = client.get(
         reverse("authorize"),
-        {"response_type": "code", "client_id": "not-registered", "redirect_uri": "https://rp.example/callback"},
+        {
+            "response_type": "code",
+            "client_id": "not-registered",
+            "redirect_uri": "https://rp.example/callback",
+        },
         secure=True,
     )
 
@@ -82,13 +88,20 @@ def test_post_consent_redirects_with_code(client):
 
     resp = client.post(
         reverse("authorize"),
-        {**_authorize_params(rp), "allow": "true", "organization": str(organization.pk)},
+        {
+            **_authorize_params(rp),
+            "allow": "true",
+            "organization": str(organization.pk),
+        },
         secure=True,
     )
 
     assert resp.status_code == 302
     parsed = urlparse(resp["Location"])
-    assert f"{parsed.scheme}://{parsed.netloc}{parsed.path}" == "https://rp.example/callback"
+    assert (
+        f"{parsed.scheme}://{parsed.netloc}{parsed.path}"
+        == "https://rp.example/callback"
+    )
     qs = parse_qs(parsed.query)
     assert qs["state"] == ["xyz-state"]
     assert qs["code"] and qs["code"][0]
@@ -106,7 +119,9 @@ def test_post_deny_redirects_with_access_denied(client):
     user, _organization, rp = _setup()
     client.force_login(user)
 
-    resp = client.post(reverse("authorize"), {**_authorize_params(rp), "allow": "false"}, secure=True)
+    resp = client.post(
+        reverse("authorize"), {**_authorize_params(rp), "allow": "false"}, secure=True
+    )
 
     assert resp.status_code == 302
     assert "error=access_denied" in resp["Location"]
@@ -213,6 +228,7 @@ def test_ensureopenid_provisions_client(settings):
     """ensureopenid creates an OAuth2Client from openid_apps with a matching
     secret and a narrowed grant surface."""
     from django.core.management import call_command
+
     from fakts.models import Client as OAuth2Client
 
     settings.ENSURED_OPENID_APPS = [
@@ -277,7 +293,9 @@ def test_plain_code_challenge_method_is_refused(client):
     resp = client.post(
         reverse("authorize"),
         {
-            **_authorize_params(rp, code_challenge=PKCE_VERIFIER, code_challenge_method="plain"),
+            **_authorize_params(
+                rp, code_challenge=PKCE_VERIFIER, code_challenge_method="plain"
+            ),
             "allow": "true",
             "organization": str(organization.pk),
         },
@@ -298,7 +316,11 @@ def test_plain_code_challenge_method_is_refused(client):
 def _consent(client, rp, organization):
     return client.post(
         reverse("authorize"),
-        {**_authorize_params(rp), "allow": "true", "organization": str(organization.pk)},
+        {
+            **_authorize_params(rp),
+            "allow": "true",
+            "organization": str(organization.pk),
+        },
         secure=True,
     )
 
@@ -311,7 +333,9 @@ def test_an_app_from_another_organization_gets_no_code(client):
     from authapp.models import AuthorizationCode
 
     attacker = factories.make_membership()
-    app = factories.make_client(membership=attacker, redirect_uris="https://rp.example/callback")
+    app = factories.make_client(
+        membership=attacker, redirect_uris="https://rp.example/callback"
+    )
     victim = factories.make_membership()
     client.force_login(victim.user)
 
@@ -325,7 +349,9 @@ def test_an_app_from_another_organization_gets_no_code(client):
 @pytest.mark.django_db
 def test_an_app_is_authorized_in_its_own_organization(client):
     membership = factories.make_membership()
-    app = factories.make_client(membership=membership, redirect_uris="https://rp.example/callback")
+    app = factories.make_client(
+        membership=membership, redirect_uris="https://rp.example/callback"
+    )
     colleague = factories.make_membership(organization=membership.organization)
     client.force_login(colleague.user)
 
@@ -340,7 +366,11 @@ def test_a_relying_party_serves_every_organization(client):
     """Config-provisioned relying parties are global: their tokens are addressed to themselves."""
     from fakts.enums import ClientKindChoices
 
-    rp = factories.make_oauth2_client(redirect_uris="https://rp.example/callback", kind=ClientKindChoices.RELYING_PARTY.value, organization=None)
+    rp = factories.make_oauth2_client(
+        redirect_uris="https://rp.example/callback",
+        kind=ClientKindChoices.RELYING_PARTY.value,
+        organization=None,
+    )
     rp.membership = None  # as ensureopenid provisions them: global, no membership
     rp.save(update_fields=["membership"])
     member = factories.make_membership()
@@ -356,7 +386,9 @@ def test_a_relying_party_serves_every_organization(client):
 def test_a_staged_client_runs_no_code_flow(client):
     """Registered but never approved: no organization, so no organization to authorize into."""
     member = factories.make_membership()
-    staged = factories.make_oauth2_client(redirect_uris="https://rp.example/callback", organization=None)
+    staged = factories.make_oauth2_client(
+        redirect_uris="https://rp.example/callback", organization=None
+    )
     staged.membership = None  # as /o/app-authorization/ registers it
     staged.save(update_fields=["membership"])
     client.force_login(member.user)

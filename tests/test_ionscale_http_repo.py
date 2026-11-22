@@ -6,8 +6,9 @@ stringified-uint64 responses, and the error-code mapping -- without a server.
 """
 
 import json
-from datetime import datetime, timezone
-from typing import Any, Callable, Dict, List, Optional
+from collections.abc import Callable
+from datetime import UTC, datetime
+from typing import Any
 
 import httpx
 import pytest
@@ -26,7 +27,12 @@ def _json(status: int, payload: Any) -> httpx.Response:
 
 def _connect_error(code: str, message: str = "") -> httpx.Response:
     # connect maps codes to HTTP statuses; the body is what clients should read
-    statuses = {"not_found": 404, "already_exists": 409, "permission_denied": 403, "unimplemented": 501}
+    statuses = {
+        "not_found": 404,
+        "already_exists": 409,
+        "permission_denied": 403,
+        "unimplemented": 501,
+    }
     return _json(statuses.get(code, 500), {"code": code, "message": message})
 
 
@@ -35,10 +41,12 @@ class FakeIonscale:
     records every request for assertions."""
 
     def __init__(self) -> None:
-        self.requests: List[httpx.Request] = []
-        self.handlers: Dict[str, Callable[[Dict[str, Any]], httpx.Response]] = {}
+        self.requests: list[httpx.Request] = []
+        self.handlers: dict[str, Callable[[dict[str, Any]], httpx.Response]] = {}
 
-    def on(self, method: str, handler: Callable[[Dict[str, Any]], httpx.Response]) -> None:
+    def on(
+        self, method: str, handler: Callable[[dict[str, Any]], httpx.Response]
+    ) -> None:
         self.handlers[method] = handler
 
     def reply(self, method: str, payload: Any, status: int = 200) -> None:
@@ -48,21 +56,21 @@ class FakeIonscale:
         self.requests.append(request)
         assert request.method == "POST"
         assert request.url.path.startswith(SERVICE), request.url.path
-        method = request.url.path[len(SERVICE):]
+        method = request.url.path[len(SERVICE) :]
         handler = self.handlers.get(method)
         if handler is None:
             return _connect_error("unimplemented", f"no handler for {method}")
         return handler(json.loads(request.content or b"{}"))
 
-    def bodies(self, method: Optional[str] = None) -> List[Dict[str, Any]]:
+    def bodies(self, method: str | None = None) -> list[dict[str, Any]]:
         return [
             json.loads(r.content or b"{}")
             for r in self.requests
             if method is None or r.url.path == SERVICE + method
         ]
 
-    def calls(self) -> List[str]:
-        return [r.url.path[len(SERVICE):] for r in self.requests]
+    def calls(self) -> list[str]:
+        return [r.url.path[len(SERVICE) :] for r in self.requests]
 
 
 @pytest.fixture
@@ -96,7 +104,10 @@ def test_request_shape_path_headers_and_body(server, repo):
     repo.list_tailnets()
 
     (request,) = server.requests
-    assert request.url == "https://mesh.example.org/ionscale.v1.IonscaleService/ListTailnets"
+    assert (
+        request.url
+        == "https://mesh.example.org/ionscale.v1.IonscaleService/ListTailnets"
+    )
     assert request.headers["Authorization"] == f"Bearer {TOKEN}"
     assert request.headers["Content-Type"] == "application/json"
     assert json.loads(request.content) == {}
@@ -144,16 +155,28 @@ def test_stale_cached_id_is_refreshed_once(server, repo):
     """The tailnet was deleted and recreated under the same name: the first
     call fails with not_found, the id is re-resolved, the call is retried."""
     ids = iter(["1", "2"])
-    server.on("ListTailnets", lambda _b: _json(200, {"tailnet": [{**TAILNET_WIRE, "id": next(ids)}]}))
+    server.on(
+        "ListTailnets",
+        lambda _b: _json(200, {"tailnet": [{**TAILNET_WIRE, "id": next(ids)}]}),
+    )
     server.on(
         "SetIAMPolicy",
-        lambda body: _json(200, {}) if body["tailnet_id"] == "2" else _connect_error("not_found", "tailnet not found"),
+        lambda body: (
+            _json(200, {})
+            if body["tailnet_id"] == "2"
+            else _connect_error("not_found", "tailnet not found")
+        ),
     )
 
     repo.list_tailnets()  # primes the cache with id 1
     assert repo.update_policy("acme", {"subs": []}) == "ok"
 
-    assert server.calls() == ["ListTailnets", "SetIAMPolicy", "ListTailnets", "SetIAMPolicy"]
+    assert server.calls() == [
+        "ListTailnets",
+        "SetIAMPolicy",
+        "ListTailnets",
+        "SetIAMPolicy",
+    ]
     assert server.bodies("SetIAMPolicy") == [
         {"tailnet_id": "1", "policy": '{"subs": []}'},
         {"tailnet_id": "2", "policy": '{"subs": []}'},
@@ -172,7 +195,10 @@ def test_fresh_id_not_found_is_not_retried(server, repo):
 
 
 def test_connect_error_code_wins_over_http_status(server, repo):
-    server.on("CreateTailnet", lambda _b: _connect_error("already_exists", "tailnet already exists with id 4"))
+    server.on(
+        "CreateTailnet",
+        lambda _b: _connect_error("already_exists", "tailnet already exists with id 4"),
+    )
 
     with pytest.raises(IonscaleError) as excinfo:
         repo.create_tailnet(TailnetCreate(name="acme", organization="17"))
@@ -186,7 +212,9 @@ def test_connect_error_code_wins_over_http_status(server, repo):
 
 
 def test_non_connect_error_maps_http_status(server, repo):
-    server.on("ListTailnets", lambda _b: httpx.Response(503, text="<html>bad gateway</html>"))
+    server.on(
+        "ListTailnets", lambda _b: httpx.Response(503, text="<html>bad gateway</html>")
+    )
 
     with pytest.raises(IonscaleError) as excinfo:
         repo.list_tailnets()
@@ -199,7 +227,9 @@ def test_transport_failure_is_unavailable():
     def boom(_request: httpx.Request) -> httpx.Response:
         raise httpx.ConnectTimeout("timed out")
 
-    repo = IonscaleHttpRepository("https://mesh", TOKEN, transport=httpx.MockTransport(boom))
+    repo = IonscaleHttpRepository(
+        "https://mesh", TOKEN, transport=httpx.MockTransport(boom)
+    )
 
     with pytest.raises(IonscaleError) as excinfo:
         repo.list_tailnets()
@@ -229,7 +259,9 @@ def test_get_tailnet_by_organization(server, repo):
 
 
 def test_get_tailnet_by_organization_missing_is_none(server, repo):
-    server.on("GetTailnetByOrganization", lambda _b: _connect_error("not_found", "no tailnet"))
+    server.on(
+        "GetTailnetByOrganization", lambda _b: _connect_error("not_found", "no tailnet")
+    )
     assert repo.get_tailnet_by_organization("17") is None
 
 
@@ -238,7 +270,9 @@ def test_get_tailnet_by_organization_falls_back_to_list_filter(server, repo):
     server.on("GetTailnetByOrganization", lambda _b: _connect_error("unimplemented"))
     server.on(
         "ListTailnets",
-        lambda body: _json(200, {"tailnet": [TAILNET_WIRE] if body.get("organization") == "17" else []}),
+        lambda body: _json(
+            200, {"tailnet": [TAILNET_WIRE] if body.get("organization") == "17" else []}
+        ),
     )
 
     assert repo.get_tailnet_by_organization("17").name == "acme"
@@ -249,11 +283,15 @@ def test_update_tailnet_is_partial_and_renames(server, repo):
     server.reply("ListTailnets", {"tailnet": [TAILNET_WIRE]})
     server.on(
         "UpdateTailnet",
-        lambda body: _json(200, {"tailnet": {**TAILNET_WIRE, "name": body.get("name", "acme")}}),
+        lambda body: _json(
+            200, {"tailnet": {**TAILNET_WIRE, "name": body.get("name", "acme")}}
+        ),
     )
     server.reply("GetIAMPolicy", {"policy": "{}"})
 
-    updated = repo.update_tailnet("acme", name="acme-corp", ssh_enabled=True, machine_authorization_enabled=None)
+    updated = repo.update_tailnet(
+        "acme", name="acme-corp", ssh_enabled=True, machine_authorization_enabled=None
+    )
 
     assert updated.name == "acme-corp"
     assert server.bodies("UpdateTailnet") == [
@@ -274,7 +312,9 @@ def test_delete_tailnet_forwards_force_and_forgets_the_id(server, repo):
 
     repo.delete_tailnet("acme", force=True)
 
-    assert server.bodies("DeleteTailnet") == [{"tailnet_id": "8543723985234", "force": True}]
+    assert server.bodies("DeleteTailnet") == [
+        {"tailnet_id": "8543723985234", "force": True}
+    ]
     assert "acme" not in repo._tailnet_ids
 
 
@@ -288,7 +328,9 @@ def test_set_dns_config_sends_full_config_with_extra_records(server, repo):
             magic_dns=True,
             https_certs=True,
             nameservers=["1.1.1.1"],
-            extra_records=[DNSRecord(name="hub.acme.mesh.example.org", value="100.64.0.7")],
+            extra_records=[
+                DNSRecord(name="hub.acme.mesh.example.org", value="100.64.0.7")
+            ],
         ),
     )
 
@@ -301,7 +343,13 @@ def test_set_dns_config_sends_full_config_with_extra_records(server, repo):
                 "override_local_dns": False,
                 "nameservers": ["1.1.1.1"],
                 "search_domains": [],
-                "extra_records": [{"name": "hub.acme.mesh.example.org", "type": "", "value": "100.64.0.7"}],
+                "extra_records": [
+                    {
+                        "name": "hub.acme.mesh.example.org",
+                        "type": "",
+                        "value": "100.64.0.7",
+                    }
+                ],
             },
         }
     ]
@@ -311,11 +359,23 @@ def test_create_auth_key_returns_value_and_encodes_expiry(server, repo):
     server.reply("ListTailnets", {"tailnet": [TAILNET_WIRE]})
     server.reply("CreateAuthKey", {"value": "tskey-abc", "authKey": {"id": "3"}})
 
-    value = repo.create_auth_key("acme", ephemeral=True, pre_authorized=True, tags=["tag:hub"], expiry_seconds=600)
+    value = repo.create_auth_key(
+        "acme",
+        ephemeral=True,
+        pre_authorized=True,
+        tags=["tag:hub"],
+        expiry_seconds=600,
+    )
 
     assert value == "tskey-abc"
     assert server.bodies("CreateAuthKey") == [
-        {"tailnet_id": "8543723985234", "ephemeral": True, "pre_authorized": True, "tags": ["tag:hub"], "expiry": "600s"}
+        {
+            "tailnet_id": "8543723985234",
+            "ephemeral": True,
+            "pre_authorized": True,
+            "tags": ["tag:hub"],
+            "expiry": "600s",
+        }
     ]
 
 
@@ -343,8 +403,10 @@ def test_list_machines_and_get_machine(server, repo):
     detail = repo.get_machine(99)
 
     assert machine.id == "99" and machine.tailnet == "acme" and machine.connected
-    assert machine.last_seen == datetime(2026, 9, 1, 10, 0, tzinfo=timezone.utc)
-    assert detail.os == "linux" and detail.key_expiry == datetime(2027, 2, 28, 10, 0, tzinfo=timezone.utc)
+    assert machine.last_seen == datetime(2026, 9, 1, 10, 0, tzinfo=UTC)
+    assert detail.os == "linux" and detail.key_expiry == datetime(
+        2027, 2, 28, 10, 0, tzinfo=UTC
+    )
     assert server.bodies("GetMachine") == [{"machine_id": "99"}]
 
 
@@ -352,12 +414,20 @@ def test_list_users_carries_external_ids(server, repo):
     server.reply("ListTailnets", {"tailnet": [TAILNET_WIRE]})
     server.reply(
         "ListUsers",
-        {"users": [{"id": "5", "name": "jane", "role": "member", "externalId": "42"}, {"id": "6", "name": "svc"}]},
+        {
+            "users": [
+                {"id": "5", "name": "jane", "role": "member", "externalId": "42"},
+                {"id": "6", "name": "svc"},
+            ]
+        },
     )
 
     users = repo.list_users("acme")
 
-    assert [(u.name, u.role, u.external_id) for u in users] == [("jane", "member", "42"), ("svc", "", None)]
+    assert [(u.name, u.role, u.external_id) for u in users] == [
+        ("jane", "member", "42"),
+        ("svc", "", None),
+    ]
 
 
 def test_revoke_account_returns_affected_tailnets(server, repo):
@@ -374,12 +444,17 @@ def test_revoke_account_everywhere_omits_organization(server, repo):
 
 
 def test_revoke_account_treats_not_found_as_noop(server, repo):
-    server.on("RevokeAccount", lambda _b: _connect_error("not_found", "account not found"))
+    server.on(
+        "RevokeAccount", lambda _b: _connect_error("not_found", "account not found")
+    )
     assert repo.revoke_account("42", "17") == []
 
 
 def test_revoke_account_other_errors_propagate(server, repo):
-    server.on("RevokeAccount", lambda _b: _connect_error("permission_denied", "system admin required"))
+    server.on(
+        "RevokeAccount",
+        lambda _b: _connect_error("permission_denied", "system admin required"),
+    )
     with pytest.raises(IonscaleError) as excinfo:
         repo.revoke_account("42", "17")
     assert excinfo.value.code == "permission_denied"
@@ -401,7 +476,11 @@ def test_tailnet_lock_status(server, repo):
     status = repo.get_tailnet_lock_status("acme")
     repo.enable_tailnet_lock("acme")
 
-    assert status.capability_enabled and status.authority_active and not status.authority_disabled
+    assert (
+        status.capability_enabled
+        and status.authority_active
+        and not status.authority_disabled
+    )
     assert status.head == "abc"
     assert status.nodes[0].machine_id == "99" and status.nodes[0].signed
     assert server.bodies("EnableTailnetLock") == [{"tailnet_id": "8543723985234"}]

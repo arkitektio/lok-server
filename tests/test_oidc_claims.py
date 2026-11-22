@@ -12,7 +12,6 @@ from authapp import oidc_claims
 from authapp.grants import OpenIDCode
 from tests import factories
 
-
 # --- pure helpers ---------------------------------------------------------
 
 
@@ -23,10 +22,10 @@ def test_validate_email_template_accepts_known_variables():
 @pytest.mark.parametrize(
     "template",
     [
-        "{unknown}@corp.example",   # unknown variable
-        "{user.email}",             # attribute access is rejected
-        "static@corp.example",      # no variables at all
-        "{username",                # malformed braces
+        "{unknown}@corp.example",  # unknown variable
+        "{user.email}",  # attribute access is rejected
+        "static@corp.example",  # no variables at all
+        "{username",  # malformed braces
     ],
 )
 def test_validate_email_template_rejects_bad_templates(template):
@@ -45,7 +44,10 @@ def test_resolve_sub_is_always_the_user_id():
     """
     membership = factories.make_membership()
     assert oidc_claims.resolve_sub(membership) == str(membership.user.id)
-    assert oidc_claims.resolve_sub(membership) != str(membership.id) or membership.id == membership.user.id
+    assert (
+        oidc_claims.resolve_sub(membership) != str(membership.id)
+        or membership.id == membership.user.id
+    )
 
 
 @pytest.mark.django_db
@@ -54,7 +56,10 @@ def test_resolve_email_template_and_default():
     membership.user.email = "real@example.com"
     membership.user.save()
 
-    assert oidc_claims.resolve_email(membership, "{username}@corp.example") == f"{membership.user.username}@corp.example"
+    assert (
+        oidc_claims.resolve_email(membership, "{username}@corp.example")
+        == f"{membership.user.username}@corp.example"
+    )
     # No template -> user's own email.
     assert oidc_claims.resolve_email(membership, None) == "real@example.com"
 
@@ -68,7 +73,9 @@ def test_resolve_email_coerces_none_and_falls_back():
     # Nullable source (email) renders empty, never the literal "None".
     assert oidc_claims.resolve_email(membership, "x{email}y") == "xy"
     # No template + no email -> synthetic noreply address.
-    assert oidc_claims.resolve_email(membership, None) == f"{membership.pk}@users.noreply"
+    assert (
+        oidc_claims.resolve_email(membership, None) == f"{membership.pk}@users.noreply"
+    )
 
 
 # --- config validation ----------------------------------------------------
@@ -92,6 +99,7 @@ def test_config_rejects_invalid_email_template():
 @pytest.mark.django_db
 def test_ensureopenid_provisions_new_fields(settings):
     from django.core.management import call_command
+
     from fakts.models import Client as OAuth2Client
 
     settings.ENSURED_OPENID_APPS = [
@@ -124,7 +132,9 @@ def test_id_token_and_userinfo_sub_agree():
     # id_token path (grants.OpenIDCode): client is stashed on the request.user
     # membership by encode_id_token(); replicate that stash here.
     membership._oauth_client = client
-    info = OpenIDCode(require_nonce=True).generate_user_info(membership, "openid profile email")
+    info = OpenIDCode(require_nonce=True).generate_user_info(
+        membership, "openid profile email"
+    )
 
     # userinfo path (views.user_info): client recovered by client_id.
     userinfo_sub = oidc_claims.resolve_sub(membership)
@@ -142,8 +152,10 @@ def test_token_endpoint_id_token_carries_configured_sub_and_email(client):
     import base64
     import json
     import secrets as _secrets
+
     from django.urls import reverse
     from django.utils import timezone
+
     from authapp.models import AuthorizationCode
 
     membership = factories.make_membership()

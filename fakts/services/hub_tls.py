@@ -39,9 +39,13 @@ def validate_tls_certificate(value: object) -> str:
     try:
         _ = certificate.extensions.get_extension_for_class(x509.SubjectAlternativeName)
     except x509.ExtensionNotFound as error:
-        raise ValueError("tls_certificate must name its hosts in a subjectAltName") from error
+        raise ValueError(
+            "tls_certificate must name its hosts in a subjectAltName"
+        ) from error
     try:
-        constraints = certificate.extensions.get_extension_for_class(x509.BasicConstraints).value
+        constraints = certificate.extensions.get_extension_for_class(
+            x509.BasicConstraints
+        ).value
         if constraints.ca:
             raise ValueError("tls_certificate must be a server certificate, not a CA")
     except x509.ExtensionNotFound:

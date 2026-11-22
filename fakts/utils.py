@@ -1,15 +1,16 @@
-from uuid import uuid4
 import collections.abc
 import ipaddress
 import socket
 from urllib.parse import urlparse
+from uuid import uuid4
 
 import requests
+from django.conf import settings
 from django.core.files import File
 from django.core.files.temp import NamedTemporaryFile
+
 from karakter.datalayer import get_current_datalayer
 from karakter.models import MediaStore
-from django.conf import settings
 
 # `download_logo` is reached from the *unauthenticated* device-code start
 # endpoints (/f/start/, /f/servicestart/, /f/hubstart/) with a URL taken straight
@@ -47,7 +48,9 @@ def assert_public_https_url(url: str, what: str = "URL") -> None:
         raise ValueError(f"{what} has no host")
 
     try:
-        resolved = socket.getaddrinfo(parsed.hostname, parsed.port or 443, proto=socket.IPPROTO_TCP)
+        resolved = socket.getaddrinfo(
+            parsed.hostname, parsed.port or 443, proto=socket.IPPROTO_TCP
+        )
     except socket.gaierror as exc:
         raise ValueError(f"Could not resolve {what} host {parsed.hostname!r}") from exc
 
@@ -56,7 +59,9 @@ def assert_public_https_url(url: str, what: str = "URL") -> None:
         if not ip.is_global or ip.is_multicast:
             # Covers loopback, RFC1918, link-local (including the 169.254.169.254
             # metadata address), unique-local v6, and the unspecified address.
-            raise ValueError(f"{what} host {parsed.hostname!r} resolves to non-public address {ip}")
+            raise ValueError(
+                f"{what} host {parsed.hostname!r} resolves to non-public address {ip}"
+            )
 
 
 def _assert_public_url(url: str) -> None:
@@ -83,7 +88,9 @@ def download_logo(url: str) -> File:
         # `assert` is stripped under `python -O`, which would store whatever the
         # far end returned — an error page, or a non-image payload.
         if response.status_code != 200:
-            raise ValueError(f"Could not download logo from {url}: HTTP {response.status_code}")
+            raise ValueError(
+                f"Could not download logo from {url}: HTTP {response.status_code}"
+            )
         content_type = response.headers.get("Content-Type", "").split(";")[0].strip()
         if content_type != "image/png":
             raise ValueError(f"Expected PNG image, got {content_type}")
@@ -103,9 +110,7 @@ def download_logo(url: str) -> File:
 
     img_tmp.seek(0)
 
-    store = MediaStore.objects.create(
-        path=f"{bucket}/{key}", key=key, bucket=bucket
-    )
+    store = MediaStore.objects.create(path=f"{bucket}/{key}", key=key, bucket=bucket)
 
     store.put_file(get_current_datalayer(), img_tmp)
 

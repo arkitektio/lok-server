@@ -3,8 +3,10 @@ import logging
 from kante.types import Info
 
 from fakts import inputs, models, scalars
-
-from fakts.services.rendering import render_envelope_from_context, create_fake_linking_context
+from fakts.services.rendering import (
+    create_fake_linking_context,
+    render_envelope_from_context,
+)
 from karakter.authz import get_scoped_or_denied
 
 logger = logging.getLogger(__name__)

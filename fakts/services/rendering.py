@@ -6,8 +6,6 @@ which service instance satisfies a requirement, and (re)compose a client's
 service-instance mappings from its manifest.
 """
 
-from typing import Dict
-
 from django.conf import settings
 from django.db import transaction
 from django.http import HttpRequest
@@ -37,18 +35,27 @@ def _identity(membership, hub: models.Hub | None) -> dict:
     }
 
 
-def render_server_fakts(hub: models.Hub, context: base_models.ServerLinkingContext) -> HubClaimAnswer:
+def render_server_fakts(
+    hub: models.Hub, context: base_models.ServerLinkingContext
+) -> HubClaimAnswer:
     identity = _identity(hub.client.membership if hub.client_id else None, hub)
     identity["organization"] = str(hub.organization_id)
     self_claim = SelfClaim(
         deployment_name=context.deployment_name,
-        alias=Alias(id="self", host=context.request.host, port=context.request.port, ssl=context.request.is_secure, path="lok", challenge="ht"),
+        alias=Alias(
+            id="self",
+            host=context.request.host,
+            port=context.request.port,
+            ssl=context.request.is_secure,
+            path="lok",
+            challenge="ht",
+        ),
         jwks_url=context.request.jwks_url,
         **identity,
     )
 
-    instance_claims: Dict[str, HubInstanceClaim] = {}
-    client_claims: Dict[str, HubClientClaim] = {}
+    instance_claims: dict[str, HubInstanceClaim] = {}
+    client_claims: dict[str, HubClientClaim] = {}
 
     # By the name the hub gave each of its services: the hub named them, so it knows them by it.
     for instance in hub.instances.select_related("release__service"):
@@ -64,8 +71,10 @@ def render_server_fakts(hub: models.Hub, context: base_models.ServerLinkingConte
             client_id=client.client_id,
         )
 
-    request_claims: Dict[str, HubClientRequestClaim] = {}
-    for mandate in hub.mandates.filter(origin="hub", revoked_at__isnull=True).prefetch_related("clients"):
+    request_claims: dict[str, HubClientRequestClaim] = {}
+    for mandate in hub.mandates.filter(
+        origin="hub", revoked_at__isnull=True
+    ).prefetch_related("clients"):
         request_claims[mandate.hub_request] = HubClientRequestClaim(
             mandate=str(mandate.pk),
             key_sha256=mandate.key_hash,
@@ -82,7 +91,9 @@ def render_server_fakts(hub: models.Hub, context: base_models.ServerLinkingConte
     return claim
 
 
-def render_envelope_from_context(client: models.Client, context: base_models.LinkingContext) -> dict:
+def render_envelope_from_context(
+    client: models.Client, context: base_models.LinkingContext
+) -> dict:
     """Render the fakts envelope (self + instances + statuses) for a client.
 
     Auth material is *not* part of the envelope — it travels in the standard
@@ -90,12 +101,22 @@ def render_envelope_from_context(client: models.Client, context: base_models.Lin
     """
     self_claim = SelfClaim(
         deployment_name=context.deployment_name,
-        alias=Alias(id="self", host=context.request.host, port=context.request.port, ssl=context.request.is_secure, path="lok", challenge="ht"),
+        alias=Alias(
+            id="self",
+            host=context.request.host,
+            port=context.request.port,
+            ssl=context.request.is_secure,
+            path="lok",
+            challenge="ht",
+        ),
         jwks_url=context.request.jwks_url,
-        **_identity(client.membership if client.membership_id else None, client.hub if client.hub_id else None),
+        **_identity(
+            client.membership if client.membership_id else None,
+            client.hub if client.hub_id else None,
+        ),
     )
 
-    instances_map: Dict[str, InstanceClaim] = {}
+    instances_map: dict[str, InstanceClaim] = {}
     # The hub owner's rules for this client (its own, its app's, its user's, its roles'),
     # loaded once for every instance it is handed.
     rules = alias_priority.rules_for(client)
@@ -105,7 +126,9 @@ def render_envelope_from_context(client: models.Client, context: base_models.Lin
 
         value = instance.render(context, rules=rules)
         value.version = versions.known(instance.release.version)
-        value.satisfies = versions.satisfies(instance.release.version, mapping.wants_version)
+        value.satisfies = versions.satisfies(
+            instance.release.version, mapping.wants_version
+        )
         instances_map[mapping.key] = value
 
     envelope = FaktsEnvelope(
@@ -137,7 +160,9 @@ def render_hub_envelope(request: HttpRequest, hub: models.Hub) -> dict:
     return render_server_fakts(hub, context).model_dump()
 
 
-def find_instance_for_requirement_and_hub(requirement: base_models.Requirement, user: models.AbstractUser, hub: models.Hub) -> models.ServiceInstance | None:
+def find_instance_for_requirement_and_hub(
+    requirement: base_models.Requirement, user: models.AbstractUser, hub: models.Hub
+) -> models.ServiceInstance | None:
     instance = (
         models.ServiceInstance.objects.filter(
             release__service__identifier=requirement.service,
@@ -145,7 +170,16 @@ def find_instance_for_requirement_and_hub(requirement: base_models.Requirement, 
         )
         .filter(
             models.Q(allowed_users__isnull=True)
-            | models.Q(allowed_users=user) & (models.Q(denied_users__isnull=True) | ~models.Q(denied_users=user)) & (models.Q(allowed_groups__isnull=True) | models.Q(allowed_groups__in=user.groups.all())) & (models.Q(denied_groups__isnull=True) | ~models.Q(denied_groups__in=user.groups.all()))
+            | models.Q(allowed_users=user)
+            & (models.Q(denied_users__isnull=True) | ~models.Q(denied_users=user))
+            & (
+                models.Q(allowed_groups__isnull=True)
+                | models.Q(allowed_groups__in=user.groups.all())
+            )
+            & (
+                models.Q(denied_groups__isnull=True)
+                | ~models.Q(denied_groups__in=user.groups.all())
+            )
         )
         .first()
     )
@@ -154,7 +188,14 @@ def find_instance_for_requirement_and_hub(requirement: base_models.Requirement, 
 
 
 @transaction.atomic
-def auto_compose(client: models.Client, manifest: base_models.Manifest, user: models.AbstractUser, organization: models.Organization, device: models.Device | None = None, declined_requirements: list[str] | None = None) -> models.Client:
+def auto_compose(
+    client: models.Client,
+    manifest: base_models.Manifest,
+    user: models.AbstractUser,
+    organization: models.Organization,
+    device: models.Device | None = None,
+    declined_requirements: list[str] | None = None,
+) -> models.Client:
     requirements = manifest.requirements
 
     if not requirements:
@@ -175,7 +216,9 @@ def auto_compose(client: models.Client, manifest: base_models.Manifest, user: mo
             instance = find_instance_for_requirement_and_hub(req, user, hub=client.hub)
 
             if instance is None:
-                raise errors.InstanceNotFound(f"No instance for {req.service} in this hub.")
+                raise errors.InstanceNotFound(
+                    f"No instance for {req.service} in this hub."
+                )
 
             models.ServiceInstanceMapping.objects.update_or_create(
                 client=client,
@@ -189,7 +232,9 @@ def auto_compose(client: models.Client, manifest: base_models.Manifest, user: mo
             if req.optional:
                 statuses[req.key] = "unavailable"
             else:
-                raise Exception(f"Unable to find instance for requirement {req.service}") from e
+                raise Exception(
+                    f"Unable to find instance for requirement {req.service}"
+                ) from e
 
     client.requirements_hash = hash_requirements(requirements)
     client.statuses = statuses
@@ -205,7 +250,9 @@ def _jwks_url(request: HttpRequest) -> str:
     return issuer_absolute_uri(request, "jwks")
 
 
-def create_linking_context(request: HttpRequest, client: models.Client) -> base_models.LinkingContext:
+def create_linking_context(
+    request: HttpRequest, client: models.Client
+) -> base_models.LinkingContext:
     host_string = request.get_host().split(":")
     if len(host_string) == 2:
         host = host_string[0]
@@ -237,7 +284,11 @@ def create_linking_context(request: HttpRequest, client: models.Client) -> base_
     )
 
 
-def create_serverlinking_context(request: HttpRequest, hub: models.Hub, claim: base_models.ServerClaimRequest | None = None) -> base_models.ServerLinkingContext:
+def create_serverlinking_context(
+    request: HttpRequest,
+    hub: models.Hub,
+    claim: base_models.ServerClaimRequest | None = None,
+) -> base_models.ServerLinkingContext:
     host_string = request.get_host().split(":")
     if len(host_string) == 2:
         host = host_string[0]
@@ -259,7 +310,9 @@ def create_serverlinking_context(request: HttpRequest, hub: models.Hub, claim: b
     )
 
 
-def create_fake_linking_context(client: models.Client, host, port, secure=False) -> base_models.LinkingContext:
+def create_fake_linking_context(
+    client: models.Client, host, port, secure=False
+) -> base_models.LinkingContext:
     return base_models.LinkingContext(
         request=base_models.LinkingRequest(
             host=host,

@@ -21,5 +21,8 @@ class Command(BaseCommand):
             aliases = aliases.filter(instance__hub_id=options["hub"])
         results = probe_aliases(list(aliases))
         counts = Counter(result.status for result in results)
-        summary = ", ".join(f"{status}: {count}" for status, count in sorted(counts.items())) or "nothing to probe"
+        summary = (
+            ", ".join(f"{status}: {count}" for status, count in sorted(counts.items()))
+            or "nothing to probe"
+        )
         self.stdout.write(f"Probed {len(results)} alias(es) — {summary}")

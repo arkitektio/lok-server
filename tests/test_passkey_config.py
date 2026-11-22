@@ -120,7 +120,10 @@ def test_passkey_config_is_documented():
         ("mfa_webauthn_enabled", "ACCOUNT__MFA_WEBAUTHN_ENABLED"),
         ("mfa_passkey_login_enabled", "ACCOUNT__MFA_PASSKEY_LOGIN_ENABLED"),
         ("mfa_passkey_signup_enabled", "ACCOUNT__MFA_PASSKEY_SIGNUP_ENABLED"),
-        ("email_verification_by_code_enabled", "ACCOUNT__EMAIL_VERIFICATION_BY_CODE_ENABLED"),
+        (
+            "email_verification_by_code_enabled",
+            "ACCOUNT__EMAIL_VERIFICATION_BY_CODE_ENABLED",
+        ),
         ("mfa_webauthn_rp_id", "ACCOUNT__MFA_WEBAUTHN_RP_ID"),
         ("mfa_totp_issuer", "ACCOUNT__MFA_TOTP_ISSUER"),
     ]:

@@ -1,5 +1,6 @@
 from contextvars import ContextVar
 from functools import cached_property
+
 import boto3
 from django.conf import settings
 from strawberry.extensions import SchemaExtension
@@ -8,7 +9,6 @@ datalayer: ContextVar = ContextVar("datalayer", default=None)
 
 
 class Datalayer:
-
     @cached_property
     def s3(self) -> boto3.Session:
         """Get a boto3 session for S3 without s3v4 signature"""
@@ -54,7 +54,6 @@ def get_current_datalayer() -> Datalayer:
 
 
 class DatalayerExtension(SchemaExtension):
-
     def on_operation(self):
         t1 = datalayer.set(Datalayer())
 

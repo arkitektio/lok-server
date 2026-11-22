@@ -24,7 +24,9 @@ def _holds(membership: models.Membership) -> bool:
 
 
 def _flag(membership: models.Membership) -> bool:
-    return models.Membership.objects.values_list("is_admin", flat=True).get(pk=membership.pk)
+    return models.Membership.objects.values_list("is_admin", flat=True).get(
+        pk=membership.pk
+    )
 
 
 @pytest.fixture
@@ -33,7 +35,9 @@ def organization():
 
 
 def _role(organization: models.Organization, identifier: str) -> models.Role:
-    return models.Role.objects.get_or_create(organization=organization, identifier=identifier)[0]
+    return models.Role.objects.get_or_create(
+        organization=organization, identifier=identifier
+    )[0]
 
 
 @pytest.mark.django_db
@@ -62,7 +66,10 @@ def test_the_flag_follows_the_membership_side(organization):
 
 @pytest.mark.django_db
 def test_the_flag_follows_the_role_side(organization):
-    first, second = factories.make_membership(organization=organization), factories.make_membership(organization=organization)
+    first, second = (
+        factories.make_membership(organization=organization),
+        factories.make_membership(organization=organization),
+    )
     admin = _role(organization, ADMIN)
 
     admin.memberships.add(first, second)
@@ -114,14 +121,22 @@ def test_after_a_mix_of_changes_the_flag_is_the_join(organization):
 @pytest.mark.django_db
 def test_owner_or_admin_matches_on_one_membership_row(organization):
     admin_user, other = factories.make_user(), factories.make_user()
-    factories.make_membership(user=admin_user, organization=organization).roles.add(_role(organization, ADMIN))
+    factories.make_membership(user=admin_user, organization=organization).roles.add(
+        _role(organization, ADMIN)
+    )
     factories.make_membership(user=other, organization=organization)
     elsewhere = factories.make_organization()
     # `other` administers another organization: that must not make them admin here.
-    factories.make_membership(user=other, organization=elsewhere).roles.add(_role(elsewhere, ADMIN))
+    factories.make_membership(user=other, organization=elsewhere).roles.add(
+        _role(elsewhere, ADMIN)
+    )
 
     def visible(user):
-        return set(models.Organization.objects.filter(owner_or_admin_q(user, "memberships__organization")).distinct())
+        return set(
+            models.Organization.objects.filter(
+                owner_or_admin_q(user, "memberships__organization")
+            ).distinct()
+        )
 
     assert organization in visible(admin_user)
     assert organization in visible(organization.owner)
@@ -132,7 +147,9 @@ def test_owner_or_admin_matches_on_one_membership_row(organization):
 def test_syncadmins_repairs_a_flag_written_behind_its_back_and_runs_again(organization):
     member = factories.make_membership(organization=organization)
     member.roles.add(_role(organization, ADMIN))
-    models.Membership.objects.filter(pk=member.pk).update(is_admin=False)  # an older release, say
+    models.Membership.objects.filter(pk=member.pk).update(
+        is_admin=False
+    )  # an older release, say
 
     out = StringIO()
     call_command("syncadmins", stdout=out)
@@ -159,6 +176,8 @@ class _NothingVisible:
 @pytest.mark.django_db
 def test_a_scoped_lookup_is_held_to_the_types_policy(organization):
     with pytest.raises(GraphQLError):
-        get_scoped(_NothingVisible, models.Organization.objects.filter(pk=organization.pk), cast(Any, None))
-
-
+        get_scoped(
+            _NothingVisible,
+            models.Organization.objects.filter(pk=organization.pk),
+            cast(Any, None),
+        )

@@ -1,28 +1,31 @@
 import datetime
 
 import strawberry
-from django.db.models import QuerySet
-from django.db.models.expressions import OrderBy
-from strawberry import Info
-from karakter import models
-from typing import Optional
-from strawberry_django.filters import FilterLookup
 import strawberry_django
-from django.db.models import Q
 from allauth.socialaccount import models as smodels
+from django.db.models import Q, QuerySet
+from django.db.models.expressions import OrderBy
 from django.utils import timezone
+from strawberry import Info
+from strawberry_django.filters import FilterLookup
+
+from karakter import models
 from karakter.enums import MembershipRequestStatus
 
 
 @strawberry.input(description="One collaboration of a service instance.")
 class CollaborationRefInput:
-    instance: strawberry.ID = strawberry.field(description="The service instance the collaboration lives in.")
-    collaboration: strawberry.ID = strawberry.field(description="The collaboration's id in that service.")
+    instance: strawberry.ID = strawberry.field(
+        description="The service instance the collaboration lives in."
+    )
+    collaboration: strawberry.ID = strawberry.field(
+        description="The collaboration's id in that service."
+    )
 
 
 @strawberry_django.filter_type(models.User)
 class UserFilter:
-    username: Optional[FilterLookup[str]] | None
+    username: FilterLookup[str] | None | None
 
     @strawberry_django.filter_field
     def ids(self, value: list[strawberry.ID], prefix: str) -> Q:
@@ -37,7 +40,7 @@ class UserFilter:
 class GroupFilter:
     """A Filterset to Filter Groups"""
 
-    name: Optional[FilterLookup[str]] | None
+    name: FilterLookup[str] | None | None
 
     @strawberry_django.filter_field
     def ids(self, value: list[strawberry.ID], prefix: str) -> Q:
@@ -53,7 +56,7 @@ class RoleFilter:
     """A Filterset to Filter Roles"""
 
     # `Role` has no `name` column; its human-facing key is `identifier`.
-    identifier: Optional[FilterLookup[str]] | None
+    identifier: FilterLookup[str] | None | None
 
     @strawberry_django.filter_field
     def ids(self, value: list[strawberry.ID], prefix: str) -> Q:
@@ -81,7 +84,7 @@ class ComChannelFilter:
 class OrganizationFilter:
     """A Filterset to Filter Groups"""
 
-    name: Optional[FilterLookup[str]] | None
+    name: FilterLookup[str] | None | None
 
     @strawberry_django.filter_field
     def ids(self, value: list[strawberry.ID], prefix: str) -> Q:
@@ -106,19 +109,27 @@ class MembershipFilter:
     def search(self, value: str, prefix: str) -> Q:
         return Q(**{f"{prefix}user__username__icontains": value})
 
-    @strawberry_django.filter_field(description="Only the memberships holding this role.")
+    @strawberry_django.filter_field(
+        description="Only the memberships holding this role."
+    )
     def role(self, value: strawberry.ID, prefix: str) -> Q:
         return Q(**{f"{prefix}roles__id": value})
 
-    @strawberry_django.filter_field(description="Only the organization's admins (true) or only the others (false).")
+    @strawberry_django.filter_field(
+        description="Only the organization's admins (true) or only the others (false)."
+    )
     def is_admin(self, value: bool, prefix: str) -> Q:
         return Q(**{f"{prefix}is_admin": value})
 
-    @strawberry_django.filter_field(description="Only the memberships made at or after this time. A membership whose creation time is unknown (older than the record) never matches.")
+    @strawberry_django.filter_field(
+        description="Only the memberships made at or after this time. A membership whose creation time is unknown (older than the record) never matches."
+    )
     def created_after(self, value: datetime.datetime, prefix: str) -> Q:
         return Q(**{f"{prefix}created_at__gte": value})
 
-    @strawberry_django.filter_field(description="Only the memberships made before this time. A membership whose creation time is unknown never matches.")
+    @strawberry_django.filter_field(
+        description="Only the memberships made before this time. A membership whose creation time is unknown never matches."
+    )
     def created_before(self, value: datetime.datetime, prefix: str) -> Q:
         return Q(**{f"{prefix}created_at__lt": value})
 
@@ -131,11 +142,17 @@ class MembershipRequestFilter:
     def ids(self, value: list[strawberry.ID], prefix: str) -> Q:
         return Q(**{f"{prefix}id__in": value})
 
-    @strawberry_django.filter_field(description="Matches the requester's username or their reason.")
+    @strawberry_django.filter_field(
+        description="Matches the requester's username or their reason."
+    )
     def search(self, value: str, prefix: str) -> Q:
-        return Q(**{f"{prefix}user__username__icontains": value}) | Q(**{f"{prefix}reason__icontains": value})
+        return Q(**{f"{prefix}user__username__icontains": value}) | Q(
+            **{f"{prefix}reason__icontains": value}
+        )
 
-    @strawberry_django.filter_field(description="Only the requests in one of these states.")
+    @strawberry_django.filter_field(
+        description="Only the requests in one of these states."
+    )
     def status(self, value: list[MembershipRequestStatus], prefix: str) -> Q:
         return Q(**{f"{prefix}status__in": [v.value for v in value]})
 
@@ -181,7 +198,9 @@ class SystemMessageFilter:
 
     @strawberry_django.filter_field
     def search(self, value: str, prefix: str) -> Q:
-        return Q(**{f"{prefix}title__icontains": value}) | Q(**{f"{prefix}message__icontains": value})
+        return Q(**{f"{prefix}title__icontains": value}) | Q(
+            **{f"{prefix}message__icontains": value}
+        )
 
 
 @strawberry_django.filter_type(models.Invite)
@@ -198,21 +217,31 @@ class InviteFilter:
     def status(self, value: str, prefix: str) -> Q:
         return Q(**{f"{prefix}status": value})
 
-    @strawberry_django.filter_field(description="Only the invites granting this collaboration.")
+    @strawberry_django.filter_field(
+        description="Only the invites granting this collaboration."
+    )
     def collaboration(self, value: CollaborationRefInput, prefix: str) -> Q:
         # Entries are stored as `CollaborationRef.as_entry()`: string instance and
         # collaboration ids, plus the roles, which containment ignores.
-        entry = {"instance": str(value.instance), "collaboration": str(value.collaboration)}
+        entry = {
+            "instance": str(value.instance),
+            "collaboration": str(value.collaboration),
+        }
         return Q(**{f"{prefix}shared_collaborations__contains": [entry]})
 
-    @strawberry_django.filter_field(description="Only the links that grant collaborations (true), or only the invites to become a member (false).")
+    @strawberry_django.filter_field(
+        description="Only the links that grant collaborations (true), or only the invites to become a member (false)."
+    )
     def grants_collaborations(self, value: bool, prefix: str) -> Q:
         return Q(**{f"{prefix}shared_collaborations__isnull": not value})
 
-    @strawberry_django.filter_field(description="Only the invites that can still be accepted (true: pending and not expired), or only the others (false).")
+    @strawberry_django.filter_field(
+        description="Only the invites that can still be accepted (true: pending and not expired), or only the others (false)."
+    )
     def valid(self, value: bool, prefix: str) -> Q:
         live = Q(**{f"{prefix}status": models.Invite.Status.PENDING}) & (
-            Q(**{f"{prefix}expires_at__isnull": True}) | Q(**{f"{prefix}expires_at__gte": timezone.now()})
+            Q(**{f"{prefix}expires_at__isnull": True})
+            | Q(**{f"{prefix}expires_at__gte": timezone.now()})
         )
         return live if value else ~live
 
@@ -266,7 +295,13 @@ class MembershipOrdering:
     created_at: strawberry.auto
 
     @strawberry_django.order_field(description="By the member's username.")
-    def username(self, queryset: QuerySet, info: Info, value: strawberry_django.Ordering, prefix: str) -> tuple[QuerySet, list[OrderBy]]:
+    def username(
+        self,
+        queryset: QuerySet,
+        info: Info,
+        value: strawberry_django.Ordering,
+        prefix: str,
+    ) -> tuple[QuerySet, list[OrderBy]]:
         return queryset, [value.resolve(f"{prefix}user__username")]
 
 

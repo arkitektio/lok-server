@@ -1,18 +1,33 @@
+from typing import Literal
+
 from pydantic import BaseModel, Field, model_validator
-from typing import List, Optional, Literal
+
 from fakts import enums
-from fakts.base_models import HubManifest, StagingAlias, Role, Scope
+from fakts.base_models import HubManifest, Role, Scope, StagingAlias
 
 
 class LayerModel(BaseModel):
     """Model representing a layer in the system."""
 
     identifier: str
-    name: Optional[str] = None
-    kind: Literal["loopback", "lan", "tailscale", "vpn", "public", "docker", "kubernetes", "tor", "zerotier", "manual", "proxy", "web"]
-    logo: Optional[str] = None
-    description: Optional[str] = "No description available"
-    get_probe: Optional[str] = None
+    name: str | None = None
+    kind: Literal[
+        "loopback",
+        "lan",
+        "tailscale",
+        "vpn",
+        "public",
+        "docker",
+        "kubernetes",
+        "tor",
+        "zerotier",
+        "manual",
+        "proxy",
+        "web",
+    ]
+    logo: str | None = None
+    description: str | None = "No description available"
+    get_probe: str | None = None
 
 
 # Alias for backwards compatibility - use StagingAlias from base_models
@@ -30,35 +45,35 @@ ScopeConfig = Scope
 class ServiceInstanceModel(BaseModel):
     """Model representing a service instance. Belongs to a service and has multiple aliases."""
 
-    organization: Optional[str] = None
+    organization: str | None = None
     service: str
-    version: Optional[str] = "1.0.0"
+    version: str | None = "1.0.0"
     identifier: str
-    roles: List[Role] = Field(default_factory=list)
-    scopes: List[Scope] = Field(default_factory=list)
-    aliases: List[StagingAlias] = Field(default_factory=list)
+    roles: list[Role] = Field(default_factory=list)
+    scopes: list[Scope] = Field(default_factory=list)
+    aliases: list[StagingAlias] = Field(default_factory=list)
 
 
 class ClientInstanceModel(BaseModel):
-    organization: Optional[str] = None
+    organization: str | None = None
     client: str
-    version: Optional[str] = "1.0.0"
+    version: str | None = "1.0.0"
     identifier: str
 
 
 class HubsConfigModel(BaseModel):
-    instances: List[ServiceInstanceModel] = []
-    clients: List[ClientInstanceModel] = []
+    instances: list[ServiceInstanceModel] = []
+    clients: list[ClientInstanceModel] = []
     name: str
-    description: Optional[str] = None
+    description: str | None = None
     organization: str
-    identifier: Optional[str] = None  # Using identifier as slug
+    identifier: str | None = None  # Using identifier as slug
 
 
 class YamlConfigModel(BaseModel):
     """Model representing the YAML configuration."""
 
-    hubs: List[HubsConfigModel] = []
+    hubs: list[HubsConfigModel] = []
 
     @model_validator(mode="after")
     def validate_args(self):
@@ -70,8 +85,8 @@ class Oauth2ClientModel(BaseModel):
 
     client_id: str
     client_secret: str
-    redirect_uris: List[str] = []
-    scopes: List[str] = []
+    redirect_uris: list[str] = []
+    scopes: list[str] = []
 
 
 class FilterConfigModel(BaseModel):
@@ -81,38 +96,40 @@ class FilterConfigModel(BaseModel):
     ALL must be satisfied (AND logic).
     """
 
-    email_domain_equals: Optional[List[str]] = None
-    email_domain_ends_with: Optional[List[str]] = None
-    username_equals: Optional[List[str]] = None
-    username_contains: Optional[List[str]] = None
+    email_domain_equals: list[str] | None = None
+    email_domain_ends_with: list[str] | None = None
+    username_equals: list[str] | None = None
+    username_contains: list[str] | None = None
 
 
 class KommunityPartnerModel(BaseModel):
     """Model representing a Kommunity partner."""
 
     name: str
-    identifier: str = Field(..., description="Unique identifier for the partner within the system")
-    auth_url: Optional[str] = None
-    website_url: Optional[str] = None
-    description: Optional[str] = None
-    short_description: Optional[str] = None
-    logo_url: Optional[str] = None
-    image_url: Optional[str] = None
-    license_agreement: Optional[str] = None
-    pre_authorize_hook: Optional[str] = None
-    pre_authorize_token: Optional[str] = None
-    oauth2: Optional[Oauth2ClientModel] = None
+    identifier: str = Field(
+        ..., description="Unique identifier for the partner within the system"
+    )
+    auth_url: str | None = None
+    website_url: str | None = None
+    description: str | None = None
+    short_description: str | None = None
+    logo_url: str | None = None
+    image_url: str | None = None
+    license_agreement: str | None = None
+    pre_authorize_hook: str | None = None
+    pre_authorize_token: str | None = None
+    oauth2: Oauth2ClientModel | None = None
     partner_kind: enums.PartnerKind = enums.PartnerKind.PREAUTHORIZED
     kommunity_kind: enums.KommunityKind = enums.KommunityKind.OPEN
     auto_configure: bool = False
-    preconfigured_hub: Optional[HubManifest] = None
-    filter_config: Optional[FilterConfigModel] = None
+    preconfigured_hub: HubManifest | None = None
+    filter_config: FilterConfigModel | None = None
 
 
 class KommunityPartnerConfigModel(BaseModel):
     """Model representing the Kommunity YAML configuration."""
 
-    partners: List[KommunityPartnerModel] = []
+    partners: list[KommunityPartnerModel] = []
 
     @model_validator(mode="after")
     def validate_args(self):

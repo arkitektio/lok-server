@@ -1,12 +1,12 @@
 import logging
 
 import strawberry
+from graphql import GraphQLError
 from kante.types import Info
 
-from karakter import models
 from api.management import types
-from graphql import GraphQLError
 from api.management.authz import get_or_denied, is_owner_or_admin
+from karakter import models
 
 logger = logging.getLogger(__name__)
 
@@ -55,25 +55,37 @@ class ResolveRoleRequestInput:
     id: strawberry.ID
 
 
-def approve_role_request(info: Info, input: ResolveRoleRequestInput) -> types.ManagementRoleRequest:
+def approve_role_request(
+    info: Info, input: ResolveRoleRequestInput
+) -> types.ManagementRoleRequest:
     """Approve a pending role request. Only the organization's owner or admins
     may do this.
 
     Approval adds the requested role to the member's membership.
     """
     role_request = get_or_denied(models.RoleRequest.objects, pk=input.id)
-    if not is_owner_or_admin(info.context.request.user, role_request.membership.organization):
-        raise GraphQLError("You must own or administer the organization to approve role requests.")
+    if not is_owner_or_admin(
+        info.context.request.user, role_request.membership.organization
+    ):
+        raise GraphQLError(
+            "You must own or administer the organization to approve role requests."
+        )
     role_request.approve(info.context.request.user)
     return role_request
 
 
-def decline_role_request(info: Info, input: ResolveRoleRequestInput) -> types.ManagementRoleRequest:
+def decline_role_request(
+    info: Info, input: ResolveRoleRequestInput
+) -> types.ManagementRoleRequest:
     """Decline a pending role request. Only the organization's owner or admins
     may do this."""
     role_request = get_or_denied(models.RoleRequest.objects, pk=input.id)
-    if not is_owner_or_admin(info.context.request.user, role_request.membership.organization):
-        raise GraphQLError("You must own or administer the organization to decline role requests.")
+    if not is_owner_or_admin(
+        info.context.request.user, role_request.membership.organization
+    ):
+        raise GraphQLError(
+            "You must own or administer the organization to decline role requests."
+        )
     role_request.decline(info.context.request.user)
     return role_request
 

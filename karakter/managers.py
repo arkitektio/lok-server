@@ -2,7 +2,7 @@ import logging
 
 from django.db import IntegrityError, transaction
 
-from .models import Organization, Role, Membership, User, Scope
+from .models import Membership, Organization, Role, Scope, User
 from .roles import ADMIN
 from .scopes import LOK_SCOPES
 
@@ -13,7 +13,9 @@ def create_role(organization: Organization, identifier: str):
     """
     Create a role for the organization with the given identifier.
     """
-    role, _ = Role.objects.update_or_create(identifier=identifier, organization=organization)
+    role, _ = Role.objects.update_or_create(
+        identifier=identifier, organization=organization
+    )
     return role
 
 
@@ -21,7 +23,9 @@ def create_scope(organization: Organization, identifier: str):
     """
     Create a role for the organization with the given identifier.
     """
-    role, _ = Scope.objects.update_or_create(identifier=identifier, organization=organization)
+    role, _ = Scope.objects.update_or_create(
+        identifier=identifier, organization=organization
+    )
     return role
 
 
@@ -44,7 +48,11 @@ def create_default_scopes_for_org(org: Organization):
         Scope.objects.update_or_create(
             identifier=scope.key,
             organization=org,
-            defaults={"description": scope.description, "is_all_scope": scope.is_all_scope, "is_builtin": True},
+            defaults={
+                "description": scope.description,
+                "is_all_scope": scope.is_all_scope,
+                "is_builtin": True,
+            },
         )
 
 
@@ -106,7 +114,11 @@ def create_user_default_organization(user: User):
     base_slug = f"{handle}-org"
 
     for _ in range(5):
-        slug = base_slug if not slugs.is_slug_taken(base_slug) else slugs.suggest_slug(base_slug)
+        slug = (
+            base_slug
+            if not slugs.is_slug_taken(base_slug)
+            else slugs.suggest_slug(base_slug)
+        )
         try:
             with transaction.atomic():
                 org = Organization.objects.create(
@@ -119,7 +131,8 @@ def create_user_default_organization(user: User):
         break
     else:
         logger.error(
-            "Could not allocate a default organization slug for user %s; skipping.", user.pk
+            "Could not allocate a default organization slug for user %s; skipping.",
+            user.pk,
         )
         return None
 

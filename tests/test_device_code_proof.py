@@ -31,16 +31,22 @@ ACCEPT = "mutation ($input: AcceptDeviceCodeInput!) { acceptDeviceCode(input: $i
 def _member_context():
     membership = factories.make_membership()
     return membership, build_auth_context(
-        membership.user, membership.organization, factories.make_client(membership=membership)
+        membership.user,
+        membership.organization,
+        factories.make_client(membership=membership),
     )
 
 
 async def _decline(context, query=DECLINE, **input):
-    return await management_schema.execute(query, context_value=context, variable_values={"input": input})
+    return await management_schema.execute(
+        query, context_value=context, variable_values={"input": input}
+    )
 
 
 async def _denied_flag(device_code):
-    return await sync_to_async(lambda: fakts_models.DeviceCode.objects.get(pk=device_code.pk).denied)()
+    return await sync_to_async(
+        lambda: fakts_models.DeviceCode.objects.get(pk=device_code.pk).denied
+    )()
 
 
 @pytest.mark.django_db(transaction=True)
@@ -49,7 +55,9 @@ async def test_holder_of_the_code_can_decline():
     _membership, context = await sync_to_async(_member_context)()
     device_code = await sync_to_async(factories.make_device_code)()
 
-    result = await _decline(context, deviceCode=str(device_code.id), code=device_code.code)
+    result = await _decline(
+        context, deviceCode=str(device_code.id), code=device_code.code
+    )
 
     assert not result.errors, result.errors
     assert result.data["declineDeviceCode"]["denied"] is True
@@ -91,15 +99,21 @@ async def test_hub_decline_does_not_reach_an_app_code_and_vice_versa():
     app_code = await sync_to_async(factories.make_device_code)()
     hub_code = await sync_to_async(_staged_hub_code)("proof-hub")
 
-    crossed_hub = await _decline(context, DECLINE_HUB, deviceCode=str(app_code.id), code=app_code.code)
-    crossed_app = await _decline(context, DECLINE, deviceCode=str(hub_code.id), code=hub_code.code)
+    crossed_hub = await _decline(
+        context, DECLINE_HUB, deviceCode=str(app_code.id), code=app_code.code
+    )
+    crossed_app = await _decline(
+        context, DECLINE, deviceCode=str(hub_code.id), code=hub_code.code
+    )
 
     assert crossed_hub.errors and crossed_hub.errors[0].message == DENIED
     assert crossed_app.errors and crossed_app.errors[0].message == DENIED
     assert await _denied_flag(app_code) is False
     assert await _denied_flag(hub_code) is False
 
-    straight = await _decline(context, DECLINE_HUB, deviceCode=str(hub_code.id), code=hub_code.code)
+    straight = await _decline(
+        context, DECLINE_HUB, deviceCode=str(hub_code.id), code=hub_code.code
+    )
     assert not straight.errors, straight.errors
     assert await _denied_flag(hub_code) is True
 
@@ -108,7 +122,13 @@ async def _accept(context, device_code, hub):
     return await management_schema.execute(
         ACCEPT,
         context_value=context,
-        variable_values={"input": {"deviceCode": str(device_code.id), "code": device_code.code, "hub": str(hub.id)}},
+        variable_values={
+            "input": {
+                "deviceCode": str(device_code.id),
+                "code": device_code.code,
+                "hub": str(hub.id),
+            }
+        },
     )
 
 
@@ -117,7 +137,9 @@ async def _accept(context, device_code, hub):
 async def test_accepting_an_expired_code_is_refused():
     membership, context = await sync_to_async(_member_context)()
     hub = await sync_to_async(factories.make_hub)(organization=membership.organization)
-    device_code = await sync_to_async(factories.make_device_code)(expires_at=timezone.now() - timedelta(seconds=1))
+    device_code = await sync_to_async(factories.make_device_code)(
+        expires_at=timezone.now() - timedelta(seconds=1)
+    )
 
     result = await _accept(context, device_code, hub)
 
@@ -148,10 +170,18 @@ async def test_accept_requires_the_code_and_membership_in_the_hubs_organization(
     foreign = await _accept(context, device_code, their_hub)
     assert foreign.errors and foreign.errors[0].message == DENIED
 
-    my_hub = await sync_to_async(factories.make_hub)(organization=membership.organization)
+    my_hub = await sync_to_async(factories.make_hub)(
+        organization=membership.organization
+    )
     wrong_code = await management_schema.execute(
         ACCEPT,
         context_value=context,
-        variable_values={"input": {"deviceCode": str(device_code.id), "code": "nope", "hub": str(my_hub.id)}},
+        variable_values={
+            "input": {
+                "deviceCode": str(device_code.id),
+                "code": "nope",
+                "hub": str(my_hub.id),
+            }
+        },
     )
     assert wrong_code.errors and wrong_code.errors[0].message == DENIED

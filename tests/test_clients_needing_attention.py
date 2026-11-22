@@ -21,7 +21,9 @@ CLIENTS = """
 
 def _setup():
     organization = factories.make_organization()
-    owner = factories.make_membership(user=organization.owner, organization=organization)
+    owner = factories.make_membership(
+        user=organization.owner, organization=organization
+    )
     hub = factories.make_hub(organization=organization)
     instance = factories.make_service_instance(hub=hub)
 
@@ -30,7 +32,9 @@ def _setup():
         c.functional = functional
         c.save(update_fields=["functional"])
         for key in mapped:
-            models.ServiceInstanceMapping.objects.create(client=c, instance=instance, key=key)
+            models.ServiceInstanceMapping.objects.create(
+                client=c, instance=instance, key=key
+            )
         for key, valid in reports.items():
             models.UsedAlias.objects.create(client=c, key=key, valid=valid)
         return c
@@ -45,12 +49,16 @@ def _setup():
         "healthy": client(True, ["mikro"], {"mikro": True}),
         "silent": client(True, ["mikro"], {}),
     }
-    context = build_auth_context(organization.owner, organization, factories.make_client(membership=owner))
+    context = build_auth_context(
+        organization.owner, organization, factories.make_client(membership=owner)
+    )
     return organization, clients, context
 
 
 async def _ids(context, filters):
-    result = await management_schema.execute(CLIENTS, variable_values={"filters": filters}, context_value=context)
+    result = await management_schema.execute(
+        CLIENTS, variable_values={"filters": filters}, context_value=context
+    )
     assert not result.errors, result.errors
     return {row["id"] for row in result.data["clients"]}
 
@@ -65,7 +73,9 @@ async def test_only_a_granted_and_unreachable_service_needs_attention():
     assert needing == {str(clients["unreachable"].id)}
 
     fine = await _ids(context, {**scope, "needsAttention": False})
-    assert {str(clients[k].id) for k in ("ungranted", "mixed", "healthy", "silent")} <= fine
+    assert {
+        str(clients[k].id) for k in ("ungranted", "mixed", "healthy", "silent")
+    } <= fine
     assert str(clients["unreachable"].id) not in fine
 
     # The old signal was broader: every client that calls itself non-functional.
@@ -77,11 +87,17 @@ async def test_only_a_granted_and_unreachable_service_needs_attention():
 @pytest.mark.asyncio
 async def test_a_triaged_client_leaves_the_action_list():
     organization, clients, context = await sync_to_async(_setup)()
-    filters = {"organization": str(organization.id), "needsAttention": True, "latestReportResolved": False}
+    filters = {
+        "organization": str(organization.id),
+        "needsAttention": True,
+        "latestReportResolved": False,
+    }
 
     assert await _ids(context, filters) == {str(clients["unreachable"].id)}
 
     await sync_to_async(
-        lambda: models.Client.objects.filter(pk=clients["unreachable"].pk).update(latest_report_resolved=True)
+        lambda: models.Client.objects.filter(pk=clients["unreachable"].pk).update(
+            latest_report_resolved=True
+        )
     )()
     assert await _ids(context, filters) == set()

@@ -1,15 +1,13 @@
 from typing import cast
 
 from asgiref.sync import sync_to_async
-
 from authentikate import errors as authentikate_errors
-from authentikate.strawberry.extension import AuthentikateExtension, UserModel, JWTToken
+from authentikate.strawberry.extension import AuthentikateExtension, JWTToken, UserModel
 from django.conf import settings
 from django.core.exceptions import ValidationError
 
-from karakter.models import User, Organization, Membership
 from fakts.models import Client
-
+from karakter.models import Membership, Organization, User
 
 # The audience every token addressed to *this* service carries. `get_audiences`
 # in authapp/token_generators.py mints ["lok", *services] for a fakts client and
@@ -41,9 +39,7 @@ def assert_addressed_to_lok(token: JWTToken) -> None:
 
     audiences = token.aud or []
     if LOK_AUDIENCE not in audiences:
-        raise authentikate_errors.InvalidJwtTokenError(
-            "Token is not addressed to lok"
-        )
+        raise authentikate_errors.InvalidJwtTokenError("Token is not addressed to lok")
 
 
 def read_org_claim(token: JWTToken) -> str:
@@ -85,7 +81,9 @@ class AuthAppExtension(AuthentikateExtension):
     """This is the extension class for directly authenticating users and
     clients from the token or header. It sets the user and client in the"""
 
-    async def aexpand_token_context(self, token: JWTToken) -> tuple[User, Client, Organization, Membership]:
+    async def aexpand_token_context(
+        self, token: JWTToken
+    ) -> tuple[User, Client, Organization, Membership]:
         """Expand the full auth context for a token using this project's models.
 
         authentikate (v2) drives ``on_operation`` through this single method
@@ -100,8 +98,12 @@ class AuthAppExtension(AuthentikateExtension):
             # A deactivated account's access tokens stop at once rather than when
             # they expire (authapp.token_generators refuses to mint new ones). A
             # hub's identity is the organization's and is exempt, as there.
-            raise authentikate_errors.InvalidJwtTokenError("This account has been deactivated")
-        membership = await self.aexpand_membership_from_user_and_organization(user, organization, token)
+            raise authentikate_errors.InvalidJwtTokenError(
+                "This account has been deactivated"
+            )
+        membership = await self.aexpand_membership_from_user_and_organization(
+            user, organization, token
+        )
         return (cast(User, user), client, organization, membership)
 
     async def aexpand_user_from_token(self, token: JWTToken) -> "UserModel":
@@ -114,7 +116,9 @@ class AuthAppExtension(AuthentikateExtension):
 
         # The claim is the client's identity for the release it runs
         # (fakts.ClientIdentity), not always its own client_id.
-        return cast("Client", await sync_to_async(Client.for_token_client_id)(token.client_id))
+        return cast(
+            "Client", await sync_to_async(Client.for_token_client_id)(token.client_id)
+        )
 
     async def aexpand_organization_from_token(self, token: JWTToken) -> "Organization":
         """Expand an organization from the provided JWT token.
@@ -132,7 +136,9 @@ class AuthAppExtension(AuthentikateExtension):
                 "Token names an organization that does not exist"
             ) from exc
 
-    async def aexpand_membership_from_user_and_organization(self, user: "UserModel", organization: "Organization", token: JWTToken) -> "Membership":
+    async def aexpand_membership_from_user_and_organization(
+        self, user: "UserModel", organization: "Organization", token: JWTToken
+    ) -> "Membership":
         """Expand membership from user and organization"""
         membership = await user.memberships.aget(organization=organization)
         return membership

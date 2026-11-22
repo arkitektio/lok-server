@@ -44,12 +44,20 @@ MEMBER_OF = """
 def quiet_notifications(monkeypatch):
     """No pushes from tests; record who would have been told instead."""
     sent = []
-    monkeypatch.setattr(module, "_notify", lambda recipients, title, message: sent.append((list(recipients), title)))
+    monkeypatch.setattr(
+        module,
+        "_notify",
+        lambda recipients, title, message: sent.append((list(recipients), title)),
+    )
     return sent
 
 
 def _context(membership):
-    return build_auth_context(membership.user, membership.organization, factories.make_client(membership=membership))
+    return build_auth_context(
+        membership.user,
+        membership.organization,
+        factories.make_client(membership=membership),
+    )
 
 
 def _setup():
@@ -75,7 +83,11 @@ def _setup():
 
 async def _ask(context, organization_id, reason=None):
     return await schema.execute(
-        REQUEST, context_value=context, variable_values={"input": {"organization": str(organization_id), "reason": reason}}
+        REQUEST,
+        context_value=context,
+        variable_values={
+            "input": {"organization": str(organization_id), "reason": reason}
+        },
     )
 
 
@@ -85,7 +97,9 @@ def _rows(**lookup):
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_request_is_stored_and_approval_creates_the_membership(quiet_notifications):
+async def test_request_is_stored_and_approval_creates_the_membership(
+    quiet_notifications,
+):
     s = await sync_to_async(_setup)()
 
     result = await _ask(s["outsider_context"], s["target"].id, "I was sent a link")
@@ -93,26 +107,44 @@ async def test_request_is_stored_and_approval_creates_the_membership(quiet_notif
     assert result.data == {"requestMembership": True}
 
     rows = await sync_to_async(_rows)(organization=s["target"])
-    assert [(r.user_id, r.status, r.reason) for r in rows] == [(s["outsider"].user_id, "pending", "I was sent a link")]
+    assert [(r.user_id, r.status, r.reason) for r in rows] == [
+        (s["outsider"].user_id, "pending", "I was sent a link")
+    ]
     # The owner and the admin are told, the plain member is not.
     assert len(quiet_notifications) == 1 and len(quiet_notifications[0][0]) == 2
 
-    listed = await schema.execute(REQUESTS, context_value=s["admin_context"], variable_values={"id": str(s["target"].id)})
+    listed = await schema.execute(
+        REQUESTS,
+        context_value=s["admin_context"],
+        variable_values={"id": str(s["target"].id)},
+    )
     assert not listed.errors, listed.errors
-    assert [r["id"] for r in listed.data["organization"]["membershipRequests"]] == [str(rows[0].id)]
+    assert [r["id"] for r in listed.data["organization"]["membershipRequests"]] == [
+        str(rows[0].id)
+    ]
 
     approved = await schema.execute(
-        APPROVE, context_value=s["admin_context"], variable_values={"input": {"id": str(rows[0].id)}}
+        APPROVE,
+        context_value=s["admin_context"],
+        variable_values={"input": {"id": str(rows[0].id)}},
     )
     assert not approved.errors, approved.errors
-    assert approved.data["approveMembershipRequest"]["user"]["id"] == str(s["outsider"].user_id)
-    assert [r["identifier"] for r in approved.data["approveMembershipRequest"]["roles"]] == ["guest"]
+    assert approved.data["approveMembershipRequest"]["user"]["id"] == str(
+        s["outsider"].user_id
+    )
+    assert [
+        r["identifier"] for r in approved.data["approveMembershipRequest"]["roles"]
+    ] == ["guest"]
 
-    fresh = await sync_to_async(lambda: models.MembershipRequest.objects.get(pk=rows[0].pk))()
+    fresh = await sync_to_async(
+        lambda: models.MembershipRequest.objects.get(pk=rows[0].pk)
+    )()
     assert fresh.status == "approved" and fresh.created_membership_id is not None
 
     asked = await schema.execute(
-        MEMBER_OF, context_value=s["outsider_context"], variable_values={"organization": str(s["target"].id)}
+        MEMBER_OF,
+        context_value=s["outsider_context"],
+        variable_values={"organization": str(s["target"].id)},
     )
     assert asked.data["mycontext"]["memberOf"] is True
 
@@ -130,7 +162,9 @@ async def test_approval_assigns_the_named_roles():
         variable_values={"input": {"id": str(row.id), "roles": ["admin", "notarole"]}},
     )
     assert not approved.errors, approved.errors
-    assert [r["identifier"] for r in approved.data["approveMembershipRequest"]["roles"]] == ["admin"]
+    assert [
+        r["identifier"] for r in approved.data["approveMembershipRequest"]["roles"]
+    ] == ["admin"]
 
 
 @pytest.mark.django_db(transaction=True)
@@ -152,7 +186,9 @@ async def test_every_request_answers_the_same():
         assert answer.data == {"requestMembership": True}
 
     rows = await sync_to_async(_rows)()
-    assert [(r.user_id, r.organization_id) for r in rows] == [(s["outsider"].user_id, s["target"].id)]
+    assert [(r.user_id, r.organization_id) for r in rows] == [
+        (s["outsider"].user_id, s["target"].id)
+    ]
 
 
 @pytest.mark.django_db(transaction=True)
@@ -162,7 +198,11 @@ async def test_a_declined_request_is_not_repeated_right_away(quiet_notifications
     await _ask(s["outsider_context"], s["target"].id)
     row = (await sync_to_async(_rows)(organization=s["target"]))[0]
 
-    declined = await schema.execute(DECLINE, context_value=s["admin_context"], variable_values={"input": {"id": str(row.id)}})
+    declined = await schema.execute(
+        DECLINE,
+        context_value=s["admin_context"],
+        variable_values={"input": {"id": str(row.id)}},
+    )
     assert not declined.errors, declined.errors
     assert declined.data["declineMembershipRequest"]["status"] == "declined"
 
@@ -172,7 +212,11 @@ async def test_a_declined_request_is_not_repeated_right_away(quiet_notifications
     assert len(quiet_notifications) == 1
 
     # Answering twice is refused.
-    twice = await schema.execute(APPROVE, context_value=s["admin_context"], variable_values={"input": {"id": str(row.id)}})
+    twice = await schema.execute(
+        APPROVE,
+        context_value=s["admin_context"],
+        variable_values={"input": {"id": str(row.id)}},
+    )
     assert twice.errors and "already been declined" in twice.errors[0].message
 
 
@@ -184,16 +228,26 @@ async def test_only_owner_and_admins_see_and_answer_requests():
     row = (await sync_to_async(_rows)(organization=s["target"]))[0]
 
     # A plain member of the organization sees none and may not answer.
-    listed = await schema.execute(REQUESTS, context_value=s["member_context"], variable_values={"id": str(s["target"].id)})
+    listed = await schema.execute(
+        REQUESTS,
+        context_value=s["member_context"],
+        variable_values={"id": str(s["target"].id)},
+    )
     assert not listed.errors, listed.errors
     assert listed.data["organization"]["membershipRequests"] == []
 
     for context in (s["member_context"], s["outsider_context"]):
         for document in (APPROVE, DECLINE):
-            result = await schema.execute(document, context_value=context, variable_values={"input": {"id": str(row.id)}})
+            result = await schema.execute(
+                document,
+                context_value=context,
+                variable_values={"input": {"id": str(row.id)}},
+            )
             assert result.errors and "not authorized" in result.errors[0].message
 
-    fresh = await sync_to_async(lambda: models.MembershipRequest.objects.get(pk=row.pk))()
+    fresh = await sync_to_async(
+        lambda: models.MembershipRequest.objects.get(pk=row.pk)
+    )()
     assert fresh.status == "pending"
 
 
@@ -204,7 +258,9 @@ async def test_member_of_says_nothing_about_other_organizations():
 
     async def member_of(organization):
         result = await schema.execute(
-            MEMBER_OF, context_value=s["outsider_context"], variable_values={"organization": str(organization)}
+            MEMBER_OF,
+            context_value=s["outsider_context"],
+            variable_values={"organization": str(organization)},
         )
         assert not result.errors, result.errors
         return result.data["mycontext"]["memberOf"]

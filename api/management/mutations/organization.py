@@ -1,15 +1,20 @@
-from kante.types import Info
-import strawberry
-from api.management import types
-from karakter import models, managers
-from karakter import slugs
-from karakter import deeplinks
 import logging
+
+import strawberry
 from django.db import IntegrityError
+from graphql import GraphQLError
+from kante.types import Info
+
+from api.management import types
+from api.management.authz import (
+    HUB_ADMIN_REQUIRED,
+    get_or_denied,
+    is_owner,
+    is_owner_or_admin,
+)
 from fakts import models as fakts_models
 from fakts.logic import create_hub_from_partner
-from graphql import GraphQLError
-from api.management.authz import HUB_ADMIN_REQUIRED, get_or_denied, is_owner, is_owner_or_admin
+from karakter import deeplinks, managers, models, slugs
 from karakter.authz import resolve_own_media_store
 
 logger = logging.getLogger(__name__)
@@ -17,10 +22,18 @@ logger = logging.getLogger(__name__)
 
 @strawberry.input(description="An app this organization's deep links may open.")
 class DeeplinkAppInput:
-    protocol: str = strawberry.field(description="The app's URL scheme, e.g. 'orkestrator'.")
-    name: str | None = strawberry.field(default=None, description="Display name. Defaults to the capitalised protocol.")
-    install_url: str | None = strawberry.field(default=None, description="An https page where the app can be installed.")
-    mobile: bool = strawberry.field(default=False, description="Whether the app also exists on phones and tablets.")
+    protocol: str = strawberry.field(
+        description="The app's URL scheme, e.g. 'orkestrator'."
+    )
+    name: str | None = strawberry.field(
+        default=None, description="Display name. Defaults to the capitalised protocol."
+    )
+    install_url: str | None = strawberry.field(
+        default=None, description="An https page where the app can be installed."
+    )
+    mobile: bool = strawberry.field(
+        default=False, description="Whether the app also exists on phones and tablets."
+    )
 
 
 @strawberry.input
@@ -39,7 +52,9 @@ class UpdateOrganizationInput:
     sync_mine: bool = False
 
 
-def update_organization(info: Info, input: UpdateOrganizationInput) -> types.ManagementOrganization:
+def update_organization(
+    info: Info, input: UpdateOrganizationInput
+) -> types.ManagementOrganization:
     """Update an organization's details including name, description, slug, and avatar.
 
     Only the organization owner may change these org-wide settings (including the
@@ -68,7 +83,9 @@ def update_organization(info: Info, input: UpdateOrganizationInput) -> types.Man
     if input.avatar is not None:
         # The logo lives on OrganizationProfile (what kontrol reads and writes);
         # Organization.avatar is a deprecated fallback column.
-        profile, _ = models.OrganizationProfile.objects.get_or_create(organization=organization)
+        profile, _ = models.OrganizationProfile.objects.get_or_create(
+            organization=organization
+        )
         profile.avatar = resolve_own_media_store(info, input.avatar, models.MediaStore)
         profile.save(update_fields=["avatar"])
 
@@ -90,7 +107,11 @@ def update_organization(info: Info, input: UpdateOrganizationInput) -> types.Man
         # Rejected here as well as clamped at issue time (authapp.server
         # .access_token_expires_in): an admin who types 0 or a year should be told
         # so, not silently given something else.
-        if not (server.MIN_ACCESS_TOKEN_EXPIRES_IN <= input.access_token_lifetime <= server.MAX_ACCESS_TOKEN_EXPIRES_IN):
+        if not (
+            server.MIN_ACCESS_TOKEN_EXPIRES_IN
+            <= input.access_token_lifetime
+            <= server.MAX_ACCESS_TOKEN_EXPIRES_IN
+        ):
             raise GraphQLError(
                 f"The access token lifetime must be between {server.MIN_ACCESS_TOKEN_EXPIRES_IN} and "
                 f"{server.MAX_ACCESS_TOKEN_EXPIRES_IN} seconds."
@@ -116,7 +137,9 @@ def update_organization(info: Info, input: UpdateOrganizationInput) -> types.Man
     # sync_mine: also copy the new default hue onto the owner's own membership, so
     # the owner's personal colour matches the org default they just set. Snapshots
     # the value (does not make the membership permanently follow the default).
-    if input.sync_mine and (input.brand_hue is not None or input.brand_chroma is not None):
+    if input.sync_mine and (
+        input.brand_hue is not None or input.brand_chroma is not None
+    ):
         membership, _ = models.Membership.objects.get_or_create(
             user=info.context.request.user, organization=organization
         )
@@ -129,7 +152,9 @@ def update_organization(info: Info, input: UpdateOrganizationInput) -> types.Man
             synced.append("brand_chroma")
         membership.save(update_fields=synced)
 
-    logger.info(f"Updated Organization: {organization.id} with name: {organization.name}")
+    logger.info(
+        f"Updated Organization: {organization.id} with name: {organization.name}"
+    )
     return organization
 
 
@@ -142,7 +167,9 @@ class CreateOrganizationInput:
     slug: str | None = None
 
 
-def create_organization(info: Info, input: CreateOrganizationInput) -> types.ManagementOrganization:
+def create_organization(
+    info: Info, input: CreateOrganizationInput
+) -> types.ManagementOrganization:
     """Create a new organization with the given name, slug, and description.
 
     When no slug is supplied it is derived cleanly from the name (lowercased,
@@ -150,7 +177,11 @@ def create_organization(info: Info, input: CreateOrganizationInput) -> types.Man
     unique; a taken slug is rejected with a suggested alternative.
     """
     # Prefer an explicit (user-chosen) slug, otherwise derive one from the name.
-    candidate = slugs.normalize_slug(input.slug) if input.slug else slugs.slugify_name(input.name)
+    candidate = (
+        slugs.normalize_slug(input.slug)
+        if input.slug
+        else slugs.slugify_name(input.name)
+    )
     slugs.validate_slug(candidate)
     if slugs.is_slug_taken(candidate):
         raise GraphQLError(
@@ -171,7 +202,9 @@ def create_organization(info: Info, input: CreateOrganizationInput) -> types.Man
         raise GraphQLError(
             f"The handle '{candidate}' is already taken. Try '{slugs.suggest_slug(candidate)}'."
         )
-    logger.info(f"Created Organization: {organization.id} with name: {organization.name}")
+    logger.info(
+        f"Created Organization: {organization.id} with name: {organization.name}"
+    )
     managers.create_default_roles_for_org(organization)
     managers.add_user_roles(
         user=info.context.request.user,
@@ -196,11 +229,17 @@ def create_organization(info: Info, input: CreateOrganizationInput) -> types.Man
 class ChangeOrganizationOwnerInput:
     """Input for transferring ownership of an organization."""
 
-    organization: strawberry.ID = strawberry.field(description="The organization to transfer.")
-    new_owner: strawberry.ID = strawberry.field(description="The user who becomes the new owner. Must already be a member.")
+    organization: strawberry.ID = strawberry.field(
+        description="The organization to transfer."
+    )
+    new_owner: strawberry.ID = strawberry.field(
+        description="The user who becomes the new owner. Must already be a member."
+    )
 
 
-def change_organization_owner(info: Info, input: ChangeOrganizationOwnerInput) -> types.ManagementOrganization:
+def change_organization_owner(
+    info: Info, input: ChangeOrganizationOwnerInput
+) -> types.ManagementOrganization:
     """Transfer ownership of an organization to another member.
 
     Only the current owner may do this, and the new owner must already belong to
@@ -208,19 +247,25 @@ def change_organization_owner(info: Info, input: ChangeOrganizationOwnerInput) -
     """
     organization = get_or_denied(models.Organization.objects, id=input.organization)
     if not is_owner(info.context.request.user, organization):
-        raise GraphQLError("Only the current owner can transfer ownership of the organization.")
+        raise GraphQLError(
+            "Only the current owner can transfer ownership of the organization."
+        )
 
     try:
         new_owner = models.User.objects.get(id=input.new_owner)
     except (models.User.DoesNotExist, ValueError, TypeError):
         raise GraphQLError("The new owner must be a member of the organization.")
-    if not organization.memberships.filter(user=new_owner, collaboration_grants__isnull=True).exists():
+    if not organization.memberships.filter(
+        user=new_owner, collaboration_grants__isnull=True
+    ).exists():
         raise GraphQLError("The new owner must be a member of the organization.")
 
     organization.owner = new_owner
     organization.save()
 
-    logger.info(f"Changed owner of Organization: {organization.id} to User: {new_owner.id}")
+    logger.info(
+        f"Changed owner of Organization: {organization.id} to User: {new_owner.id}"
+    )
     return organization
 
 
@@ -246,7 +291,9 @@ class ConnectKommunityPartnerInput:
     license_signature: str | None = None
 
 
-def connect_kommunity_partner(info: Info, input: ConnectKommunityPartnerInput) -> types.ManagementHub:
+def connect_kommunity_partner(
+    info: Info, input: ConnectKommunityPartnerInput
+) -> types.ManagementHub:
     """Attach a preauthorized kommunity partner hub to an organization."""
     organization = get_or_denied(models.Organization.objects, pk=input.organization_id)
     partner = get_or_denied(fakts_models.KommunityPartner.objects, pk=input.partner_id)
@@ -258,13 +305,19 @@ def connect_kommunity_partner(info: Info, input: ConnectKommunityPartnerInput) -
         raise GraphQLError(HUB_ADMIN_REQUIRED)
     if partner.partner_kind != "preauthorized":
         raise GraphQLError("Only preauthorized partners can be connected directly.")
-    if partner.license_agreement and not (input.license_signature and input.license_signature.strip()):
-        raise GraphQLError("You must sign the partner license agreement before continuing.")
+    if partner.license_agreement and not (
+        input.license_signature and input.license_signature.strip()
+    ):
+        raise GraphQLError(
+            "You must sign the partner license agreement before continuing."
+        )
 
     hub = create_hub_from_partner(
         partner=partner,
         organization=organization,
-        license_signature=input.license_signature.strip() if input.license_signature else None,
+        license_signature=input.license_signature.strip()
+        if input.license_signature
+        else None,
     )
     if hub is None:
         raise GraphQLError("This partner has no preconfigured hub.")

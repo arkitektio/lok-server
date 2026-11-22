@@ -5,7 +5,6 @@ Covers the user-directory scoping, device-code entropy/lifetime/single-use, the
 """
 
 import datetime
-
 import pathlib
 
 import pytest
@@ -67,7 +66,9 @@ class TestOpenRedirect:
         assert safe_redirect_target("/organizations") == "/organizations"
 
     def test_absolute_foreign_urls_are_refused(self):
-        assert safe_redirect_target("https://evil.tld/phish") != "https://evil.tld/phish"
+        assert (
+            safe_redirect_target("https://evil.tld/phish") != "https://evil.tld/phish"
+        )
 
     def test_protocol_relative_urls_are_refused(self):
         """`//evil.tld` has an empty scheme but a real netloc — the classic bypass
@@ -95,7 +96,9 @@ async def test_decline_requires_the_code_when_supplied():
 
     def _decline(code):
         return decline_device_code(
-            SimpleNamespace(context=SimpleNamespace(request=SimpleNamespace(user=None))),
+            SimpleNamespace(
+                context=SimpleNamespace(request=SimpleNamespace(user=None))
+            ),
             DeclineDeviceCodeInput(device_code=str(device_code.id), code=code),
         )
 
@@ -134,7 +137,9 @@ async def test_friends_only_returns_users_sharing_an_organization():
 
     context, mine, colleague, stranger = await sync_to_async(_setup)()
 
-    result = await schema.execute("query { friends { id email } }", context_value=context)
+    result = await schema.execute(
+        "query { friends { id email } }", context_value=context
+    )
 
     assert not result.errors, result.errors
     returned = {row["id"] for row in result.data["friends"]}
@@ -173,7 +178,9 @@ class TestCommittedKeyMaterialGuard:
         for rev in (raw, f"{raw}^"):
             try:
                 blob = subprocess.check_output(
-                    ["git", "show", f"{rev}:config.yaml"], text=True, stderr=subprocess.DEVNULL
+                    ["git", "show", f"{rev}:config.yaml"],
+                    text=True,
+                    stderr=subprocess.DEVNULL,
                 )
             except subprocess.CalledProcessError:
                 continue
@@ -235,7 +242,9 @@ class TestCommittedKeyMaterialGuard:
         cfg = self._repo_config()
         cfg["django"]["debug"] = False
         cfg["django"]["secret_key"] = "a-freshly-generated-secret-key-value"
-        cfg["private_key"] = "-----BEGIN RSA PRIVATE KEY-----\nnot-the-committed-one\n-----END RSA PRIVATE KEY-----\n"
+        cfg["private_key"] = (
+            "-----BEGIN RSA PRIVATE KEY-----\nnot-the-committed-one\n-----END RSA PRIVATE KEY-----\n"
+        )
 
         Settings(**cfg)
 
@@ -295,7 +304,9 @@ def test_a_granted_device_code_is_single_use():
         granted_scope="openid",
     )
     fakts_client.token_endpoint_auth_method = "none"
-    fakts_client.grant_types = "urn:ietf:params:oauth:grant-type:device_code refresh_token"
+    fakts_client.grant_types = (
+        "urn:ietf:params:oauth:grant-type:device_code refresh_token"
+    )
     fakts_client.scope = "openid"
     fakts_client.save()
 

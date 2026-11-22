@@ -62,12 +62,26 @@ def test_the_default_is_orkestrator_with_its_install_page_on_desktop_and_mobile(
 def test_normalize_fills_in_defaults_and_keeps_the_order():
     assert normalize_deeplink_apps(
         [
-            {"protocol": " My-App:// ", "install_url": "example.com/get", "mobile": True},
+            {
+                "protocol": " My-App:// ",
+                "install_url": "example.com/get",
+                "mobile": True,
+            },
             {"protocol": "Orkestrator", "name": "  The Desktop App "},
         ]
     ) == [
-        {"protocol": "my-app", "name": "My-app", "install_url": "https://example.com/get", "mobile": True},
-        {"protocol": "orkestrator", "name": "The Desktop App", "install_url": None, "mobile": False},
+        {
+            "protocol": "my-app",
+            "name": "My-app",
+            "install_url": "https://example.com/get",
+            "mobile": True,
+        },
+        {
+            "protocol": "orkestrator",
+            "name": "The Desktop App",
+            "install_url": None,
+            "mobile": False,
+        },
     ]
 
 
@@ -75,13 +89,17 @@ def test_normalize_accepts_an_empty_list():
     assert normalize_deeplink_apps([]) == []
 
 
-@pytest.mark.parametrize("protocol", ["https", "HTTP", "javascript", "data", "file", "mailto", "javascript:"])
+@pytest.mark.parametrize(
+    "protocol", ["https", "HTTP", "javascript", "data", "file", "mailto", "javascript:"]
+)
 def test_normalize_refuses_browser_schemes(protocol):
     with pytest.raises(ValueError, match="cannot be used"):
         normalize_deeplink_apps([{"protocol": protocol}])
 
 
-@pytest.mark.parametrize("protocol", ["", " ", "1app", "my app", "app/evil", "app://host", "ap_p", "a" * 33])
+@pytest.mark.parametrize(
+    "protocol", ["", " ", "1app", "my app", "app/evil", "app://host", "ap_p", "a" * 33]
+)
 def test_normalize_refuses_malformed_schemes(protocol):
     with pytest.raises(ValueError, match="not a valid protocol"):
         normalize_deeplink_apps([{"protocol": protocol}])
@@ -89,7 +107,14 @@ def test_normalize_refuses_malformed_schemes(protocol):
 
 @pytest.mark.parametrize(
     "install_url",
-    ["http://example.com", "javascript://alert(1)", "data://text/html,x", "https://", "https://exa mple.com", "ftp://example.com"],
+    [
+        "http://example.com",
+        "javascript://alert(1)",
+        "data://text/html,x",
+        "https://",
+        "https://exa mple.com",
+        "ftp://example.com",
+    ],
 )
 def test_normalize_refuses_install_links_that_are_not_https(install_url):
     with pytest.raises(ValueError, match="not a valid install link"):
@@ -99,7 +124,10 @@ def test_normalize_refuses_install_links_that_are_not_https(install_url):
 def test_normalize_refuses_duplicates_and_caps_the_list():
     with pytest.raises(ValueError, match="more than once"):
         normalize_deeplink_apps([{"protocol": "app"}, {"protocol": "APP://"}])
-    assert len(normalize_deeplink_apps([{"protocol": f"app{i}"} for i in range(MAX_APPS)])) == MAX_APPS
+    assert (
+        len(normalize_deeplink_apps([{"protocol": f"app{i}"} for i in range(MAX_APPS)]))
+        == MAX_APPS
+    )
     with pytest.raises(ValueError, match="at most"):
         normalize_deeplink_apps([{"protocol": f"app{i}"} for i in range(MAX_APPS + 1)])
 
@@ -112,9 +140,13 @@ def test_normalize_refuses_duplicates_and_caps_the_list():
 def _setup():
     """An organization, its owner's context, and a plain member's context."""
     organization = factories.make_organization()
-    owner_membership = factories.make_membership(user=organization.owner, organization=organization)
+    owner_membership = factories.make_membership(
+        user=organization.owner, organization=organization
+    )
     owner_context = build_auth_context(
-        organization.owner, organization, factories.make_client(membership=owner_membership)
+        organization.owner,
+        organization,
+        factories.make_client(membership=owner_membership),
     )
     member = factories.make_membership(organization=organization)
     member_context = build_auth_context(
@@ -129,7 +161,9 @@ async def test_a_new_organization_allows_orkestrator():
     organization, owner_context, _ = await sync_to_async(_setup)()
 
     result = await management_schema.execute(
-        READ_ORGANIZATION, variable_values={"id": str(organization.id)}, context_value=owner_context
+        READ_ORGANIZATION,
+        variable_values={"id": str(organization.id)},
+        context_value=owner_context,
     )
     assert not result.errors, result.errors
     assert result.data["organization"]["deeplinkApps"] == [ORKESTRATOR]
@@ -147,7 +181,11 @@ async def test_owner_registers_apps_and_members_can_read_them():
                 "id": str(organization.id),
                 "deeplinkApps": [
                     {"protocol": "My-App", "installUrl": "example.com/get"},
-                    {"protocol": "orkestrator://", "name": "Orkestrator", "mobile": True},
+                    {
+                        "protocol": "orkestrator://",
+                        "name": "Orkestrator",
+                        "mobile": True,
+                    },
                 ],
             }
         },
@@ -155,14 +193,26 @@ async def test_owner_registers_apps_and_members_can_read_them():
     )
     assert not result.errors, result.errors
     expected = [
-        {"protocol": "my-app", "name": "My-app", "installUrl": "https://example.com/get", "mobile": False},
-        {"protocol": "orkestrator", "name": "Orkestrator", "installUrl": None, "mobile": True},
+        {
+            "protocol": "my-app",
+            "name": "My-app",
+            "installUrl": "https://example.com/get",
+            "mobile": False,
+        },
+        {
+            "protocol": "orkestrator",
+            "name": "Orkestrator",
+            "installUrl": None,
+            "mobile": True,
+        },
     ]
     assert result.data["updateOrganization"]["deeplinkApps"] == expected
 
     # The link pages run as whichever member opened the link.
     result = await management_schema.execute(
-        READ_ORGANIZATION, variable_values={"id": str(organization.id)}, context_value=member_context
+        READ_ORGANIZATION,
+        variable_values={"id": str(organization.id)},
+        context_value=member_context,
     )
     assert not result.errors, result.errors
     assert result.data["organization"]["deeplinkApps"] == expected
@@ -184,7 +234,9 @@ async def test_owner_can_switch_forwarding_off_and_other_updates_leave_the_list_
     # Omitting the field means "unchanged", not "reset".
     result = await management_schema.execute(
         UPDATE_ORGANIZATION,
-        variable_values={"input": {"id": str(organization.id), "description": "still off"}},
+        variable_values={
+            "input": {"id": str(organization.id), "description": "still off"}
+        },
         context_value=owner_context,
     )
     assert not result.errors, result.errors
@@ -223,7 +275,12 @@ async def test_a_plain_member_cannot_change_the_apps():
 
     result = await management_schema.execute(
         UPDATE_ORGANIZATION,
-        variable_values={"input": {"id": str(organization.id), "deeplinkApps": [{"protocol": "evil-app"}]}},
+        variable_values={
+            "input": {
+                "id": str(organization.id),
+                "deeplinkApps": [{"protocol": "evil-app"}],
+            }
+        },
         context_value=member_context,
     )
     assert result.errors
@@ -241,7 +298,11 @@ async def test_a_plain_member_cannot_change_the_apps():
 def quiet_notifications(monkeypatch):
     """No pushes from tests; record who would have been told instead."""
     sent = []
-    monkeypatch.setattr(request_module, "_notify", lambda recipients, title, message: sent.append(list(recipients)))
+    monkeypatch.setattr(
+        request_module,
+        "_notify",
+        lambda recipients, title, message: sent.append(list(recipients)),
+    )
     return sent
 
 
@@ -259,7 +320,10 @@ def _outsider_setup():
 
 
 def _requests(**lookup):
-    return [(r.user_id, r.status, r.reason) for r in models.MembershipRequest.objects.filter(**lookup)]
+    return [
+        (r.user_id, r.status, r.reason)
+        for r in models.MembershipRequest.objects.filter(**lookup)
+    ]
 
 
 @pytest.mark.django_db(transaction=True)
@@ -269,7 +333,9 @@ async def test_an_outsider_asks_to_join_by_the_links_id(quiet_notifications):
 
     result = await management_schema.execute(
         REQUEST_MEMBERSHIP,
-        variable_values={"input": {"organization": str(target.id), "reason": "I was sent a link"}},
+        variable_values={
+            "input": {"organization": str(target.id), "reason": "I was sent a link"}
+        },
         context_value=context,
     )
     assert not result.errors, result.errors
@@ -283,7 +349,9 @@ async def test_an_outsider_asks_to_join_by_the_links_id(quiet_notifications):
 
     # Asking twice stores nothing new and answers the same.
     result = await management_schema.execute(
-        REQUEST_MEMBERSHIP, variable_values={"input": {"organization": str(target.id)}}, context_value=context
+        REQUEST_MEMBERSHIP,
+        variable_values={"input": {"organization": str(target.id)}},
+        context_value=context,
     )
     assert result.data == {"requestMembership": True}
     assert len(await sync_to_async(_requests)(organization=target)) == 1
@@ -291,11 +359,15 @@ async def test_an_outsider_asks_to_join_by_the_links_id(quiet_notifications):
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_an_unknown_organization_answers_the_same_and_stores_nothing(quiet_notifications):
+async def test_an_unknown_organization_answers_the_same_and_stores_nothing(
+    quiet_notifications,
+):
     _, _, context = await sync_to_async(_outsider_setup)()
 
     result = await management_schema.execute(
-        REQUEST_MEMBERSHIP, variable_values={"input": {"organization": "987654321"}}, context_value=context
+        REQUEST_MEMBERSHIP,
+        variable_values={"input": {"organization": "987654321"}},
+        context_value=context,
     )
     assert not result.errors, result.errors
     assert result.data == {"requestMembership": True}
@@ -336,11 +408,18 @@ def _inbox_setup():
 
     def context(membership, roles=("admin",)):
         return build_auth_context(
-            membership.user, target, factories.make_client(membership=membership), roles=roles
+            membership.user,
+            target,
+            factories.make_client(membership=membership),
+            roles=roles,
         )
 
-    first = models.MembershipRequest.objects.create(user=factories.make_user(), organization=target, reason="hi")
-    second = models.MembershipRequest.objects.create(user=factories.make_user(), organization=target)
+    first = models.MembershipRequest.objects.create(
+        user=factories.make_user(), organization=target, reason="hi"
+    )
+    second = models.MembershipRequest.objects.create(
+        user=factories.make_user(), organization=target
+    )
     return {
         "target": target,
         "owner": context(owner),
@@ -353,18 +432,26 @@ def _inbox_setup():
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_owner_and_admin_see_pending_requests_and_a_plain_member_sees_none(quiet_notifications):
+async def test_owner_and_admin_see_pending_requests_and_a_plain_member_sees_none(
+    quiet_notifications,
+):
     s = await sync_to_async(_inbox_setup)()
     variables = {"id": str(s["target"].id)}
 
     for who in ("owner", "admin"):
-        result = await management_schema.execute(PENDING, variable_values=variables, context_value=s[who])
+        result = await management_schema.execute(
+            PENDING, variable_values=variables, context_value=s[who]
+        )
         assert not result.errors, result.errors
         listed = result.data["organization"]["membershipRequests"]
         assert [r["id"] for r in listed] == [str(s["first"].id), str(s["second"].id)]
-        assert listed[0]["reason"] == "hi" and listed[0]["user"]["id"] == str(s["first"].user_id)
+        assert listed[0]["reason"] == "hi" and listed[0]["user"]["id"] == str(
+            s["first"].user_id
+        )
 
-    result = await management_schema.execute(PENDING, variable_values=variables, context_value=s["member"])
+    result = await management_schema.execute(
+        PENDING, variable_values=variables, context_value=s["member"]
+    )
     assert not result.errors, result.errors
     assert result.data["organization"]["membershipRequests"] == []
 
@@ -375,24 +462,36 @@ async def test_admin_approves_one_request_and_declines_the_other(quiet_notificat
     s = await sync_to_async(_inbox_setup)()
 
     approved = await management_schema.execute(
-        APPROVE, variable_values={"input": {"id": str(s["first"].id)}}, context_value=s["admin"]
+        APPROVE,
+        variable_values={"input": {"id": str(s["first"].id)}},
+        context_value=s["admin"],
     )
     assert not approved.errors, approved.errors
-    assert approved.data["approveMembershipRequest"]["user"]["id"] == str(s["first"].user_id)
-    assert [r["identifier"] for r in approved.data["approveMembershipRequest"]["roles"]] == ["guest"]
+    assert approved.data["approveMembershipRequest"]["user"]["id"] == str(
+        s["first"].user_id
+    )
+    assert [
+        r["identifier"] for r in approved.data["approveMembershipRequest"]["roles"]
+    ] == ["guest"]
     # The requester is told.
     assert len(quiet_notifications) == 1
 
     declined = await management_schema.execute(
-        DECLINE, variable_values={"input": {"id": str(s["second"].id)}}, context_value=s["admin"]
+        DECLINE,
+        variable_values={"input": {"id": str(s["second"].id)}},
+        context_value=s["admin"],
     )
     assert not declined.errors, declined.errors
     assert declined.data["declineMembershipRequest"]["status"] == "declined"
 
     def state():
         return (
-            models.Membership.objects.filter(user_id=s["first"].user_id, organization=s["target"]).exists(),
-            models.Membership.objects.filter(user_id=s["second"].user_id, organization=s["target"]).exists(),
+            models.Membership.objects.filter(
+                user_id=s["first"].user_id, organization=s["target"]
+            ).exists(),
+            models.Membership.objects.filter(
+                user_id=s["second"].user_id, organization=s["target"]
+            ).exists(),
         )
 
     assert await sync_to_async(state)() == (True, False)
@@ -403,26 +502,34 @@ async def test_admin_approves_one_request_and_declines_the_other(quiet_notificat
     )
     assert result.data["organization"]["membershipRequests"] == []
     again = await management_schema.execute(
-        APPROVE, variable_values={"input": {"id": str(s["second"].id)}}, context_value=s["admin"]
+        APPROVE,
+        variable_values={"input": {"id": str(s["second"].id)}},
+        context_value=s["admin"],
     )
     assert again.errors
 
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_a_plain_member_and_an_outsider_cannot_answer_a_request(quiet_notifications):
+async def test_a_plain_member_and_an_outsider_cannot_answer_a_request(
+    quiet_notifications,
+):
     s = await sync_to_async(_inbox_setup)()
 
     def outsider_context():
         outsider = factories.make_membership()
         return build_auth_context(
-            outsider.user, outsider.organization, factories.make_client(membership=outsider)
+            outsider.user,
+            outsider.organization,
+            factories.make_client(membership=outsider),
         )
 
     for context in (s["member"], await sync_to_async(outsider_context)()):
         for document in (APPROVE, DECLINE):
             result = await management_schema.execute(
-                document, variable_values={"input": {"id": str(s["first"].id)}}, context_value=context
+                document,
+                variable_values={"input": {"id": str(s["first"].id)}},
+                context_value=context,
             )
             assert result.errors
 

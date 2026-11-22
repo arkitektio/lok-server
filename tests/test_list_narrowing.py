@@ -16,11 +16,18 @@ from tests import factories
 from tests.conftest import build_auth_context
 
 AGENT = "live.arkitekt.deployer"
-SUBJECT = {"identifier": "com.example.subject", "version": "1.2.0", "scopes": [], "requirements": []}
+SUBJECT = {
+    "identifier": "com.example.subject",
+    "version": "1.2.0",
+    "scopes": [],
+    "requirements": [],
+}
 
 
 async def _run(context, query, **variables):
-    result = await schema.execute(query, context_value=context, variable_values=variables)
+    result = await schema.execute(
+        query, context_value=context, variable_values=variables
+    )
     assert not result.errors, result.errors
     return result.data
 
@@ -34,7 +41,9 @@ def _world():
     agent_client = factories.make_client(
         membership=grantor,
         hub=hub,
-        release=factories.make_release(app=factories.make_app(organization=org, identifier=AGENT)),
+        release=factories.make_release(
+            app=factories.make_app(organization=org, identifier=AGENT)
+        ),
     )
     standing = mandates.issue_mandate(
         issuer=mandates.ClientIssuer(client=agent_client),
@@ -55,11 +64,21 @@ def _world():
         for device in ("dev-a", "dev-b")
     ]
     keyed, _ = factories.make_mandate_key(hub=hub, membership=grantor)
-    return {"grantor": grantor, "org": org, "agent_client": agent_client, "standing": standing, "children": children, "keyed": keyed, "hub": hub}
+    return {
+        "grantor": grantor,
+        "org": org,
+        "agent_client": agent_client,
+        "standing": standing,
+        "children": children,
+        "keyed": keyed,
+        "hub": hub,
+    }
 
 
 def _context(world):
-    return build_auth_context(world["grantor"].user, world["org"], world["agent_client"])
+    return build_auth_context(
+        world["grantor"].user, world["org"], world["agent_client"]
+    )
 
 
 MANDATES = """
@@ -89,12 +108,22 @@ async def test_the_standing_mandate_is_found_by_filters():
     assert [m["id"] for m in found["mandates"]] == [standing]
 
     # Another mesh permission is another standing mandate: none yet.
-    assert (await _run(context, MANDATES, filters={"claimant": "AGENT", "hasParent": False, "allowMesh": False}))["mandates"] == []
+    assert (
+        await _run(
+            context,
+            MANDATES,
+            filters={"claimant": "AGENT", "hasParent": False, "allowMesh": False},
+        )
+    )["mandates"] == []
 
     children = await _run(context, MANDATES, filters={"hasParent": True})
-    assert {m["id"] for m in children["mandates"]} == {str(c.pk) for c in world["children"]}
+    assert {m["id"] for m in children["mandates"]} == {
+        str(c.pk) for c in world["children"]
+    }
 
-    keyed = await _run(context, MANDATES, filters={"claimant": "KEY", "hasParent": False})
+    keyed = await _run(
+        context, MANDATES, filters={"claimant": "KEY", "hasParent": False}
+    )
     assert [m["id"] for m in keyed["mandates"]] == [str(world["keyed"].pk)]
 
 
@@ -105,20 +134,47 @@ async def test_client_counts_of_a_mandate_and_a_device():
     context = await sync_to_async(_context)(world)
 
     def _clients():
-        device = fmodels.Device.objects.create(node_id="node-1", organization=world["org"])
-        other = fmodels.Device.objects.create(node_id="node-2", organization=world["org"])
+        device = fmodels.Device.objects.create(
+            node_id="node-1", organization=world["org"]
+        )
+        other = fmodels.Device.objects.create(
+            node_id="node-2", organization=world["org"]
+        )
         # The key logs in on two devices; the first device also runs a client of its own.
-        factories.make_client(membership=world["grantor"], hub=world["hub"], mandate=world["keyed"], node=device)
-        factories.make_client(membership=world["grantor"], hub=world["hub"], mandate=world["keyed"], node=other)
-        factories.make_client(membership=world["grantor"], hub=world["hub"], node=device)
+        factories.make_client(
+            membership=world["grantor"],
+            hub=world["hub"],
+            mandate=world["keyed"],
+            node=device,
+        )
+        factories.make_client(
+            membership=world["grantor"],
+            hub=world["hub"],
+            mandate=world["keyed"],
+            node=other,
+        )
+        factories.make_client(
+            membership=world["grantor"], hub=world["hub"], node=device
+        )
         return device
 
     device = await sync_to_async(_clients)()
 
-    counts = await _run(context, "query ($ids: [ID!]) { mandates(filters: { ids: $ids }) { id clientCount } }", ids=[str(world["keyed"].pk), str(world["standing"].pk)])
-    assert {m["id"]: m["clientCount"] for m in counts["mandates"]} == {str(world["keyed"].pk): 2, str(world["standing"].pk): 0}
+    counts = await _run(
+        context,
+        "query ($ids: [ID!]) { mandates(filters: { ids: $ids }) { id clientCount } }",
+        ids=[str(world["keyed"].pk), str(world["standing"].pk)],
+    )
+    assert {m["id"]: m["clientCount"] for m in counts["mandates"]} == {
+        str(world["keyed"].pk): 2,
+        str(world["standing"].pk): 0,
+    }
 
-    devices = await _run(context, "query ($ids: [ID!]) { devices(filters: { ids: $ids }) { id clientCount } }", ids=[str(device.pk)])
+    devices = await _run(
+        context,
+        "query ($ids: [ID!]) { devices(filters: { ids: $ids }) { id clientCount } }",
+        ids=[str(device.pk)],
+    )
     assert devices["devices"] == [{"id": str(device.pk), "clientCount": 2}]
 
 
@@ -129,15 +185,27 @@ async def test_releases_page_and_filter():
     context = await sync_to_async(_context)(world)
 
     def _releases():
-        app = factories.make_app(organization=world["org"], name="Napari", identifier="org.napari.napari")
-        return app, [factories.make_release(app=app, version=f"0.{i}.0") for i in range(3)]
+        app = factories.make_app(
+            organization=world["org"], name="Napari", identifier="org.napari.napari"
+        )
+        return app, [
+            factories.make_release(app=app, version=f"0.{i}.0") for i in range(3)
+        ]
 
     app, releases = await sync_to_async(_releases)()
 
-    by_app = await _run(context, "query ($f: ReleaseFilter) { releases(filters: $f) { id } }", f={"apps": [str(app.pk)]})
+    by_app = await _run(
+        context,
+        "query ($f: ReleaseFilter) { releases(filters: $f) { id } }",
+        f={"apps": [str(app.pk)]},
+    )
     assert {r["id"] for r in by_app["releases"]} == {str(r.pk) for r in releases}
 
-    searched = await _run(context, "query ($f: ReleaseFilter) { releases(filters: $f) { id } }", f={"search": "napari"})
+    searched = await _run(
+        context,
+        "query ($f: ReleaseFilter) { releases(filters: $f) { id } }",
+        f={"search": "napari"},
+    )
     assert {r["id"] for r in searched["releases"]} == {str(r.pk) for r in releases}
 
     page = await _run(
@@ -160,7 +228,11 @@ async def test_releases_page_and_filter():
         factories.make_client(membership=world["grantor"], release=releases[0])
 
     await sync_to_async(_run_release)()
-    counted = await _run(context, "query ($id: ID!) { release(id: $id) { clientCount } }", id=str(releases[0].pk))
+    counted = await _run(
+        context,
+        "query ($id: ID!) { release(id: $id) { clientCount } }",
+        id=str(releases[0].pk),
+    )
     assert counted["release"]["clientCount"] == 1
 
 
@@ -172,11 +244,15 @@ async def test_member_invites_apart_from_collaboration_links():
 
     def _invites():
         user = world["grantor"].user
-        member = kmodels.Invite.objects.create(created_by=user, created_for=world["org"])
+        member = kmodels.Invite.objects.create(
+            created_by=user, created_for=world["org"]
+        )
         link = kmodels.Invite.objects.create(
             created_by=user,
             created_for=world["org"],
-            shared_collaborations=[{"instance": "1", "collaboration": "2", "roles": []}],
+            shared_collaborations=[
+                {"instance": "1", "collaboration": "2", "roles": []}
+            ],
         )
         return member, link
 

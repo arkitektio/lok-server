@@ -6,14 +6,13 @@ app. Admins see every report of the organization; a member sees their own.
 """
 
 import base64
+import importlib
 
 import pytest
 from asgiref.sync import sync_to_async
 
-import importlib
-
-from lok_server.schema import schema
 from fakts import models
+from lok_server.schema import schema
 from tests import factories
 from tests.conftest import build_auth_context
 
@@ -46,16 +45,22 @@ JPEG_URL = "data:image/jpeg;base64," + base64.b64encode(JPEG).decode()
 
 def _setup():
     organization = factories.make_organization()
-    owner = factories.make_membership(user=organization.owner, organization=organization)
+    owner = factories.make_membership(
+        user=organization.owner, organization=organization
+    )
     member = factories.make_membership(organization=organization)
     app = factories.make_app(organization=organization)
     release = factories.make_release(app=app)
-    other_release = factories.make_release(app=factories.make_app(organization=organization))
+    other_release = factories.make_release(
+        app=factories.make_app(organization=organization)
+    )
     owner_client = factories.make_client(membership=owner, release=release)
     member_client = factories.make_client(membership=member, release=other_release)
 
     outsider_org = factories.make_organization()
-    outsider = factories.make_membership(user=outsider_org.owner, organization=outsider_org)
+    outsider = factories.make_membership(
+        user=outsider_org.owner, organization=outsider_org
+    )
     outsider_client = factories.make_client(membership=outsider)
 
     return {
@@ -68,7 +73,9 @@ def _setup():
         "member": member,
         "admin": build_auth_context(organization.owner, organization, owner_client),
         "plain": build_auth_context(member.user, organization, member_client, roles=()),
-        "outsider": build_auth_context(outsider_org.owner, outsider_org, outsider_client),
+        "outsider": build_auth_context(
+            outsider_org.owner, outsider_org, outsider_client
+        ),
     }
 
 
@@ -77,7 +84,11 @@ async def _run(query, context, **variables):
 
 
 async def _create(context, **fields):
-    result = await _run(CREATE, context, input={"description": "The page is empty\nafter a move", **fields})
+    result = await _run(
+        CREATE,
+        context,
+        input={"description": "The page is empty\nafter a move", **fields},
+    )
     assert not result.errors, result.errors
     return result.data["createBugReport"]
 
@@ -119,10 +130,16 @@ async def test_reports_filter_by_client_release_and_app():
     from_member = await _create(s["plain"])
 
     assert await _ids(s["admin"]) == {from_owner["id"], from_member["id"]}
-    assert await _ids(s["admin"], {"client": str(s["member_client"].id)}) == {from_member["id"]}
-    assert await _ids(s["admin"], {"release": str(s["release"].id)}) == {from_owner["id"]}
+    assert await _ids(s["admin"], {"client": str(s["member_client"].id)}) == {
+        from_member["id"]
+    }
+    assert await _ids(s["admin"], {"release": str(s["release"].id)}) == {
+        from_owner["id"]
+    }
     assert await _ids(s["admin"], {"app": str(s["app"].id)}) == {from_owner["id"]}
-    assert await _ids(s["admin"], {"reporter": str(s["member"].user.id)}) == {from_member["id"]}
+    assert await _ids(s["admin"], {"reporter": str(s["member"].user.id)}) == {
+        from_member["id"]
+    }
     assert await _ids(s["admin"], {"resolved": True}) == set()
 
 
@@ -149,17 +166,32 @@ async def test_only_an_admin_resolves_and_forwards():
     denied = await _run(FORWARD, s["outsider"], input={"id": report["id"]})
     assert denied.errors
 
-    resolved = await _run(RESOLVE, s["admin"], input={"id": report["id"], "note": "fixed in 6.0.2"})
+    resolved = await _run(
+        RESOLVE, s["admin"], input={"id": report["id"], "note": "fixed in 6.0.2"}
+    )
     assert not resolved.errors, resolved.errors
-    assert resolved.data["resolveBugReport"] == {"id": report["id"], "isResolved": True, "resolutionNote": "fixed in 6.0.2"}
+    assert resolved.data["resolveBugReport"] == {
+        "id": report["id"],
+        "isResolved": True,
+        "resolutionNote": "fixed in 6.0.2",
+    }
     assert await _ids(s["admin"], {"resolved": True}) == {report["id"]}
 
-    forwarded = await _run(FORWARD, s["admin"], input={"id": report["id"], "url": "https://github.com/a/b/issues/1"})
+    forwarded = await _run(
+        FORWARD,
+        s["admin"],
+        input={"id": report["id"], "url": "https://github.com/a/b/issues/1"},
+    )
     assert not forwarded.errors, forwarded.errors
-    assert forwarded.data["forwardBugReport"]["forwardedUrl"] == "https://github.com/a/b/issues/1"
+    assert (
+        forwarded.data["forwardBugReport"]["forwardedUrl"]
+        == "https://github.com/a/b/issues/1"
+    )
     assert forwarded.data["forwardBugReport"]["forwardedAt"]
 
-    bad = await _run(FORWARD, s["admin"], input={"id": report["id"], "url": "javascript:alert(1)"})
+    bad = await _run(
+        FORWARD, s["admin"], input={"id": report["id"], "url": "javascript:alert(1)"}
+    )
     assert bad.errors
 
 
@@ -187,13 +219,21 @@ async def test_what_a_report_may_carry_is_bounded():
         return bool(result.errors)
 
     assert await refused(description="   ")
-    assert await refused(diagnostics={"console": "x" * (bug_report_mutations.DIAGNOSTICS_MAX_BYTES + 1)})
+    assert await refused(
+        diagnostics={"console": "x" * (bug_report_mutations.DIAGNOSTICS_MAX_BYTES + 1)}
+    )
     assert await refused(diagnostics=["not", "an", "object"])
     # Not an image type that is allowed, and one that lies about what it is.
-    assert await refused(screenshot="data:image/svg+xml;base64," + base64.b64encode(b"<svg/>").decode())
-    assert await refused(screenshot="data:image/png;base64," + base64.b64encode(JPEG).decode())
+    assert await refused(
+        screenshot="data:image/svg+xml;base64," + base64.b64encode(b"<svg/>").decode()
+    )
+    assert await refused(
+        screenshot="data:image/png;base64," + base64.b64encode(JPEG).decode()
+    )
     big = b"\xff\xd8\xff" + b"\x00" * (bug_report_mutations.SCREENSHOT_MAX_BYTES + 1)
-    assert await refused(screenshot="data:image/jpeg;base64," + base64.b64encode(big).decode())
+    assert await refused(
+        screenshot="data:image/jpeg;base64," + base64.b64encode(big).decode()
+    )
     assert await sync_to_async(models.BugReport.objects.count)() == 0
 
 
@@ -244,24 +284,43 @@ async def test_the_management_api_reads_and_triages_what_clients_filed():
 
     listed = await management_schema.execute(M_LIST, context_value=owner)
     assert not listed.errors, listed.errors
-    assert {row["id"] for row in listed.data["bugReports"]} == {from_owner["id"], from_member["id"]}
+    assert {row["id"] for row in listed.data["bugReports"]} == {
+        from_owner["id"],
+        from_member["id"],
+    }
 
-    by_app = await management_schema.execute(M_LIST, variable_values={"filters": {"app": str(s["app"].id)}}, context_value=owner)
+    by_app = await management_schema.execute(
+        M_LIST,
+        variable_values={"filters": {"app": str(s["app"].id)}},
+        context_value=owner,
+    )
     assert [row["id"] for row in by_app.data["bugReports"]] == [from_owner["id"]]
 
-    detail = await management_schema.execute(M_DETAIL, variable_values={"id": from_owner["id"]}, context_value=owner)
+    detail = await management_schema.execute(
+        M_DETAIL, variable_values={"id": from_owner["id"]}, context_value=owner
+    )
     assert not detail.errors, detail.errors
     assert detail.data["bugReport"]["screenshot"] == JPEG_URL
 
     # A plain member reads their own and no one else's, and triages nothing.
     own = await management_schema.execute(M_LIST, context_value=member)
     assert {row["id"] for row in own.data["bugReports"]} == {from_member["id"]}
-    hidden = await management_schema.execute(M_DETAIL, variable_values={"id": from_owner["id"]}, context_value=member)
+    hidden = await management_schema.execute(
+        M_DETAIL, variable_values={"id": from_owner["id"]}, context_value=member
+    )
     assert hidden.errors
-    denied = await management_schema.execute(M_RESOLVE, variable_values={"input": {"id": from_member["id"]}}, context_value=member)
+    denied = await management_schema.execute(
+        M_RESOLVE,
+        variable_values={"input": {"id": from_member["id"]}},
+        context_value=member,
+    )
     assert denied.errors
 
-    resolved = await management_schema.execute(M_RESOLVE, variable_values={"input": {"id": from_member["id"]}}, context_value=owner)
+    resolved = await management_schema.execute(
+        M_RESOLVE,
+        variable_values={"input": {"id": from_member["id"]}},
+        context_value=owner,
+    )
     assert not resolved.errors, resolved.errors
     assert resolved.data["resolveBugReport"]["isResolved"] is True
 
@@ -280,4 +339,7 @@ async def test_nul_characters_do_not_fail_a_report():
     stored = await sync_to_async(models.BugReport.objects.get)(pk=report["id"])
     assert stored.description == "broken\ufffdpage"
     assert stored.platform == "darwin\ufffd"
-    assert stored.diagnostics == {"console": [{"text": "control: [v\ufffd"}], "k\ufffd": ["\ufffd"]}
+    assert stored.diagnostics == {
+        "console": [{"text": "control: [v\ufffd"}],
+        "k\ufffd": ["\ufffd"],
+    }

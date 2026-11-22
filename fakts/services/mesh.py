@@ -63,14 +63,20 @@ def _lookup(hub: models.Hub) -> str | None:
     if layer is None:
         return None
 
-    tagged = [m for m in get_ionscale_repo().list_machines(layer.tailnet_name) if hub.mesh_tag in m.tags]
+    tagged = [
+        m
+        for m in get_ionscale_repo().list_machines(layer.tailnet_name)
+        if hub.mesh_tag in m.tags
+    ]
     if not tagged:
         return None
     # The node the hub is running as: an online one, else the newest (ids are time-ordered).
     node = max(tagged, key=lambda m: (bool(m.connected), int(m.id)))
 
     if layer.magic_dns_enabled:
-        name = magic_dns_name(node.name, layer.tailnet_name, getattr(node, "fqdn", None))
+        name = magic_dns_name(
+            node.name, layer.tailnet_name, getattr(node, "fqdn", None)
+        )
         if name:
             return name
     return node.ipv4 or None
@@ -87,10 +93,10 @@ it backs its sidecar for this long before a live session is required."""
 
 def _clients_with_session(clients, grace_seconds: int):
     import time
+    from datetime import timedelta
 
     from django.db.models import Q
     from django.utils import timezone
-    from datetime import timedelta
 
     from authapp.models import OAuth2Token
 
@@ -99,7 +105,9 @@ def _clients_with_session(clients, grace_seconds: int):
         revoked=False,
         refresh_token__isnull=False,
         issued_at__gte=now - OAuth2Token.REFRESH_TOKEN_LIFETIME - grace_seconds,
-        chain_started_at__gte=now - OAuth2Token.REFRESH_CHAIN_MAX_LIFETIME - grace_seconds,
+        chain_started_at__gte=now
+        - OAuth2Token.REFRESH_CHAIN_MAX_LIFETIME
+        - grace_seconds,
     ).values("client_id")
     # The grace only covers a client that never got a token: one whose tokens
     # were all revoked is dead at once, however new it is.
@@ -109,8 +117,11 @@ def _clients_with_session(clients, grace_seconds: int):
     # A client logging in with a mandate key has no refresh chain: it is backed
     # for as long as its mandate works (an expired one for the grace; a revoked
     # one never, and revoking deletes its clients anyway).
-    mandated = models.Mandate.objects.filter(revoked_at__isnull=True, membership__user__is_active=True).filter(
-        Q(expires_at__isnull=True) | Q(expires_at__gt=timezone.now() - timedelta(seconds=grace_seconds))
+    mandated = models.Mandate.objects.filter(
+        revoked_at__isnull=True, membership__user__is_active=True
+    ).filter(
+        Q(expires_at__isnull=True)
+        | Q(expires_at__gt=timezone.now() - timedelta(seconds=grace_seconds))
     )
     return clients.filter((Q(mandate__isnull=True) & session) | Q(mandate__in=mandated))
 
@@ -133,7 +144,9 @@ def retained_clients(clients):
     node, tag and address."""
     from django.conf import settings
 
-    return _clients_with_session(clients, getattr(settings, "MESH_SIDECAR_GRACE_SECONDS", 0))
+    return _clients_with_session(
+        clients, getattr(settings, "MESH_SIDECAR_GRACE_SECONDS", 0)
+    )
 
 
 def enrollment_clients(membership_id, app_id, device_id):
@@ -150,7 +163,9 @@ def enrollment_is_live(membership_id, app_id, device_id) -> bool:
 
 
 def enrollment_is_retained(membership_id, app_id, device_id) -> bool:
-    return retained_clients(enrollment_clients(membership_id, app_id, device_id)).exists()
+    return retained_clients(
+        enrollment_clients(membership_id, app_id, device_id)
+    ).exists()
 
 
 def hub_identity_is_live(hub: models.Hub) -> bool:
@@ -172,7 +187,9 @@ def reap_enrollment(membership_id, app_id, device_id) -> bool:
     if enrollment_is_retained(membership_id, app_id, device_id):
         return False
     reaped = False
-    for enrollment in models.AppMeshEnrollment.objects.filter(membership_id=membership_id, app_id=app_id, device_id=device_id):
+    for enrollment in models.AppMeshEnrollment.objects.filter(
+        membership_id=membership_id, app_id=app_id, device_id=device_id
+    ):
         logger.info("Reaping mesh sidecar %s: no client backs it", enrollment.tag)
         enrollment.delete()
         reaped = True
@@ -190,7 +207,9 @@ def reap_hub_sidecar(hub: models.Hub) -> bool:
     from ionscale.acl import schedule_acl_apply
     from ionscale.sync import schedule_enrollment_revocation
 
-    logger.info("Reaping mesh sidecar %s: the hub identity has no live session", hub.mesh_tag)
+    logger.info(
+        "Reaping mesh sidecar %s: the hub identity has no live session", hub.mesh_tag
+    )
     schedule_enrollment_revocation(hub)
     if hub.auth_key_id:
         key = hub.auth_key
@@ -200,7 +219,9 @@ def reap_hub_sidecar(hub: models.Hub) -> bool:
     return True
 
 
-def schedule_client_reap(*, membership_id=None, app_id=None, device_id=None, hub_id=None) -> None:
+def schedule_client_reap(
+    *, membership_id=None, app_id=None, device_id=None, hub_id=None
+) -> None:
     """After commit, reap the sidecar a (deleted or revoked) client backed.
 
     The check runs at commit time on purpose: a re-authorization deletes the old
@@ -230,7 +251,11 @@ def schedule_reap_for_clients(clients) -> None:
     from ionscale.acl import schedule_acl_apply
 
     for client in clients.select_related("release"):
-        hub_identity = models.Hub.objects.filter(client=client).values_list("pk", flat=True).first()
+        hub_identity = (
+            models.Hub.objects.filter(client=client)
+            .values_list("pk", flat=True)
+            .first()
+        )
         schedule_client_reap(
             membership_id=client.membership_id,
             app_id=client.release.app_id if client.release_id else None,
@@ -274,7 +299,9 @@ def reject_app_installation(client: models.Client) -> None:
 
     app_id = client.release.app_id
     siblings = enrollment_clients(client.membership_id, app_id, client.node_id)
-    OAuth2Token.objects.filter(client_id__in=siblings.values("client_id")).update(revoked=True)
+    OAuth2Token.objects.filter(client_id__in=siblings.values("client_id")).update(
+        revoked=True
+    )
     # A rejected app takes everything it issued with it (and a mandated sibling
     # stops working only once its mandate does).
     revoke_issued_by(siblings)

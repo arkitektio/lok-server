@@ -3,7 +3,7 @@ from graphql import GraphQLError
 from kante.types import Info
 
 from api.management.authz import DENIED, get_or_denied, is_owner_or_admin
-from karakter import models, collaboration_grants
+from karakter import collaboration_grants, models
 
 
 @strawberry.input
@@ -11,7 +11,9 @@ class RevokeCollaborationGrantInput:
     id: strawberry.ID
 
 
-def revoke_collaboration_grant(info: Info, input: RevokeCollaborationGrantInput) -> strawberry.ID:
+def revoke_collaboration_grant(
+    info: Info, input: RevokeCollaborationGrantInput
+) -> strawberry.ID:
     """Take back one granted collaboration.
 
     The organization's owner and admins may take back any collaboration granted in it,
@@ -19,7 +21,10 @@ def revoke_collaboration_grant(info: Info, input: RevokeCollaborationGrantInput)
     may give it up. Taking back someone's last collaboration removes them from the
     organization altogether (they were only in it for what was granted).
     """
-    grant = get_or_denied(models.CollaborationGrant.objects.select_related("membership__organization"), pk=input.id)
+    grant = get_or_denied(
+        models.CollaborationGrant.objects.select_related("membership__organization"),
+        pk=input.id,
+    )
     user = info.context.request.user
     allowed = (
         is_owner_or_admin(user, grant.membership.organization)

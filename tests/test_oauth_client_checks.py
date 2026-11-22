@@ -12,7 +12,6 @@ latter read a field that does not exist and would have raised `AttributeError`).
 import pytest
 
 from authapp.models import AuthorizationCode
-from fakts.models import Client as OAuth2Client
 from tests import factories
 
 

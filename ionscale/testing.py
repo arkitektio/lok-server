@@ -11,10 +11,19 @@ test settings already point here) or per-test with
 """
 
 import json
+from collections.abc import Callable
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, Union
+from typing import Any
 
-from .base_models import DNSConfig, Machine, MachineDetail, Tailnet, TailnetCreate, TailnetLockStatus, TailnetUser
+from .base_models import (
+    DNSConfig,
+    Machine,
+    MachineDetail,
+    Tailnet,
+    TailnetCreate,
+    TailnetLockStatus,
+    TailnetUser,
+)
 from .errors import IonscaleError
 
 
@@ -23,37 +32,37 @@ class FakeIonscaleRepository:
 
     def __init__(self) -> None:
         # Recorded calls — assert against these in tests.
-        self.created_tailnets: List[TailnetCreate] = []
-        self.updated_policies: List[tuple[str, Union[Dict[str, Any], str, Path]]] = []
-        self.created_auth_keys: List[Dict[str, Any]] = []
-        self.dns_configs: List[tuple[str, DNSConfig]] = []
-        self.policies: Dict[str, Dict[str, Any]] = {}
+        self.created_tailnets: list[TailnetCreate] = []
+        self.updated_policies: list[tuple[str, dict[str, Any] | str | Path]] = []
+        self.created_auth_keys: list[dict[str, Any]] = []
+        self.dns_configs: list[tuple[str, DNSConfig]] = []
+        self.policies: dict[str, dict[str, Any]] = {}
         # ACL (traffic) policy per tailnet, and every set call in order.
-        self.acl_policies: Dict[str, Dict[str, Any]] = {}
-        self.set_acl_policies: List[tuple[str, Dict[str, Any]]] = []
+        self.acl_policies: dict[str, dict[str, Any]] = {}
+        self.set_acl_policies: list[tuple[str, dict[str, Any]]] = []
         # Canned read data — seed these in tests as needed.
-        self.machines_by_tailnet: Dict[str, List[Machine]] = {}
-        self.machines: Dict[str, MachineDetail] = {}
-        self.tailnets: List[Tailnet] = []
+        self.machines_by_tailnet: dict[str, list[Machine]] = {}
+        self.machines: dict[str, MachineDetail] = {}
+        self.tailnets: list[Tailnet] = []
         self.auth_key: str = "tskey-fake-0000000000"
         # When set, each minted key gets a distinct value (``<auth_key><n>_secret``),
         # so tests can tell which key was revoked.
         self.unique_auth_keys: bool = False
-        self.deleted_auth_keys: List[tuple[str, str]] = []
-        self.deleted_machines: List[str] = []
+        self.deleted_auth_keys: list[tuple[str, str]] = []
+        self.deleted_machines: list[str] = []
         # Tailnet lock. Default is the state a freshly provisioned tailnet is
         # actually in: no capability, no authority.
-        self.lock_status: Dict[str, TailnetLockStatus] = {}
-        self.enabled_tailnet_locks: List[str] = []
-        self.disabled_tailnet_locks: List[str] = []
+        self.lock_status: dict[str, TailnetLockStatus] = {}
+        self.enabled_tailnet_locks: list[str] = []
+        self.disabled_tailnet_locks: list[str] = []
         # Lifecycle / revocation, recorded for assertions.
-        self.revoked_accounts: List[tuple[str, Optional[str]]] = []
-        self.deleted_tailnets: List[tuple[str, bool]] = []
-        self.updated_tailnets: List[tuple[str, Dict[str, Any]]] = []
-        self.users_by_tailnet: Dict[str, List[TailnetUser]] = {}
+        self.revoked_accounts: list[tuple[str, str | None]] = []
+        self.deleted_tailnets: list[tuple[str, bool]] = []
+        self.updated_tailnets: list[tuple[str, dict[str, Any]]] = []
+        self.users_by_tailnet: dict[str, list[TailnetUser]] = {}
         # Failure injection: ``fail_with[method] = IonscaleError(...)`` (or any
         # exception, or a callable returning one) makes that method raise.
-        self.fail_with: Dict[str, Union[BaseException, Callable[[], BaseException]]] = {}
+        self.fail_with: dict[str, BaseException | Callable[[], BaseException]] = {}
 
     def _maybe_fail(self, method: str) -> None:
         failure = self.fail_with.get(method)
@@ -61,25 +70,27 @@ class FakeIonscaleRepository:
             return
         raise failure() if callable(failure) else failure
 
-    def list_tailnets(self) -> List[Tailnet]:
+    def list_tailnets(self) -> list[Tailnet]:
         self._maybe_fail("list_tailnets")
         return list(self.tailnets)
 
-    def get_tailnet_by_organization(self, organization: str) -> Optional[Tailnet]:
+    def get_tailnet_by_organization(self, organization: str) -> Tailnet | None:
         self._maybe_fail("get_tailnet_by_organization")
         for t in self.tailnets:
             if t.organization == str(organization):
                 return t
         return None
 
-    def update_tailnet(self, tailnet: str, *, name: Optional[str] = None, **flags: bool) -> Tailnet:
+    def update_tailnet(
+        self, tailnet: str, *, name: str | None = None, **flags: bool
+    ) -> Tailnet:
         self._maybe_fail("update_tailnet")
         current = next((t for t in self.tailnets if t.name == tailnet), None)
         if current is None:
             raise IonscaleError("not_found", f"tailnet {tailnet!r} not found")
         if name and name != tailnet and any(t.name == name for t in self.tailnets):
             raise IonscaleError("already_exists", f"tailnet {name!r} already exists")
-        changes: Dict[str, Any] = {k: v for k, v in flags.items() if v is not None}
+        changes: dict[str, Any] = {k: v for k, v in flags.items() if v is not None}
         if name:
             changes["name"] = name
         self.updated_tailnets.append((tailnet, changes))
@@ -96,17 +107,23 @@ class FakeIonscaleRepository:
         self.users_by_tailnet.pop(tailnet, None)
         self.machines_by_tailnet.pop(tailnet, None)
 
-    def list_users(self, tailnet: str) -> List[TailnetUser]:
+    def list_users(self, tailnet: str) -> list[TailnetUser]:
         self._maybe_fail("list_users")
         return list(self.users_by_tailnet.get(tailnet, []))
 
-    def revoke_account(self, external_id: str, organization: Optional[str] = None) -> List[str]:
+    def revoke_account(
+        self, external_id: str, organization: str | None = None
+    ) -> list[str]:
         self._maybe_fail("revoke_account")
-        self.revoked_accounts.append((str(external_id), str(organization) if organization else None))
-        affected: List[str] = []
+        self.revoked_accounts.append(
+            (str(external_id), str(organization) if organization else None)
+        )
+        affected: list[str] = []
         for tailnet_name, users in self.users_by_tailnet.items():
             tailnet = next((t for t in self.tailnets if t.name == tailnet_name), None)
-            if organization and (tailnet is None or tailnet.organization != str(organization)):
+            if organization and (
+                tailnet is None or tailnet.organization != str(organization)
+            ):
                 continue
             remaining = [u for u in users if u.external_id != str(external_id)]
             if len(remaining) != len(users):
@@ -114,7 +131,7 @@ class FakeIonscaleRepository:
                 affected.append(tailnet.id if tailnet else tailnet_name)
         return affected
 
-    def list_machines(self, tailnet: str) -> List[Machine]:
+    def list_machines(self, tailnet: str) -> list[Machine]:
         return list(self.machines_by_tailnet.get(tailnet, []))
 
     def get_machine(self, machine_id: str) -> MachineDetail:
@@ -123,9 +140,16 @@ class FakeIonscaleRepository:
     def create_tailnet(self, tailnet_input: TailnetCreate) -> Tailnet:
         self._maybe_fail("create_tailnet")
         if any(t.name == tailnet_input.name for t in self.tailnets):
-            raise IonscaleError("already_exists", f"tailnet {tailnet_input.name!r} already exists")
-        if tailnet_input.organization and any(t.organization == tailnet_input.organization for t in self.tailnets):
-            raise IonscaleError("already_exists", f"organization {tailnet_input.organization!r} already has a tailnet")
+            raise IonscaleError(
+                "already_exists", f"tailnet {tailnet_input.name!r} already exists"
+            )
+        if tailnet_input.organization and any(
+            t.organization == tailnet_input.organization for t in self.tailnets
+        ):
+            raise IonscaleError(
+                "already_exists",
+                f"organization {tailnet_input.organization!r} already has a tailnet",
+            )
         self.created_tailnets.append(tailnet_input)
         tailnet = Tailnet(
             id=str(len(self.created_tailnets)),
@@ -137,14 +161,14 @@ class FakeIonscaleRepository:
         self.tailnets.append(tailnet)
         return tailnet
 
-    def update_policy(self, tailnet: str, policy: Union[Dict[str, Any], str, Path]) -> str:
+    def update_policy(self, tailnet: str, policy: dict[str, Any] | str | Path) -> str:
         self._maybe_fail("update_policy")
         self.updated_policies.append((tailnet, policy))
         if isinstance(policy, dict):
             self.policies[tailnet] = policy
         return "ok"
 
-    def get_policy(self, tailnet: str) -> Dict[str, Any]:
+    def get_policy(self, tailnet: str) -> dict[str, Any]:
         self._maybe_fail("get_policy")
         return dict(self.policies.get(tailnet, {}))
 
@@ -152,7 +176,7 @@ class FakeIonscaleRepository:
         self._maybe_fail("get_acl_policy")
         return json.dumps(self.acl_policies.get(tailnet, {}))
 
-    def set_acl_policy(self, tailnet: str, policy: Dict[str, Any]) -> None:
+    def set_acl_policy(self, tailnet: str, policy: dict[str, Any]) -> None:
         self._maybe_fail("set_acl_policy")
         self.set_acl_policies.append((tailnet, policy))
         self.acl_policies[tailnet] = policy
@@ -162,10 +186,23 @@ class FakeIonscaleRepository:
         self.dns_configs.append((tailnet, config))
         return "ok"
 
-    def create_auth_key(self, tailnet: str, ephemeral: bool = False, pre_authorized: bool = True, tags: List[str] = None, expiry_seconds: Optional[int] = None) -> str:
+    def create_auth_key(
+        self,
+        tailnet: str,
+        ephemeral: bool = False,
+        pre_authorized: bool = True,
+        tags: list[str] = None,
+        expiry_seconds: int | None = None,
+    ) -> str:
         self._maybe_fail("create_auth_key")
         self.created_auth_keys.append(
-            {"tailnet": tailnet, "ephemeral": ephemeral, "pre_authorized": pre_authorized, "tags": tags or [], "expiry_seconds": expiry_seconds}
+            {
+                "tailnet": tailnet,
+                "ephemeral": ephemeral,
+                "pre_authorized": pre_authorized,
+                "tags": tags or [],
+                "expiry_seconds": expiry_seconds,
+            }
         )
         if self.unique_auth_keys:
             return f"{self.auth_key}{len(self.created_auth_keys)}_secret"
@@ -180,7 +217,9 @@ class FakeIonscaleRepository:
         self._maybe_fail("delete_machine")
         self.deleted_machines.append(str(machine_id))
         for tailnet, machines in self.machines_by_tailnet.items():
-            self.machines_by_tailnet[tailnet] = [m for m in machines if m.id != str(machine_id)]
+            self.machines_by_tailnet[tailnet] = [
+                m for m in machines if m.id != str(machine_id)
+            ]
 
     def get_tailnet_lock_status(self, tailnet: str) -> TailnetLockStatus:
         return self.lock_status.get(tailnet, TailnetLockStatus())

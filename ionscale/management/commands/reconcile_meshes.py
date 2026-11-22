@@ -1,8 +1,7 @@
+from django.conf import settings
 from django.core.management.base import BaseCommand, CommandError
 
 from fakts.models import IonscaleLayer
-from django.conf import settings
-
 from ionscale.manager import ensure_org_mesh, ionscale_configured
 from ionscale.reconcile import orphaned_tailnets, reconcile_layer, reconcile_sidecars
 from karakter.models import Organization
@@ -17,8 +16,14 @@ class Command(BaseCommand):
     )
 
     def add_arguments(self, parser):
-        parser.add_argument("--dry-run", action="store_true", help="Report what would change without touching anything.")
-        parser.add_argument("--organization", help="Only this organization (slug or pk).")
+        parser.add_argument(
+            "--dry-run",
+            action="store_true",
+            help="Report what would change without touching anything.",
+        )
+        parser.add_argument(
+            "--organization", help="Only this organization (slug or pk)."
+        )
         parser.add_argument(
             "--revoke-orphans",
             action="store_true",
@@ -44,7 +49,9 @@ class Command(BaseCommand):
         if not ionscale_configured():
             raise CommandError("ionscale is not configured on this deployment")
 
-        layers = IonscaleLayer.objects.select_related("organization").order_by("organization_id")
+        layers = IonscaleLayer.objects.select_related("organization").order_by(
+            "organization_id"
+        )
         organizations = Organization.objects.order_by("pk")
         if options["organization"]:
             selector = options["organization"]
@@ -61,17 +68,31 @@ class Command(BaseCommand):
 
         # Every organization has a mesh by default; one created while ionscale was
         # down, or before that was the rule, gets it here.
-        if not options["sidecars_only"] and getattr(settings, "IONSCALE_AUTO_CREATE_MESH", False):
-            for org in organizations.exclude(pk__in=IonscaleLayer.objects.values("organization_id")):
+        if not options["sidecars_only"] and getattr(
+            settings, "IONSCALE_AUTO_CREATE_MESH", False
+        ):
+            for org in organizations.exclude(
+                pk__in=IonscaleLayer.objects.values("organization_id")
+            ):
                 if options["dry_run"]:
-                    self.stdout.write(self.style.WARNING(f"[{org.slug}] has no mesh; would provision one"))
+                    self.stdout.write(
+                        self.style.WARNING(
+                            f"[{org.slug}] has no mesh; would provision one"
+                        )
+                    )
                     changed += 1
                 elif ensure_org_mesh(org) is not None:
-                    self.stdout.write(self.style.SUCCESS(f"[{org.slug}] mesh provisioned"))
+                    self.stdout.write(
+                        self.style.SUCCESS(f"[{org.slug}] mesh provisioned")
+                    )
                     changed += 1
                 else:
                     failed += 1
-                    self.stderr.write(self.style.ERROR(f"[{org.slug}] could not provision a mesh (see the log)"))
+                    self.stderr.write(
+                        self.style.ERROR(
+                            f"[{org.slug}] could not provision a mesh (see the log)"
+                        )
+                    )
             # The loop below works on the meshes that exist now.
             layers = layers.all()
         sidecars = options["sidecars"] or options["sidecars_only"]
@@ -99,13 +120,23 @@ class Command(BaseCommand):
                     )
             except Exception as exc:  # one broken mesh must not stop the others
                 failed += 1
-                self.stderr.write(self.style.ERROR(f"[{layer.organization.slug}] failed: {exc}"))
+                self.stderr.write(
+                    self.style.ERROR(f"[{layer.organization.slug}] failed: {exc}")
+                )
                 continue
             if any(r.changed for r in reports):
                 changed += 1
             any_changed = any(r.changed for r in reports)
-            status = "would change" if options["dry_run"] and any_changed else ("changed" if any_changed else "ok")
-            style = self.style.WARNING if any(getattr(r, "warnings", None) for r in reports) else self.style.SUCCESS
+            status = (
+                "would change"
+                if options["dry_run"] and any_changed
+                else ("changed" if any_changed else "ok")
+            )
+            style = (
+                self.style.WARNING
+                if any(getattr(r, "warnings", None) for r in reports)
+                else self.style.SUCCESS
+            )
             self.stdout.write(style(f"[{layer.organization.slug}] {status}"))
 
         if not options["organization"] and not options["sidecars_only"]:
@@ -122,6 +153,8 @@ class Command(BaseCommand):
                     )
                 )
 
-        self.stdout.write(f"{layers.count()} mesh(es), {changed} changed, {failed} failed")
+        self.stdout.write(
+            f"{layers.count()} mesh(es), {changed} changed, {failed} failed"
+        )
         if failed:
             raise CommandError(f"{failed} mesh(es) could not be reconciled")

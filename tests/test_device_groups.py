@@ -25,7 +25,11 @@ REMOVE = "mutation ($d: ID!, $g: ID!) { removeDeviceFromGroup(input: { device: $
 
 
 def _context(membership):
-    return build_auth_context(membership.user, membership.organization, factories.make_client(membership=membership))
+    return build_auth_context(
+        membership.user,
+        membership.organization,
+        factories.make_client(membership=membership),
+    )
 
 
 def _org_with_member():
@@ -39,7 +43,9 @@ def _group(org, name="lab"):
 
 
 def _device(org, node_id="node-1"):
-    return fakts_models.Device.objects.create(organization=org, node_id=node_id, name=node_id)
+    return fakts_models.Device.objects.create(
+        organization=org, node_id=node_id, name=node_id
+    )
 
 
 @pytest.mark.django_db(transaction=True)
@@ -47,14 +53,20 @@ def _device(org, node_id="node-1"):
 async def test_plain_member_can_create_and_delete_a_group():
     org, _membership, context = await sync_to_async(_org_with_member)()
 
-    created = await management_schema.execute(CREATE, context_value=context, variable_values={"org": str(org.id)})
+    created = await management_schema.execute(
+        CREATE, context_value=context, variable_values={"org": str(org.id)}
+    )
     assert not created.errors, created.errors
     group_id = created.data["createDeviceGroup"]["id"]
 
-    deleted = await management_schema.execute(DELETE, context_value=context, variable_values={"id": group_id})
+    deleted = await management_schema.execute(
+        DELETE, context_value=context, variable_values={"id": group_id}
+    )
     assert not deleted.errors, deleted.errors
     assert deleted.data["deleteDeviceGroup"] == group_id
-    assert not await sync_to_async(fakts_models.DeviceGroup.objects.filter(pk=group_id).exists)()
+    assert not await sync_to_async(
+        fakts_models.DeviceGroup.objects.filter(pk=group_id).exists
+    )()
 
 
 @pytest.mark.django_db(transaction=True)
@@ -64,12 +76,18 @@ async def test_non_member_cannot_create_or_delete_in_another_tenant():
     group = await sync_to_async(_group)(org)
     outsider = await sync_to_async(lambda: _context(factories.make_membership()))()
 
-    created = await management_schema.execute(CREATE, context_value=outsider, variable_values={"org": str(org.id)})
-    deleted = await management_schema.execute(DELETE, context_value=outsider, variable_values={"id": str(group.id)})
+    created = await management_schema.execute(
+        CREATE, context_value=outsider, variable_values={"org": str(org.id)}
+    )
+    deleted = await management_schema.execute(
+        DELETE, context_value=outsider, variable_values={"id": str(group.id)}
+    )
 
     assert created.errors and created.errors[0].message == DENIED
     assert deleted.errors and deleted.errors[0].message == DENIED
-    assert await sync_to_async(fakts_models.DeviceGroup.objects.filter(pk=group.pk).exists)()
+    assert await sync_to_async(
+        fakts_models.DeviceGroup.objects.filter(pk=group.pk).exists
+    )()
 
 
 @pytest.mark.django_db(transaction=True)
@@ -85,10 +103,14 @@ async def test_deleting_a_group_keeps_its_devices():
 
     group, device = await sync_to_async(seed)()
 
-    result = await management_schema.execute(DELETE, context_value=context, variable_values={"id": str(group.id)})
+    result = await management_schema.execute(
+        DELETE, context_value=context, variable_values={"id": str(group.id)}
+    )
 
     assert not result.errors, result.errors
-    assert await sync_to_async(fakts_models.Device.objects.filter(pk=device.pk).exists)()
+    assert await sync_to_async(
+        fakts_models.Device.objects.filter(pk=device.pk).exists
+    )()
 
 
 @pytest.mark.django_db(transaction=True)
@@ -99,11 +121,17 @@ async def test_add_then_remove_round_trips_the_membership():
     device = await sync_to_async(_device)(org)
     variables = {"d": str(device.id), "g": str(group.id)}
 
-    added = await management_schema.execute(ADD, context_value=context, variable_values=variables)
+    added = await management_schema.execute(
+        ADD, context_value=context, variable_values=variables
+    )
     assert not added.errors, added.errors
-    assert [g["id"] for g in added.data["addDeviceToGroup"]["deviceGroups"]] == [str(group.id)]
+    assert [g["id"] for g in added.data["addDeviceToGroup"]["deviceGroups"]] == [
+        str(group.id)
+    ]
 
-    removed = await management_schema.execute(REMOVE, context_value=context, variable_values=variables)
+    removed = await management_schema.execute(
+        REMOVE, context_value=context, variable_values=variables
+    )
     assert not removed.errors, removed.errors
     assert removed.data["removeDeviceFromGroup"]["deviceGroups"] == []
 
@@ -123,12 +151,16 @@ async def test_member_of_both_tenants_cannot_move_a_device_across_them():
     _org_b, device, group_b, context = await sync_to_async(seed)()
     variables = {"d": str(device.id), "g": str(group_b.id)}
 
-    added = await management_schema.execute(ADD, context_value=context, variable_values=variables)
+    added = await management_schema.execute(
+        ADD, context_value=context, variable_values=variables
+    )
     assert added.errors, f"device moved across tenants: {added.data}"
     assert added.errors[0].message == DENIED
     assert await sync_to_async(lambda: device.device_groups.count())() == 0
 
-    removed = await management_schema.execute(REMOVE, context_value=context, variable_values=variables)
+    removed = await management_schema.execute(
+        REMOVE, context_value=context, variable_values=variables
+    )
     assert removed.errors and removed.errors[0].message == DENIED
 
 
@@ -141,7 +173,9 @@ async def test_outsider_cannot_add_to_a_group_they_are_not_in():
     outsider = await sync_to_async(lambda: _context(factories.make_membership()))()
 
     result = await management_schema.execute(
-        ADD, context_value=outsider, variable_values={"d": str(device.id), "g": str(group.id)}
+        ADD,
+        context_value=outsider,
+        variable_values={"d": str(device.id), "g": str(group.id)},
     )
 
     assert result.errors and result.errors[0].message == DENIED

@@ -1,10 +1,10 @@
 import logging
 
-from kante.types import Info
 from django.contrib.auth import get_user_model
+from kante.types import Info
 
-from fakts import inputs, models, types
 from api.management.authz import assert_owner_or_admin
+from fakts import inputs, models, types
 from karakter.authz import get_organization, get_scoped_or_denied
 
 logger = logging.getLogger(__name__)
@@ -12,7 +12,9 @@ logger = logging.getLogger(__name__)
 User = get_user_model()
 
 
-def update_service_instance(info: Info, input: inputs.UpdateServiceInstanceInput) -> types.ServiceInstance:
+def update_service_instance(
+    info: Info, input: inputs.UpdateServiceInstanceInput
+) -> types.ServiceInstance:
     """Update a service instance's access lists.
 
     These four lists *are* the instance's ACL, so an unscoped lookup here let any
@@ -35,19 +37,25 @@ def update_service_instance(info: Info, input: inputs.UpdateServiceInstanceInput
     # `denied_users`. Every other m2m write in the codebase scopes its member ids;
     # this one does too.
     def _scoped_users(ids):
-        return User.objects.filter(id__in=ids, memberships__organization=organization).distinct()
+        return User.objects.filter(
+            id__in=ids, memberships__organization=organization
+        ).distinct()
 
     # NOTE: `Group` is django.contrib.auth's, which carries no organization —
     # groups are global in this model, so there is no tenant boundary to enforce
     # on them here. Only the user lists are scoped.
     if input.allowed_groups is not None:
-        instance.allowed_groups.set(models.Group.objects.filter(id__in=input.allowed_groups))
+        instance.allowed_groups.set(
+            models.Group.objects.filter(id__in=input.allowed_groups)
+        )
 
     if input.allowed_users is not None:
         instance.allowed_users.set(_scoped_users(input.allowed_users))
 
     if input.denied_groups is not None:
-        instance.denied_groups.set(models.Group.objects.filter(id__in=input.denied_groups))
+        instance.denied_groups.set(
+            models.Group.objects.filter(id__in=input.denied_groups)
+        )
 
     if input.denied_users is not None:
         instance.denied_users.set(_scoped_users(input.denied_users))
@@ -55,7 +63,9 @@ def update_service_instance(info: Info, input: inputs.UpdateServiceInstanceInput
     return instance
 
 
-def create_service_instance(info: Info, input: inputs.CreateServiceInstanceInput) -> types.ServiceInstance:
+def create_service_instance(
+    info: Info, input: inputs.CreateServiceInstanceInput
+) -> types.ServiceInstance:
     """
     Create a new service instance.
 
@@ -77,13 +87,17 @@ def create_service_instance(info: Info, input: inputs.CreateServiceInstanceInput
     )
 
     if input.allowed_groups is not None:
-        instance.allowed_groups.set(models.Group.objects.filter(id__in=input.allowed_groups))
+        instance.allowed_groups.set(
+            models.Group.objects.filter(id__in=input.allowed_groups)
+        )
 
     if input.allowed_users is not None:
         instance.allowed_users.set(User.objects.filter(id__in=input.allowed_users))
 
     if input.denied_groups is not None:
-        instance.denied_groups.set(models.Group.objects.filter(id__in=input.denied_groups))
+        instance.denied_groups.set(
+            models.Group.objects.filter(id__in=input.denied_groups)
+        )
 
     if input.denied_users is not None:
         instance.denied_users.set(User.objects.filter(id__in=input.denied_users))

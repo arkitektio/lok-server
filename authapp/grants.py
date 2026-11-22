@@ -3,13 +3,16 @@ import logging
 
 from authlib.oauth2.rfc6749 import grants
 from authlib.oauth2.rfc6749.errors import InvalidGrantError
-from .models import OAuth2Token, AuthorizationCode, UsedNonce
-from .oidc_claims import build_claims
-from .fakts_grants import FaktsEnvelopeMixin
-from authlib.oidc.core import grants as oidcgrants, UserInfo
-from karakter.models import Membership
+from authlib.oidc.core import UserInfo
+from authlib.oidc.core import grants as oidcgrants
 from django.conf import settings
 from django.db import transaction
+
+from karakter.models import Membership
+
+from .fakts_grants import FaktsEnvelopeMixin
+from .models import AuthorizationCode, OAuth2Token, UsedNonce
+from .oidc_claims import build_claims
 
 logger = logging.getLogger(__name__)
 
@@ -113,9 +116,8 @@ class AuthorizationCodeGrant(FaktsEnvelopeMixin, grants.AuthorizationCodeGrant):
         """
         with transaction.atomic():
             try:
-                item = (
-                    AuthorizationCode.objects.select_for_update()
-                    .get(code=code, client_id=client.client_id)
+                item = AuthorizationCode.objects.select_for_update().get(
+                    code=code, client_id=client.client_id
                 )
             except AuthorizationCode.DoesNotExist:
                 return None
@@ -130,7 +132,9 @@ class AuthorizationCodeGrant(FaktsEnvelopeMixin, grants.AuthorizationCodeGrant):
         # second token pair from it.
         deleted, _ = AuthorizationCode.objects.filter(pk=authorization_code.pk).delete()
         if not deleted:
-            raise InvalidGrantError(description="Authorization code has already been used.")
+            raise InvalidGrantError(
+                description="Authorization code has already been used."
+            )
 
     def authenticate_user(self, authorization_code: AuthorizationCode):
         # Remember the nonce before the code row disappears, so `exists_nonce`
@@ -158,7 +162,8 @@ class AuthorizationCodeGrant(FaktsEnvelopeMixin, grants.AuthorizationCodeGrant):
             # PKCE: persisted so `CodeChallenge` can require and verify a matching
             # `code_verifier` at token exchange. Empty when the client sent none.
             code_challenge=request.payload.data.get("code_challenge") or "",
-            code_challenge_method=request.payload.data.get("code_challenge_method") or "",
+            code_challenge_method=request.payload.data.get("code_challenge_method")
+            or "",
         )
         auth_code.save()
         return auth_code
@@ -252,7 +257,11 @@ class RefreshTokenGrant(FaktsEnvelopeMixin, grants.RefreshTokenGrant):
                 self.request.client.refresh_from_db()
             return status
         except Exception:
-            logger.warning("Ignoring the manifest client %s sent with its refresh", self.request.client.client_id, exc_info=True)
+            logger.warning(
+                "Ignoring the manifest client %s sent with its refresh",
+                self.request.client.client_id,
+                exc_info=True,
+            )
             return None
 
     def revoke_old_credential(self, credential: OAuth2Token):

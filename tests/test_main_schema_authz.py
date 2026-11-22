@@ -65,7 +65,9 @@ async def test_outsider_cannot_rename_another_organization():
     result = await schema.execute(
         UPDATE_ORG,
         context_value=outsider_context,
-        variable_values={"input": {"id": str(org.id), "name": "Pwned", "slug": "pwned"}},
+        variable_values={
+            "input": {"id": str(org.id), "name": "Pwned", "slug": "pwned"}
+        },
     )
 
     _assert_denied(result)

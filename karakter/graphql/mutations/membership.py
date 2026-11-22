@@ -19,7 +19,9 @@ class UpdateMembershipColorsInput:
     brand_chroma: float | None = strawberry.UNSET
 
 
-def update_membership_colors(info: Info, input: UpdateMembershipColorsInput) -> types.Membership:
+def update_membership_colors(
+    info: Info, input: UpdateMembershipColorsInput
+) -> types.Membership:
     """Set the caller's personal brand hue/chroma for their active organization.
 
     The main-schema twin of `setMembershipBrandHue` on the management API, for
@@ -48,5 +50,9 @@ def update_membership_colors(info: Info, input: UpdateMembershipColorsInput) -> 
 
     if updated:
         membership.save(update_fields=updated)
-        logger.info("Updated brand colours (%s) on membership %s", ", ".join(updated), membership.pk)
+        logger.info(
+            "Updated brand colours (%s) on membership %s",
+            ", ".join(updated),
+            membership.pk,
+        )
     return membership

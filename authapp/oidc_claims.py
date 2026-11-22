@@ -23,7 +23,7 @@ runtime.
 """
 
 import string
-from typing import TYPE_CHECKING, Dict, Optional
+from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:  # avoid importing Django models at config-load time
     from karakter.models import Membership
@@ -55,7 +55,9 @@ def validate_email_template(template: str) -> None:
     try:
         parsed = list(string.Formatter().parse(template))
     except ValueError as exc:  # malformed braces, e.g. a stray "{"
-        raise ValueError(f"email_template {template!r} is not a valid format string: {exc}") from exc
+        raise ValueError(
+            f"email_template {template!r} is not a valid format string: {exc}"
+        ) from exc
 
     field_names = [field for _, field, _, _ in parsed if field is not None]
     if not field_names:
@@ -77,7 +79,7 @@ def _allowed() -> str:
     return ", ".join(sorted(EMAIL_TEMPLATE_VARIABLES))
 
 
-def build_email_variables(membership: "Membership") -> Dict[str, str]:
+def build_email_variables(membership: "Membership") -> dict[str, str]:
     """Build the substitution dict for ``email_template`` from a membership.
 
     Nullable source fields (``user.email``, ``organization.slug/name``) coerce to
@@ -107,7 +109,7 @@ def resolve_sub(membership: "Membership") -> str:
     return str(membership.user.id)
 
 
-def resolve_email(membership: "Membership", email_template: Optional[str]) -> str:
+def resolve_email(membership: "Membership", email_template: str | None) -> str:
     """Resolve the ``email`` claim for a membership given the client's policy.
 
     When ``email_template`` is set it is rendered from ``build_email_variables``;
@@ -121,10 +123,10 @@ def resolve_email(membership: "Membership", email_template: Optional[str]) -> st
 
 def build_claims(
     membership: "Membership",
-    scope: Optional[str],
-    email_template: Optional[str],
+    scope: str | None,
+    email_template: str | None,
     roles: bool = True,
-) -> Dict[str, object]:
+) -> dict[str, object]:
     """The OIDC claim set for ``membership``, filtered by the granted ``scope``.
 
     OIDC Core §5.4 ties claims to scopes: ``profile`` buys the name claims,
@@ -145,7 +147,7 @@ def build_claims(
     ``roles`` is skipped entirely when ``roles=False`` — the id_token carries
     the org but not the role list, matching what it carried before.
     """
-    claims: Dict[str, object] = {
+    claims: dict[str, object] = {
         "sub": resolve_sub(membership),
         "org": str(membership.organization_id),
     }

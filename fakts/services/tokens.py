@@ -30,7 +30,9 @@ def create_device_code() -> str:
     10 symbols from a 29-symbol alphabet is ~2**48, while staying short enough to
     read aloud and retype.
     """
-    return "".join(secrets.choice(_DEVICE_CODE_ALPHABET) for _ in range(_DEVICE_CODE_LENGTH))
+    return "".join(
+        secrets.choice(_DEVICE_CODE_ALPHABET) for _ in range(_DEVICE_CODE_LENGTH)
+    )
 
 
 def create_challenge_code() -> str:
@@ -45,4 +47,6 @@ def create_challenge_code() -> str:
 
 def hash_requirements(requirements: list[base_models.Requirement]) -> str:
     """Stable hash of a manifest's requirements (order-independent)."""
-    return sha256(".".join(sorted([req.service + req.key for req in requirements])).encode()).hexdigest()
+    return sha256(
+        ".".join(sorted([req.service + req.key for req in requirements])).encode()
+    ).hexdigest()

@@ -1,7 +1,8 @@
 import time
-from django.db import models
+
+from authlib.oauth2.rfc6749 import AuthorizationCodeMixin, TokenMixin
 from django.contrib.auth import get_user_model
-from authlib.oauth2.rfc6749 import TokenMixin, AuthorizationCodeMixin
+from django.db import models
 
 from karakter.models import Membership
 
@@ -25,7 +26,9 @@ class OAuth2Token(models.Model, TokenMixin):
     # `refresh_token=` parameter (authlib only rejects a missing one), which with
     # multiple such rows 500s the token endpoint — and with exactly one could
     # refresh a session without presenting any refresh token at all.
-    refresh_token = models.CharField(max_length=10000, db_index=True, unique=True, null=True, blank=True)
+    refresh_token = models.CharField(
+        max_length=10000, db_index=True, unique=True, null=True, blank=True
+    )
     scope = models.TextField(default="")
     revoked = models.BooleanField(default=False)
     issued_at = models.IntegerField(null=False, default=now_timestamp)
@@ -121,7 +124,7 @@ class AuthorizationCode(models.Model, AuthorizationCodeMixin):
     def user(self):
         """Return the membership associated with this authorization code."""
         return self.membership
-    
+
     def get_user_id(self):
         return str(self.membership.id)
 

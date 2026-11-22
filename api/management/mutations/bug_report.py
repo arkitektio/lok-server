@@ -35,7 +35,9 @@ class ResolveBugReportInput:
     note: str | None = None
 
 
-def resolve_bug_report(info: Info, input: ResolveBugReportInput) -> types.ManagementBugReport:
+def resolve_bug_report(
+    info: Info, input: ResolveBugReportInput
+) -> types.ManagementBugReport:
     """Close a bug report."""
     report = _for_triage(info, input.id)
     report.resolved_at = timezone.now()
@@ -50,7 +52,9 @@ class UnresolveBugReportInput:
     id: strawberry.ID
 
 
-def unresolve_bug_report(info: Info, input: UnresolveBugReportInput) -> types.ManagementBugReport:
+def unresolve_bug_report(
+    info: Info, input: UnresolveBugReportInput
+) -> types.ManagementBugReport:
     """Reopen a closed bug report."""
     report = _for_triage(info, input.id)
     report.resolved_at = None
@@ -63,11 +67,17 @@ def unresolve_bug_report(info: Info, input: UnresolveBugReportInput) -> types.Ma
 @strawberry.input
 class ForwardBugReportInput:
     id: strawberry.ID
-    url: str | None = strawberry.field(default=None, description="The issue the report became, when it is known.")
-    forwarded: bool = strawberry.field(default=True, description="False takes the mark back.")
+    url: str | None = strawberry.field(
+        default=None, description="The issue the report became, when it is known."
+    )
+    forwarded: bool = strawberry.field(
+        default=True, description="False takes the mark back."
+    )
 
 
-def forward_bug_report(info: Info, input: ForwardBugReportInput) -> types.ManagementBugReport:
+def forward_bug_report(
+    info: Info, input: ForwardBugReportInput
+) -> types.ManagementBugReport:
     """Note that an admin passed this report on to the app's own issue tracker.
 
     For the prefilled-link path: the admin opens the issue, and this records
@@ -94,18 +104,34 @@ def forward_bug_report(info: Info, input: ForwardBugReportInput) -> types.Manage
         report.github_issue_state = None
         report.screenshot_token = None
         report.save(
-            update_fields=["forwarded_at", "forwarded_by", "forwarded_url", "github_repo", "github_issue_number", "github_issue_state", "screenshot_token"]
+            update_fields=[
+                "forwarded_at",
+                "forwarded_by",
+                "forwarded_url",
+                "github_repo",
+                "github_issue_number",
+                "github_issue_state",
+                "screenshot_token",
+            ]
         )
     return report
 
 
-@strawberry.input(description="Open a GitHub issue from a bug report, through lok's GitHub App. The title and body are what the admin reviewed.")
+@strawberry.input(
+    description="Open a GitHub issue from a bug report, through lok's GitHub App. The title and body are what the admin reviewed."
+)
 class FileBugReportIssueInput:
     id: strawberry.ID
     title: str
     body: str
-    include_screenshot: bool = strawberry.field(default=False, description="Publish the screenshot with the issue. It becomes readable without signing in, by anyone with the issue.")
-    again: bool = strawberry.field(default=False, description="Open another issue although lok already opened one for this report.")
+    include_screenshot: bool = strawberry.field(
+        default=False,
+        description="Publish the screenshot with the issue. It becomes readable without signing in, by anyone with the issue.",
+    )
+    again: bool = strawberry.field(
+        default=False,
+        description="Open another issue although lok already opened one for this report.",
+    )
 
 
 def _absolute(info: Info, path: str) -> str | None:
@@ -119,13 +145,17 @@ def _absolute(info: Info, path: str) -> str | None:
     return build(path) if build else None
 
 
-def file_bug_report_issue(info: Info, input: FileBugReportIssueInput) -> types.ManagementBugReport:
+def file_bug_report_issue(
+    info: Info, input: FileBugReportIssueInput
+) -> types.ManagementBugReport:
     """Open the issue in the repository the report's app declared, and record it."""
     from fakts.services import github
 
     report = _for_triage(info, input.id)
     if report.github_issue_number and not input.again:
-        raise GraphQLError(f"lok already opened {report.github_repo}#{report.github_issue_number} for this report.")
+        raise GraphQLError(
+            f"lok already opened {report.github_repo}#{report.github_issue_number} for this report."
+        )
     if not (input.body or "").strip():
         raise GraphQLError("The issue needs a body.")
 
@@ -133,13 +163,19 @@ def file_bug_report_issue(info: Info, input: FileBugReportIssueInput) -> types.M
     if input.include_screenshot:
         if not report.screenshot:
             raise GraphQLError("This report has no screenshot.")
-        path = reverse("fakts:bugshot", kwargs={"token": github.publish_screenshot(report)})
+        path = reverse(
+            "fakts:bugshot", kwargs={"token": github.publish_screenshot(report)}
+        )
         screenshot_url = _absolute(info, path)
         if screenshot_url is None:
-            raise GraphQLError("lok does not know its own address, so it cannot link the screenshot.")
+            raise GraphQLError(
+                "lok does not know its own address, so it cannot link the screenshot."
+            )
 
     try:
-        return github.file_issue(report, get_user(info), input.title, input.body, screenshot_url)
+        return github.file_issue(
+            report, get_user(info), input.title, input.body, screenshot_url
+        )
     except github.GithubError as e:
         raise GraphQLError(str(e))
 

@@ -120,8 +120,12 @@ async def test_anonymous_can_still_preview_a_public_invite(db):
     from karakter.models import Invite, Organization
 
     def _setup():
-        owner = User.objects.create_user(username="inviteowner", password="hunter2hunter2")
-        org = Organization.objects.create(slug="previeworg", name="Preview Org", owner=owner)
+        owner = User.objects.create_user(
+            username="inviteowner", password="hunter2hunter2"
+        )
+        org = Organization.objects.create(
+            slug="previeworg", name="Preview Org", owner=owner
+        )
         return Invite.objects.create(created_by=owner, created_for=org, public=True)
 
     invite = await sync_to_async(_setup)()

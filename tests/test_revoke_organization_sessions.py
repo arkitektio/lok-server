@@ -15,13 +15,21 @@ from authapp.models import OAuth2Token
 from tests import factories
 from tests.test_management_tenant_isolation import _org_with_admin_and_member
 
-REVOKE = "mutation ($org: ID!) { revokeOrganizationSessions(input: { organization: $org }) }"
+REVOKE = (
+    "mutation ($org: ID!) { revokeOrganizationSessions(input: { organization: $org }) }"
+)
 
 
 def _token(membership, client, **kw):
-    kw.setdefault("access_token", f"access-{client.client_id}-{OAuth2Token.objects.count()}")
-    kw.setdefault("refresh_token", f"refresh-{client.client_id}-{OAuth2Token.objects.count()}")
-    return OAuth2Token.objects.create(user=membership, client_id=client.client_id, token_type="Bearer", **kw)
+    kw.setdefault(
+        "access_token", f"access-{client.client_id}-{OAuth2Token.objects.count()}"
+    )
+    kw.setdefault(
+        "refresh_token", f"refresh-{client.client_id}-{OAuth2Token.objects.count()}"
+    )
+    return OAuth2Token.objects.create(
+        user=membership, client_id=client.client_id, token_type="Bearer", **kw
+    )
 
 
 def _setup():
@@ -29,7 +37,11 @@ def _setup():
     member = s["member_membership"]
     client_a = factories.make_client(membership=member)
     client_b = factories.make_client(membership=member)
-    s["tokens"] = [_token(member, client_a), _token(member, client_a), _token(member, client_b)]
+    s["tokens"] = [
+        _token(member, client_a),
+        _token(member, client_a),
+        _token(member, client_b),
+    ]
 
     theirs = factories.make_membership()
     s["their_token"] = _token(theirs, factories.make_client(membership=theirs))
@@ -37,7 +49,9 @@ def _setup():
 
 
 async def _revoke(context, org):
-    return await management_schema.execute(REVOKE, context_value=context, variable_values={"org": str(org.id)})
+    return await management_schema.execute(
+        REVOKE, context_value=context, variable_values={"org": str(org.id)}
+    )
 
 
 async def _revoked(tokens):

@@ -69,10 +69,25 @@ def test_the_deprecated_node_id_spelling_still_names_the_device():
     """``node_id`` is read as ``device_id`` and dumps as ``device_id``: an old client
     and a new one on the same machine share one Device."""
     membership = factories.make_membership()
-    old = base_models.Manifest(identifier="com.example.node", version="1.0.0", scopes=[], requirements=[], node_id="node-123")
-    new = base_models.Manifest(identifier="com.example.node", version="1.0.0", scopes=[], requirements=[], device_id="node-123")
+    old = base_models.Manifest(
+        identifier="com.example.node",
+        version="1.0.0",
+        scopes=[],
+        requirements=[],
+        node_id="node-123",
+    )
+    new = base_models.Manifest(
+        identifier="com.example.node",
+        version="1.0.0",
+        scopes=[],
+        requirements=[],
+        device_id="node-123",
+    )
     assert old.device_id == "node-123"
-    assert old.model_dump()["device_id"] == "node-123" and "node_id" not in old.model_dump()
+    assert (
+        old.model_dump()["device_id"] == "node-123"
+        and "node_id" not in old.model_dump()
+    )
 
     a = clients.bind_client(clients.create_public_client(), old, membership)
     b = clients.bind_client(clients.create_public_client(), new, membership)
@@ -81,10 +96,24 @@ def test_the_deprecated_node_id_spelling_still_names_the_device():
 
 def test_a_pin_stored_under_the_old_device_key_still_reads():
     """Pins stored before the rename named the device ``node_id``."""
-    manifest = base_models.Manifest(identifier="com.example.pinned", version="1.0.0", scopes=[], requirements=[], device_id="node-a")
-    base_models.MandatePin.model_validate({"identifier": "com.example.pinned", "version": "1.0.0", "node_id": "node-a"}).check(manifest)
+    manifest = base_models.Manifest(
+        identifier="com.example.pinned",
+        version="1.0.0",
+        scopes=[],
+        requirements=[],
+        device_id="node-a",
+    )
+    base_models.MandatePin.model_validate(
+        {"identifier": "com.example.pinned", "version": "1.0.0", "node_id": "node-a"}
+    ).check(manifest)
     with pytest.raises(base_models.MandatePinMismatch, match="different device"):
-        base_models.MandatePin.model_validate({"identifier": "com.example.pinned", "version": "1.0.0", "node_id": "node-b"}).check(manifest)
+        base_models.MandatePin.model_validate(
+            {
+                "identifier": "com.example.pinned",
+                "version": "1.0.0",
+                "node_id": "node-b",
+            }
+        ).check(manifest)
 
 
 @pytest.mark.django_db
@@ -93,7 +122,12 @@ def test_validate_device_code_creates_client():
     user = hub.creator
     organization = hub.organization
     device_code = factories.make_device_code(
-        staging_manifest={"identifier": "com.example.dc", "version": "1.0.0", "scopes": [], "requirements": []},
+        staging_manifest={
+            "identifier": "com.example.dc",
+            "version": "1.0.0",
+            "scopes": [],
+            "requirements": [],
+        },
     )
 
     result = device_codes.validate_device_code(device_code, user, organization, hub)
@@ -117,7 +151,9 @@ def test_validate_device_code_uses_provided_name_for_node_device():
         },
     )
 
-    result = device_codes.validate_device_code(device_code, user, organization, hub, device_name="Workbench")
+    result = device_codes.validate_device_code(
+        device_code, user, organization, hub, device_name="Workbench"
+    )
 
     assert result.client is not None
     assert result.client.node is not None
@@ -136,10 +172,16 @@ def test_auto_compose_is_atomic_and_rolls_back_on_required_missing():
     """A failing required requirement must not delete the client's existing mappings."""
     client = factories.make_client()
     instance = factories.make_service_instance()
-    models.ServiceInstanceMapping.objects.create(client=client, instance=instance, key="old")
+    models.ServiceInstanceMapping.objects.create(
+        client=client, instance=instance, key="old"
+    )
 
     manifest = _manifest(
-        requirements=[base_models.Requirement(key="db", service="com.missing.service", optional=False)],
+        requirements=[
+            base_models.Requirement(
+                key="db", service="com.missing.service", optional=False
+            )
+        ],
     )
 
     with pytest.raises(Exception):

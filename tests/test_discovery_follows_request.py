@@ -35,7 +35,10 @@ def test_off_by_default_the_request_host_changes_nothing(client):
 def test_endpoints_are_advertised_at_the_address_that_was_asked(client):
     here = client.get(WELL_KNOWN, HTTP_HOST="localhost:7190").json()
     assert here["token_endpoint"] == "http://localhost:7190/lok/o/token/"
-    assert here["device_authorization_endpoint"] == "http://localhost:7190/lok/o/app-authorization/"
+    assert (
+        here["device_authorization_endpoint"]
+        == "http://localhost:7190/lok/o/app-authorization/"
+    )
     assert here["jwks_uri"] == "http://localhost:7190/lok/o/jwks/"
     assert here["base_url"] == "http://localhost:7190/lok/f/"
     # The page a person approves a device code on is at the deployment's root,
@@ -54,7 +57,9 @@ def test_the_issuer_stays_the_configured_name(client):
     address — a token got at one address has to be good at all of them."""
     for host in ("localhost:7190", "gateway", "192.168.1.5:7190"):
         assert client.get(WELL_KNOWN, HTTP_HOST=host).json()["issuer"] == "lok"
-        oidc = client.get("/lok/.well-known/openid-configuration", HTTP_HOST=host).json()
+        oidc = client.get(
+            "/lok/.well-known/openid-configuration", HTTP_HOST=host
+        ).json()
         assert oidc["issuer"] == "lok"
         assert oidc["token_endpoint"] == f"http://{host}/lok/o/token/"
 

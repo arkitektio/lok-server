@@ -6,7 +6,6 @@ is capped at what it holds itself, and dies with it.
 
 import logging
 from datetime import timedelta
-from typing import Optional
 
 import strawberry
 from django.utils import timezone
@@ -17,7 +16,13 @@ from fakts import inputs, models, types
 from fakts.base_models import MandatePin, Manifest
 from fakts.services import mandates as services
 from karakter import models as karakter_models
-from karakter.authz import DENIED, get_or_denied, get_organization, get_scoped_or_denied, get_user
+from karakter.authz import (
+    DENIED,
+    get_or_denied,
+    get_organization,
+    get_scoped_or_denied,
+    get_user,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -27,7 +32,11 @@ def caller_membership(info: Info) -> karakter_models.Membership:
     membership = getattr(info.context.request, "membership", None)
     if membership is not None:
         return membership
-    return get_or_denied(karakter_models.Membership.objects, user=get_user(info), organization=get_organization(info))
+    return get_or_denied(
+        karakter_models.Membership.objects,
+        user=get_user(info),
+        organization=get_organization(info),
+    )
 
 
 def caller_client(info: Info) -> models.Client:
@@ -50,7 +59,9 @@ def _manifest(manifest: inputs.ManifestInput) -> Manifest:
         scopes=manifest.scopes or [],
         device_id=manifest.device_id or manifest.node_id,
         requirements=[strawberry.asdict(x) for x in manifest.requirements],
-        public_sources=[strawberry.asdict(x) for x in manifest.public_sources] if manifest.public_sources else [],
+        public_sources=[strawberry.asdict(x) for x in manifest.public_sources]
+        if manifest.public_sources
+        else [],
     )
 
 
@@ -70,44 +81,86 @@ def _hub(info: Info, hub_id: strawberry.ID | None, client: models.Client) -> mod
     return client.hub
 
 
-@strawberry.input(description="Pre-authorize an agent app to issue mandate keys for a subject app, acting as you.")
+@strawberry.input(
+    description="Pre-authorize an agent app to issue mandate keys for a subject app, acting as you."
+)
 class CreateMandateInput:
-    agent: str = strawberry.field(description="Identifier of the app allowed to issue keys (e.g. a deployer).")
+    agent: str = strawberry.field(
+        description="Identifier of the app allowed to issue keys (e.g. a deployer)."
+    )
     manifest: inputs.ManifestInput = strawberry.field(
         description="The subject app. Its scopes and requirements are the ceiling for every key issued under it, and may not exceed your app's own; deviceId is ignored."
     )
-    hub: Optional[strawberry.ID] = strawberry.field(default=None, description="The hub the subject composes against. Defaults to the calling client's hub.")
-    attestation: Optional[str] = strawberry.field(default=None, description="Opaque binding for the approving service (e.g. a release digest).")
-    agent_device_id: Optional[str] = strawberry.field(default=None, description="Only an agent running on this device may issue.")
-    agent_user: Optional[strawberry.ID] = strawberry.field(default=None, description="Only an agent acting as this user may issue.")
-    max_clients: Optional[int] = strawberry.field(default=None, description="How many live keys may exist under the mandate at once.")
+    hub: strawberry.ID | None = strawberry.field(
+        default=None,
+        description="The hub the subject composes against. Defaults to the calling client's hub.",
+    )
+    attestation: str | None = strawberry.field(
+        default=None,
+        description="Opaque binding for the approving service (e.g. a release digest).",
+    )
+    agent_device_id: str | None = strawberry.field(
+        default=None, description="Only an agent running on this device may issue."
+    )
+    agent_user: strawberry.ID | None = strawberry.field(
+        default=None, description="Only an agent acting as this user may issue."
+    )
+    max_clients: int | None = strawberry.field(
+        default=None,
+        description="How many live keys may exist under the mandate at once.",
+    )
     allow_mesh: bool = strawberry.field(
-        default=False, description="Whether a client logging in with a key issued under the mandate may ask for a mesh key. Every child key inherits it."
+        default=False,
+        description="Whether a client logging in with a key issued under the mandate may ask for a mesh key. Every child key inherits it.",
     )
-    expires_in_days: Optional[int] = strawberry.field(
-        default=None, description=f"The mandate (and every key issued under it) stops working after this many days (1–{services.AGENT_MANDATE_MAX_TTL.days}). Null: as long as your app."
+    expires_in_days: int | None = strawberry.field(
+        default=None,
+        description=f"The mandate (and every key issued under it) stops working after this many days (1–{services.AGENT_MANDATE_MAX_TTL.days}). Null: as long as your app.",
     )
 
 
-@strawberry.input(description="Issue a mandate key for an app, acting as you. It is capped at your app's own scopes and dies with your app.")
+@strawberry.input(
+    description="Issue a mandate key for an app, acting as you. It is capped at your app's own scopes and dies with your app."
+)
 class IssueMandateKeyInput:
     manifest: inputs.ManifestInput = strawberry.field(
         description="The app the key logs in. Identifier, version and deviceId (when given) must match exactly; scopes and requirements are a ceiling."
     )
-    expires_in_days: int = strawberry.field(description=f"The key stops working after this many days (1–{services.APP_KEY_MAX_TTL.days}).")
-    hub: Optional[strawberry.ID] = strawberry.field(default=None, description="The hub the app composes against. Defaults to the calling client's hub.")
-    any_version: bool = strawberry.field(default=False, description="Let every release of the app log in with the key, not only the manifest's version.")
-    max_clients: Optional[int] = strawberry.field(default=None, description="On how many devices the key may log in. Null: unlimited.")
-    allow_mesh: bool = strawberry.field(default=False, description="Whether a client logging in with the key may ask for a mesh key.")
-    label: Optional[str] = None
+    expires_in_days: int = strawberry.field(
+        description=f"The key stops working after this many days (1–{services.APP_KEY_MAX_TTL.days})."
+    )
+    hub: strawberry.ID | None = strawberry.field(
+        default=None,
+        description="The hub the app composes against. Defaults to the calling client's hub.",
+    )
+    any_version: bool = strawberry.field(
+        default=False,
+        description="Let every release of the app log in with the key, not only the manifest's version.",
+    )
+    max_clients: int | None = strawberry.field(
+        default=None,
+        description="On how many devices the key may log in. Null: unlimited.",
+    )
+    allow_mesh: bool = strawberry.field(
+        default=False,
+        description="Whether a client logging in with the key may ask for a mesh key.",
+    )
+    label: str | None = None
 
 
-@strawberry.input(description="Issue a mandate key for one instance of a mandate's subject (called by the mandate's agent).")
+@strawberry.input(
+    description="Issue a mandate key for one instance of a mandate's subject (called by the mandate's agent)."
+)
 class IssueChildMandateKeyInput:
     mandate: strawberry.ID
-    device_id: str = strawberry.field(description="Unique per instance: one key logs in one client per device.")
-    expires_in_days: Optional[int] = strawberry.field(default=None, description="The key stops working after this many days. Null: as long as the mandate.")
-    label: Optional[str] = None
+    device_id: str = strawberry.field(
+        description="Unique per instance: one key logs in one client per device."
+    )
+    expires_in_days: int | None = strawberry.field(
+        default=None,
+        description="The key stops working after this many days. Null: as long as the mandate.",
+    )
+    label: str | None = None
 
 
 @strawberry.input
@@ -123,7 +176,11 @@ def create_mandate(info: Info, input: CreateMandateInput) -> types.Mandate:
 
     agent_membership = None
     if input.agent_user is not None:
-        agent_membership = get_or_denied(karakter_models.Membership.objects, user_id=input.agent_user, organization=grantor.organization)
+        agent_membership = get_or_denied(
+            karakter_models.Membership.objects,
+            user_id=input.agent_user,
+            organization=grantor.organization,
+        )
 
     try:
         return services.issue_mandate(
@@ -137,7 +194,9 @@ def create_mandate(info: Info, input: CreateMandateInput) -> types.Mandate:
                 membership=agent_membership,
                 attestation=input.attestation or "",
             ),
-            expires_at=_expires_at(input.expires_in_days, services.AGENT_MANDATE_MAX_TTL),
+            expires_at=_expires_at(
+                input.expires_in_days, services.AGENT_MANDATE_MAX_TTL
+            ),
             max_clients=input.max_clients,
             allow_mesh=input.allow_mesh,
         ).mandate
@@ -145,7 +204,9 @@ def create_mandate(info: Info, input: CreateMandateInput) -> types.Mandate:
         raise GraphQLError(str(e)) from e
 
 
-def issue_mandate_key(info: Info, input: IssueMandateKeyInput) -> types.IssuedMandateKey:
+def issue_mandate_key(
+    info: Info, input: IssueMandateKeyInput
+) -> types.IssuedMandateKey:
     """Issue a keyed mandate as the calling app's user. The key is shown here once."""
     grantor = caller_membership(info)
     client = caller_client(info)
@@ -157,7 +218,9 @@ def issue_mandate_key(info: Info, input: IssueMandateKeyInput) -> types.IssuedMa
             issuer=services.ClientIssuer(client=client),
             grantor=grantor,
             hub=hub,
-            pin=MandatePin.from_manifest(manifest, version=not input.any_version, device=True),
+            pin=MandatePin.from_manifest(
+                manifest, version=not input.any_version, device=True
+            ),
             claimant=services.KeyClaimant(),
             expires_at=_expires_at(input.expires_in_days, services.APP_KEY_MAX_TTL),
             max_clients=input.max_clients,
@@ -169,7 +232,9 @@ def issue_mandate_key(info: Info, input: IssueMandateKeyInput) -> types.IssuedMa
     return types.IssuedMandateKey(mandate=issued.mandate, key=issued.key or "")
 
 
-def issue_child_mandate_key(info: Info, input: IssueChildMandateKeyInput) -> types.IssuedMandateKey:
+def issue_child_mandate_key(
+    info: Info, input: IssueChildMandateKeyInput
+) -> types.IssuedMandateKey:
     """Called by the agent: a key for one instance of the subject, acting as the grantor."""
     get_user(info)
     parent = get_scoped_or_denied(models.Mandate.objects, info, id=input.mandate)
@@ -203,7 +268,9 @@ def issue_child_mandate_key(info: Info, input: IssueChildMandateKeyInput) -> typ
 
 def _managed_mandate(info: Info, mandate: models.Mandate) -> models.Mandate:
     membership = caller_membership(info)
-    if not services.can_manage(mandate, membership, getattr(info.context.request, "client", None)):
+    if not services.can_manage(
+        mandate, membership, getattr(info.context.request, "client", None)
+    ):
         raise GraphQLError(DENIED)
     return mandate
 
@@ -212,7 +279,9 @@ def revoke_mandate(info: Info, input: RevokeMandateInput) -> types.Mandate:
     """Withdraw a mandate (its grantor, an org admin, its issuing app, or the agent it was issued by).
 
     Every mandate issued under it stops working too, and their clients are deleted."""
-    mandate = _managed_mandate(info, get_scoped_or_denied(models.Mandate.objects, info, id=input.id))
+    mandate = _managed_mandate(
+        info, get_scoped_or_denied(models.Mandate.objects, info, id=input.id)
+    )
     services.revoke_mandate(mandate)
     mandate.refresh_from_db()
     return mandate
@@ -220,4 +289,6 @@ def revoke_mandate(info: Info, input: RevokeMandateInput) -> types.Mandate:
 
 def mandate(info: Info, id: strawberry.ID) -> types.Mandate:
     """One mandate, visible to its grantor, org admins, its issuing app and its agent."""
-    return _managed_mandate(info, get_scoped_or_denied(models.Mandate.objects, info, id=id))
+    return _managed_mandate(
+        info, get_scoped_or_denied(models.Mandate.objects, info, id=id)
+    )

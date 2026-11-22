@@ -34,7 +34,9 @@ V2 = {**V1, "version": "1.1.0"}
 
 
 def _decode(access_token: str) -> dict:
-    return jwt.decode(access_token, RSAKey.import_key(settings.PUBLIC_KEY), algorithms=["RS256"]).claims
+    return jwt.decode(
+        access_token, RSAKey.import_key(settings.PUBLIC_KEY), algorithms=["RS256"]
+    ).claims
 
 
 def _login(client, manifest=V1, user=None, hub=None):
@@ -48,17 +50,30 @@ def _login(client, manifest=V1, user=None, hub=None):
     if user is None:
         user = factories.make_user()
         factories.make_membership(user=user, organization=hub.organization)
-    validate_device_code(models.DeviceCode.objects.get(secret=body["device_code"]), user=user, organization=hub.organization, hub=hub)
+    validate_device_code(
+        models.DeviceCode.objects.get(secret=body["device_code"]),
+        user=user,
+        organization=hub.organization,
+        hub=hub,
+    )
     token = client.post(
         reverse("token"),
-        data={"grant_type": DEVICE_CODE_GRANT, "device_code": body["device_code"], "client_id": body["client_id"]},
+        data={
+            "grant_type": DEVICE_CODE_GRANT,
+            "device_code": body["device_code"],
+            "client_id": body["client_id"],
+        },
         secure=True,
     ).json()
     return token, hub, user
 
 
 def _refresh(client, token, manifest=None):
-    data = {"grant_type": "refresh_token", "refresh_token": token["refresh_token"], "client_id": token["client_id"]}
+    data = {
+        "grant_type": "refresh_token",
+        "refresh_token": token["refresh_token"],
+        "client_id": token["client_id"],
+    }
     if manifest is not None:
         data["manifest"] = json.dumps(manifest)
     response = client.post(reverse("token"), data=data, secure=True)
@@ -99,7 +114,9 @@ def test_a_new_version_moves_the_client_and_gives_it_a_new_identity(client):
     assert claims["client_device"] == before["client_device"]
 
     # The earlier release keeps the id the services knew it by.
-    assert set(fakts_client.identities.values_list("release__version", "token_client_id")) == {
+    assert set(
+        fakts_client.identities.values_list("release__version", "token_client_id")
+    ) == {
         ("1.0.0", before["client_id"]),
         ("1.1.0", claims["client_id"]),
     }
@@ -144,7 +161,10 @@ def test_asking_for_more_changes_nothing_and_says_so(client, change):
     claims = _decode(refreshed["access_token"])
     assert claims["client_release"] == "1.0.0"
     assert claims["client_id"] == token["client_id"]
-    assert models.Client.objects.get(client_id=token["client_id"]).release.version == "1.0.0"
+    assert (
+        models.Client.objects.get(client_id=token["client_id"]).release.version
+        == "1.0.0"
+    )
     assert models.ClientIdentity.objects.count() == 0
 
 
@@ -179,7 +199,12 @@ def test_a_manifest_that_cannot_be_read_does_not_fail_the_refresh(client):
 
     response = client.post(
         reverse("token"),
-        data={"grant_type": "refresh_token", "refresh_token": token["refresh_token"], "client_id": token["client_id"], "manifest": "{not json"},
+        data={
+            "grant_type": "refresh_token",
+            "refresh_token": token["refresh_token"],
+            "client_id": token["client_id"],
+            "manifest": "{not json",
+        },
         secure=True,
     )
 

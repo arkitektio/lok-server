@@ -41,7 +41,9 @@ async def _scoped_membership(context) -> Membership:
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_main_schema_exposes_membership_and_organization_brand(db, authenticated_context):
+async def test_main_schema_exposes_membership_and_organization_brand(
+    db, authenticated_context
+):
     membership = await _scoped_membership(authenticated_context)
     membership.brand_hue, membership.brand_chroma = 210.0, 0.14
     await sync_to_async(membership.save)()
@@ -53,9 +55,7 @@ async def test_main_schema_exposes_membership_and_organization_brand(db, authent
     result = await main_schema.execute(ME_QUERY, context_value=authenticated_context)
     assert not result.errors, result.errors
 
-    got = next(
-        m for m in result.data["me"]["memberships"] if m["brandHue"] == 210.0
-    )
+    got = next(m for m in result.data["me"]["memberships"] if m["brandHue"] == 210.0)
     assert got["brandChroma"] == 0.14
     assert got["organization"] == {"brandHue": 267.0, "brandChroma": 0.19}
 
@@ -84,7 +84,9 @@ mutation ($input: SetMembershipBrandHueInput!) {
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_setting_one_brand_field_leaves_the_other_alone(db, authenticated_context):
+async def test_setting_one_brand_field_leaves_the_other_alone(
+    db, authenticated_context
+):
     """The reason the input uses UNSET rather than a null default.
 
     `brandHue` and `brandChroma` share one mutation, so if an omitted field read
@@ -154,7 +156,9 @@ async def test_main_schema_updates_the_callers_own_colors(db, authenticated_cont
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_main_schema_colors_touch_only_the_callers_membership(db, authenticated_context):
+async def test_main_schema_colors_touch_only_the_callers_membership(
+    db, authenticated_context
+):
     """The row is looked up by `(caller, active organization)`, so one member's
     colours can never land on another tenant's — or another member's — row."""
     from tests import factories
@@ -162,7 +166,9 @@ async def test_main_schema_colors_touch_only_the_callers_membership(db, authenti
 
     def _other_principal():
         other = factories.make_membership()
-        return build_auth_context(other.user, other.organization, factories.make_client(membership=other)), other
+        return build_auth_context(
+            other.user, other.organization, factories.make_client(membership=other)
+        ), other
 
     other_context, other = await sync_to_async(_other_principal)()
 

@@ -7,7 +7,7 @@ Run through ``manage.py reconcile_meshes``.
 
 import logging
 from dataclasses import dataclass, field
-from typing import List, Optional, TextIO
+from typing import TextIO
 
 from django.db import IntegrityError, transaction
 
@@ -26,11 +26,11 @@ logger = logging.getLogger(__name__)
 class ReconcileReport:
     layer: IonscaleLayer
     created_tailnet: bool = False
-    renamed_from: Optional[str] = None
+    renamed_from: str | None = None
     synced: bool = False
     dns_applied: bool = False
-    revoked: List[str] = field(default_factory=list)
-    warnings: List[str] = field(default_factory=list)
+    revoked: list[str] = field(default_factory=list)
+    warnings: list[str] = field(default_factory=list)
 
     @property
     def changed(self) -> bool:
@@ -42,7 +42,7 @@ def reconcile_layer(
     *,
     dry_run: bool = False,
     revoke_orphans: bool = False,
-    out: Optional[TextIO] = None,
+    out: TextIO | None = None,
 ) -> ReconcileReport:
     """Bring one mesh in line with ionscale.
 
@@ -79,7 +79,9 @@ def reconcile_layer(
                     raise
                 # Raced with another creator, or the name is taken by an
                 # unbound tailnet: report, do not steal it.
-                report.warnings.append(f"could not create tailnet {wanted!r}: {exc.message}")
+                report.warnings.append(
+                    f"could not create tailnet {wanted!r}: {exc.message}"
+                )
                 say(f"[{org.pk}] WARNING {report.warnings[-1]}")
                 tailnet = repo.get_tailnet_by_organization(str(org.pk))
                 if tailnet is None:
@@ -94,11 +96,15 @@ def reconcile_layer(
             except IonscaleError as exc:
                 if exc.code != "already_exists":
                     raise
-                report.warnings.append(f"cannot rename tailnet to {wanted!r}: name taken on ionscale")
+                report.warnings.append(
+                    f"cannot rename tailnet to {wanted!r}: name taken on ionscale"
+                )
                 say(f"[{org.pk}] WARNING {report.warnings[-1]}")
                 wanted = tailnet.name
 
-    if tailnet is not None and (layer.tailnet_name != tailnet.name or layer.identifier != tailnet.name):
+    if tailnet is not None and (
+        layer.tailnet_name != tailnet.name or layer.identifier != tailnet.name
+    ):
         say(f"[{org.pk}] layer tailnet_name {layer.tailnet_name!r} -> {tailnet.name!r}")
         if not dry_run:
             try:
@@ -125,7 +131,9 @@ def reconcile_layer(
             # Full members, as `sync` lists them: a scoped member never has an
             # account of their own on the tailnet.
             str(pk)
-            for pk in Membership.objects.filter(organization=org, collaboration_grants__isnull=True).values_list("user_id", flat=True)
+            for pk in Membership.objects.filter(
+                organization=org, collaboration_grants__isnull=True
+            ).values_list("user_id", flat=True)
         }
         for user in repo.list_users(layer.tailnet_name):
             if user.external_id is None:
@@ -143,7 +151,7 @@ def reconcile_layer(
     return report
 
 
-def orphaned_tailnets(layers) -> List[base_models.Tailnet]:
+def orphaned_tailnets(layers) -> list[base_models.Tailnet]:
     """Tailnets bound to an organization that has no mesh layer (or no longer
     exists). Reported only; deleting them is a manual decision."""
     known = {str(layer.organization_id) for layer in layers}
@@ -157,14 +165,16 @@ def orphaned_tailnets(layers) -> List[base_models.Tailnet]:
 @dataclass
 class SidecarReport:
     layer: IonscaleLayer
-    reaped_enrollments: List[str] = field(default_factory=list)
-    reaped_hubs: List[str] = field(default_factory=list)
-    deleted_machines: List[str] = field(default_factory=list)
+    reaped_enrollments: list[str] = field(default_factory=list)
+    reaped_hubs: list[str] = field(default_factory=list)
+    deleted_machines: list[str] = field(default_factory=list)
     acl_applied: bool = False
 
     @property
     def changed(self) -> bool:
-        return bool(self.reaped_enrollments or self.reaped_hubs or self.deleted_machines)
+        return bool(
+            self.reaped_enrollments or self.reaped_hubs or self.deleted_machines
+        )
 
 
 def reconcile_sidecars(
@@ -172,7 +182,7 @@ def reconcile_sidecars(
     *,
     dry_run: bool = False,
     migrate_tags: bool = False,
-    out: Optional[TextIO] = None,
+    out: TextIO | None = None,
 ) -> SidecarReport:
     """Bring an organization's app and hub sidecars in line with their clients.
 
@@ -188,7 +198,12 @@ def reconcile_sidecars(
       the grace its sidecar is kept, but only live clients get a rule.
     """
     from fakts.models import AppMeshEnrollment, Hub
-    from fakts.services.mesh import enrollment_is_retained, hub_identity_is_retained, reap_enrollment, reap_hub_sidecar
+    from fakts.services.mesh import (
+        enrollment_is_retained,
+        hub_identity_is_retained,
+        reap_enrollment,
+        reap_hub_sidecar,
+    )
 
     from .acl import APP_TAG_PREFIX, HUB_TAG_PREFIX, apply_acl_policy, mesh_tag
 
@@ -201,12 +216,16 @@ def reconcile_sidecars(
             out.write(message + "\n")
 
     for enrollment in AppMeshEnrollment.objects.filter(organization=org):
-        if enrollment_is_retained(enrollment.membership_id, enrollment.app_id, enrollment.device_id):
+        if enrollment_is_retained(
+            enrollment.membership_id, enrollment.app_id, enrollment.device_id
+        ):
             continue
         say(f"[{org.pk}] reaping {enrollment.tag}: no client with a session")
         report.reaped_enrollments.append(enrollment.tag)
         if not dry_run:
-            reap_enrollment(enrollment.membership_id, enrollment.app_id, enrollment.device_id)
+            reap_enrollment(
+                enrollment.membership_id, enrollment.app_id, enrollment.device_id
+            )
 
     live_hubs = set()
     for hub in Hub.objects.filter(organization=org):
@@ -219,18 +238,24 @@ def reconcile_sidecars(
                 reap_hub_sidecar(hub)
 
     live_apps = {
-        e.tag for e in AppMeshEnrollment.objects.filter(organization=org) if e.tag not in report.reaped_enrollments
+        e.tag
+        for e in AppMeshEnrollment.objects.filter(organization=org)
+        if e.tag not in report.reaped_enrollments
     }
     repo = get_ionscale_repo()
     for machine in repo.list_machines(layer.tailnet_name):
-        sidecar_tags = [t for t in machine.tags if t.startswith((APP_TAG_PREFIX, HUB_TAG_PREFIX))]
+        sidecar_tags = [
+            t for t in machine.tags if t.startswith((APP_TAG_PREFIX, HUB_TAG_PREFIX))
+        ]
         if not sidecar_tags:
             continue
         orphan = not any(t in live_apps or t in live_hubs for t in sidecar_tags)
         stale_tag = migrate_tags and mesh_tag(org.pk) in machine.tags
         if not (orphan or stale_tag):
             continue
-        reason = "orphaned sidecar" if orphan else "sidecar still tagged " + mesh_tag(org.pk)
+        reason = (
+            "orphaned sidecar" if orphan else "sidecar still tagged " + mesh_tag(org.pk)
+        )
         say(f"[{org.pk}] deleting node {machine.name} ({machine.id}): {reason}")
         report.deleted_machines.append(machine.id)
         if not dry_run:

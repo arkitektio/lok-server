@@ -1,6 +1,7 @@
 """Hub health reports of the active organization, live."""
 
-from typing import Annotated, AsyncGenerator
+from collections.abc import AsyncGenerator
+from typing import Annotated
 
 import strawberry
 from channels.db import database_sync_to_async
@@ -25,9 +26,13 @@ async def hub_health(
     organization = await database_sync_to_async(get_organization)(info)
 
     def reported(hub_id: int) -> fakts_models.Hub | None:
-        return fakts_models.Hub.objects.filter(id=hub_id, organization=organization).first()
+        return fakts_models.Hub.objects.filter(
+            id=hub_id, organization=organization
+        ).first()
 
-    async for signal in hub_health_channel.listen(info.context, [hub_health_group(organization.pk)]):
+    async for signal in hub_health_channel.listen(
+        info.context, [hub_health_group(organization.pk)]
+    ):
         if hub is not None and str(signal.hub_id) != str(hub):
             continue
         row = await database_sync_to_async(reported)(signal.hub_id)

@@ -28,7 +28,9 @@ def _mesh(slug: str, *, tailnet_name: str | None = None) -> fakts_models.Ionscal
     )
 
 
-def _seed_tailnet(ionscale_repo, layer, name: str | None = None, tailnet_id: str = "1") -> Tailnet:
+def _seed_tailnet(
+    ionscale_repo, layer, name: str | None = None, tailnet_id: str = "1"
+) -> Tailnet:
     tailnet = Tailnet(
         id=tailnet_id,
         name=name or layer.tailnet_name,
@@ -108,7 +110,9 @@ def test_rename_collision_keeps_current_name_with_a_warning(ionscale_repo):
     _seed_tailnet(ionscale_repo, layer, name="taken-old")
     # an unrelated tailnet already owns the wanted name
     wanted = str(layer.organization.pk)
-    ionscale_repo.tailnets.append(Tailnet(id="9", name=wanted, dns_name=wanted, organization=None))
+    ionscale_repo.tailnets.append(
+        Tailnet(id="9", name=wanted, dns_name=wanted, organization=None)
+    )
 
     report = reconcile_layer(layer)
 
@@ -182,7 +186,9 @@ def test_revoke_orphans_only_touches_non_members(ionscale_repo):
 def test_revoke_orphans_refuses_to_guess_without_external_ids(ionscale_repo):
     layer = _mesh("blind")
     _seed_tailnet(ionscale_repo, layer)
-    ionscale_repo.users_by_tailnet[layer.tailnet_name] = [TailnetUser(id="3", name="who", external_id=None)]
+    ionscale_repo.users_by_tailnet[layer.tailnet_name] = [
+        TailnetUser(id="3", name="who", external_id=None)
+    ]
 
     report = reconcile_layer(layer, revoke_orphans=True)
 
@@ -194,7 +200,9 @@ def test_revoke_orphans_refuses_to_guess_without_external_ids(ionscale_repo):
 @pytest.mark.django_db
 def test_control_plane_errors_propagate_to_the_caller(ionscale_repo):
     layer = _mesh("down")
-    ionscale_repo.fail_with["get_tailnet_by_organization"] = IonscaleError("unavailable", "refused")
+    ionscale_repo.fail_with["get_tailnet_by_organization"] = IonscaleError(
+        "unavailable", "refused"
+    )
 
     with pytest.raises(IonscaleError):
         reconcile_layer(layer)
@@ -204,8 +212,12 @@ def test_control_plane_errors_propagate_to_the_caller(ionscale_repo):
 def test_orphaned_tailnets_are_bound_tailnets_without_a_layer(ionscale_repo):
     layer = _mesh("kept")
     _seed_tailnet(ionscale_repo, layer)
-    ionscale_repo.tailnets.append(Tailnet(id="7", name="deleted-org", dns_name="d", organization="424242"))
-    ionscale_repo.tailnets.append(Tailnet(id="8", name="unbound", dns_name="u", organization=None))
+    ionscale_repo.tailnets.append(
+        Tailnet(id="7", name="deleted-org", dns_name="d", organization="424242")
+    )
+    ionscale_repo.tailnets.append(
+        Tailnet(id="8", name="unbound", dns_name="u", organization=None)
+    )
 
     orphans = orphaned_tailnets(fakts_models.IonscaleLayer.objects.all())
 
@@ -220,7 +232,9 @@ def test_command_reconciles_every_mesh_and_reports_orphans(ionscale_repo):
     a = _mesh("cmd-a")
     b = _mesh("cmd-b")  # missing on ionscale -> created
     _seed_tailnet(ionscale_repo, a)
-    ionscale_repo.tailnets.append(Tailnet(id="7", name="stray", dns_name="s", organization="424242"))
+    ionscale_repo.tailnets.append(
+        Tailnet(id="7", name="stray", dns_name="s", organization="424242")
+    )
     out = io.StringIO()
 
     call_command("reconcile_meshes", stdout=out)
@@ -252,10 +266,17 @@ def test_command_scopes_to_one_organization(ionscale_repo):
     out = io.StringIO()
 
     call_command("reconcile_meshes", "--organization", "cmd-one", stdout=out)
-    assert [t.name for t in ionscale_repo.created_tailnets] == [str(one.organization.pk)]
+    assert [t.name for t in ionscale_repo.created_tailnets] == [
+        str(one.organization.pk)
+    ]
 
-    call_command("reconcile_meshes", "--organization", str(other.organization.pk), stdout=out)
-    assert [t.name for t in ionscale_repo.created_tailnets] == [str(one.organization.pk), str(other.organization.pk)]
+    call_command(
+        "reconcile_meshes", "--organization", str(other.organization.pk), stdout=out
+    )
+    assert [t.name for t in ionscale_repo.created_tailnets] == [
+        str(one.organization.pk),
+        str(other.organization.pk),
+    ]
 
     with pytest.raises(CommandError):
         call_command("reconcile_meshes", "--organization", "no-such-org")

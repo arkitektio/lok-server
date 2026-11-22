@@ -56,7 +56,9 @@ def _org_with_member():
     admin.roles.add(admin_role)
 
     member = factories.make_membership(organization=org)
-    models.ComChannel.objects.create(user=member.user, token=f"ExponentPushToken[{member.pk}]")
+    models.ComChannel.objects.create(
+        user=member.user, token=f"ExponentPushToken[{member.pk}]"
+    )
 
     bystander = factories.make_membership(organization=org)
     return org, admin, member, bystander
@@ -68,7 +70,9 @@ def _context_for(membership):
 
 
 async def _run(query, context, variables):
-    return await management_schema.execute(query, context_value=context, variable_values=variables)
+    return await management_schema.execute(
+        query, context_value=context, variable_values=variables
+    )
 
 
 def _reload(membership):
@@ -90,14 +94,18 @@ async def test_member_can_opt_out_and_back_in():
     context = await sync_to_async(_context_for)(member)
 
     result = await _run(
-        SET_NOTIFICATIONS, context, {"input": {"organization": str(org.id), "allow": False}}
+        SET_NOTIFICATIONS,
+        context,
+        {"input": {"organization": str(org.id), "allow": False}},
     )
     assert not result.errors, result.errors
     assert result.data["setMembershipNotifications"]["allowNotifications"] is False
     assert (await sync_to_async(_reload)(member)).allow_notifications is False
 
     result = await _run(
-        SET_NOTIFICATIONS, context, {"input": {"organization": str(org.id), "allow": True}}
+        SET_NOTIFICATIONS,
+        context,
+        {"input": {"organization": str(org.id), "allow": True}},
     )
     assert not result.errors, result.errors
     assert (await sync_to_async(_reload)(member)).allow_notifications is True
@@ -111,7 +119,9 @@ async def test_member_cannot_flip_someone_elses_consent():
     context = await sync_to_async(_context_for)(bystander)
 
     result = await _run(
-        SET_NOTIFICATIONS, context, {"input": {"organization": str(org.id), "allow": False}}
+        SET_NOTIFICATIONS,
+        context,
+        {"input": {"organization": str(org.id), "allow": False}},
     )
 
     # The bystander only ever changes their own row; the member's stays put.
@@ -130,7 +140,13 @@ async def test_admin_can_notify_an_opted_in_member():
         result = await _run(
             NOTIFY_MEMBER,
             context,
-            {"input": {"membership": str(member.pk), "title": "Heads up", "message": "Standup at 10"}},
+            {
+                "input": {
+                    "membership": str(member.pk),
+                    "title": "Heads up",
+                    "message": "Standup at 10",
+                }
+            },
         )
 
     assert not result.errors, result.errors
@@ -154,7 +170,9 @@ async def test_opted_out_member_is_never_published_to():
 
     with patch.object(models.ComChannel, "publish", return_value="ok") as publish:
         result = await _run(
-            NOTIFY_MEMBER, context, {"input": {"membership": str(member.pk), "message": "hi"}}
+            NOTIFY_MEMBER,
+            context,
+            {"input": {"membership": str(member.pk), "message": "hi"}},
         )
 
     assert result.errors
@@ -171,7 +189,9 @@ async def test_a_plain_member_may_notify_a_peer():
 
     with patch.object(models.ComChannel, "publish", return_value="ok") as publish:
         result = await _run(
-            NOTIFY_MEMBER, context, {"input": {"membership": str(member.pk), "message": "hi"}}
+            NOTIFY_MEMBER,
+            context,
+            {"input": {"membership": str(member.pk), "message": "hi"}},
         )
 
     assert not result.errors, result.errors
@@ -191,7 +211,9 @@ async def test_a_peers_send_still_respects_the_recipients_mute():
 
     with patch.object(models.ComChannel, "publish", return_value="ok") as publish:
         result = await _run(
-            NOTIFY_MEMBER, context, {"input": {"membership": str(member.pk), "message": "hi"}}
+            NOTIFY_MEMBER,
+            context,
+            {"input": {"membership": str(member.pk), "message": "hi"}},
         )
 
     assert result.errors
@@ -210,7 +232,9 @@ async def test_outsider_may_not_notify_across_organizations():
 
     with patch.object(models.ComChannel, "publish", return_value="ok") as publish:
         result = await _run(
-            NOTIFY_MEMBER, context, {"input": {"membership": str(member.pk), "message": "hi"}}
+            NOTIFY_MEMBER,
+            context,
+            {"input": {"membership": str(member.pk), "message": "hi"}},
         )
 
     assert result.errors
@@ -227,7 +251,9 @@ async def test_notifying_a_member_with_no_device_is_an_error_not_a_silent_succes
     context = await sync_to_async(_context_for)(admin)
 
     result = await _run(
-        NOTIFY_MEMBER, context, {"input": {"membership": str(bystander.pk), "message": "hi"}}
+        NOTIFY_MEMBER,
+        context,
+        {"input": {"membership": str(bystander.pk), "message": "hi"}},
     )
 
     assert result.errors
@@ -242,7 +268,9 @@ async def test_empty_message_is_rejected():
 
     with patch.object(models.ComChannel, "publish", return_value="ok") as publish:
         result = await _run(
-            NOTIFY_MEMBER, context, {"input": {"membership": str(member.pk), "message": "   "}}
+            NOTIFY_MEMBER,
+            context,
+            {"input": {"membership": str(member.pk), "message": "   "}},
         )
 
     assert result.errors
@@ -259,7 +287,9 @@ async def test_title_defaults_to_the_organization_name():
 
     with patch.object(models.ComChannel, "publish", return_value="ok") as publish:
         result = await _run(
-            NOTIFY_MEMBER, context, {"input": {"membership": str(member.pk), "message": "hi"}}
+            NOTIFY_MEMBER,
+            context,
+            {"input": {"membership": str(member.pk), "message": "hi"}},
         )
 
     assert not result.errors, result.errors
@@ -280,7 +310,9 @@ async def test_title_falls_back_to_the_slug_for_an_unnamed_organization():
 
     with patch.object(models.ComChannel, "publish", return_value="ok") as publish:
         result = await _run(
-            NOTIFY_MEMBER, context, {"input": {"membership": str(member.pk), "message": "hi"}}
+            NOTIFY_MEMBER,
+            context,
+            {"input": {"membership": str(member.pk), "message": "hi"}},
         )
 
     assert not result.errors, result.errors
@@ -316,7 +348,9 @@ async def test_a_rejecting_device_counts_as_attempted_but_not_delivered():
 
     with patch.object(models.ComChannel, "publish", side_effect=["ok", "Error"]):
         result = await _run(
-            NOTIFY_MEMBER, context, {"input": {"membership": str(member.pk), "message": "hi"}}
+            NOTIFY_MEMBER,
+            context,
+            {"input": {"membership": str(member.pk), "message": "hi"}},
         )
 
     assert not result.errors, result.errors

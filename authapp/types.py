@@ -1,5 +1,6 @@
 import strawberry
 import strawberry_django
+
 from fakts import models
 
 
@@ -12,6 +13,3 @@ class OAuth2ClientOrdering:
 class Oauth2Client:
     id: str
     client_id: str
-    
-    
-    

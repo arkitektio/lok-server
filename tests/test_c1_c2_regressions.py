@@ -7,13 +7,12 @@ C2 — the main GraphQL API must reject a token not issued by, or not addressed
 
 import pytest
 from asgiref.sync import sync_to_async
+from authentikate.base_models import StaticToken
+from authentikate.errors import InvalidJwtTokenError
 from django.conf import settings
 
 from authapp.extension import assert_addressed_to_lok
-from authentikate.base_models import StaticToken
-from authentikate.errors import InvalidJwtTokenError
 from karakter.models import Membership, Organization, User
-
 
 # --------------------------------------------------------------------------- #
 # C1
@@ -119,7 +118,7 @@ def _jwt_token(**overrides):
 
     from authentikate.base_models import JWTToken
 
-    now = datetime.datetime.now(datetime.timezone.utc)
+    now = datetime.datetime.now(datetime.UTC)
     claims = dict(
         sub="1",
         iss=settings.OIDC_ISSUER,
@@ -166,15 +165,18 @@ async def test_extension_resolves_the_organization_by_pk_from_a_real_token():
     """The production resolution path: `org` claim -> Organization pk lookup,
     end to end through the extension rather than `read_org_claim` alone.
     """
-    from asgiref.sync import sync_to_async
 
     from authapp.extension import AuthAppExtension
 
     org = await sync_to_async(Organization.objects.create)(
-        slug="pk-resolution", name="PK Resolution", owner=await sync_to_async(User.objects.create)(username="pkowner")
+        slug="pk-resolution",
+        name="PK Resolution",
+        owner=await sync_to_async(User.objects.create)(username="pkowner"),
     )
 
-    resolved = await AuthAppExtension().aexpand_organization_from_token(_jwt_token(org=str(org.pk)))
+    resolved = await AuthAppExtension().aexpand_organization_from_token(
+        _jwt_token(org=str(org.pk))
+    )
     assert resolved.pk == org.pk
 
 
@@ -185,7 +187,9 @@ async def test_extension_fails_closed_on_an_unknown_or_malformed_org():
 
     for org in ("99999999", "not-a-pk"):
         with pytest.raises(InvalidJwtTokenError):
-            await AuthAppExtension().aexpand_organization_from_token(_jwt_token(org=org))
+            await AuthAppExtension().aexpand_organization_from_token(
+                _jwt_token(org=org)
+            )
 
 
 @pytest.mark.django_db

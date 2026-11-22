@@ -63,11 +63,16 @@ def _context(sec, **extra):
 
 
 class ReportForm(forms.Form):
-    kind = forms.ChoiceField(choices=VulnerabilityReport.Kind.choices, initial=VulnerabilityReport.Kind.UNSURE)
+    kind = forms.ChoiceField(
+        choices=VulnerabilityReport.Kind.choices,
+        initial=VulnerabilityReport.Kind.UNSURE,
+    )
     title = forms.CharField(max_length=200)
     affected = forms.CharField(max_length=500)
     description = forms.CharField(max_length=20000, widget=forms.Textarea)
-    reproduction = forms.CharField(max_length=20000, required=False, widget=forms.Textarea)
+    reproduction = forms.CharField(
+        max_length=20000, required=False, widget=forms.Textarea
+    )
     # Free text on purpose: an email address OR a phone number OR anything else the
     # reporter wants to be reached by (TR-03183-3 4.4.7e). Never validated as email,
     # and never written to automatically: lok sends nothing to it.
@@ -75,7 +80,9 @@ class ReportForm(forms.Form):
     wants_credit = forms.BooleanField(required=False)
     credit_name = forms.CharField(max_length=120, required=False)
     credit_reference = forms.CharField(max_length=300, required=False)
-    language = forms.ChoiceField(choices=(("en", "English"), ("de", "Deutsch")), initial="en")
+    language = forms.ChoiceField(
+        choices=(("en", "English"), ("de", "Deutsch")), initial="en"
+    )
     # Honeypot: hidden from people by CSS, filled in by naive bots.
     website = forms.CharField(required=False)
 
@@ -95,11 +102,18 @@ class ReportPage(View):
     def post(self, request):
         sec = _security()
         if is_throttled(request, "cvd-report", REPORT_LIMIT_PER_MINUTE):
-            return render(request, "cvd/report.html", _context(sec, form=ReportForm(request.POST), throttled=True), status=429)
+            return render(
+                request,
+                "cvd/report.html",
+                _context(sec, form=ReportForm(request.POST), throttled=True),
+                status=429,
+            )
 
         form = ReportForm(request.POST)
         if not form.is_valid():
-            return render(request, "cvd/report.html", _context(sec, form=form), status=400)
+            return render(
+                request, "cvd/report.html", _context(sec, form=form), status=400
+            )
 
         data = form.cleaned_data
         if data["website"]:
@@ -119,7 +133,9 @@ class ReportPage(View):
             language=data["language"],
         )
         _notify(request, sec, report)
-        response = HttpResponseRedirect(f"{sec.base_path}/thanks?ref={report.reference}")
+        response = HttpResponseRedirect(
+            f"{sec.base_path}/thanks?ref={report.reference}"
+        )
         response.status_code = 303
         return response
 
@@ -128,9 +144,15 @@ def _notify(request, sec, report: VulnerabilityReport) -> None:
     """Tell the PSIRT mailbox a report arrived. Only the reference and where to read it:
     the report itself stays in lok and never travels as plaintext email."""
     if getattr(settings, "EMAIL_HOST", None) in (None, "", "localhost"):
-        logger.warning("Vulnerability report %s filed, but lok has no outbound email to notify %s", report.reference, sec.psirt.email)
+        logger.warning(
+            "Vulnerability report %s filed, but lok has no outbound email to notify %s",
+            report.reference,
+            sec.psirt.email,
+        )
         return
-    admin_url = request.build_absolute_uri(reverse("admin:cvd_vulnerabilityreport_change", args=[report.pk]))
+    admin_url = request.build_absolute_uri(
+        reverse("admin:cvd_vulnerabilityreport_change", args=[report.pk])
+    )
     try:
         send_mail(
             subject=f"[{sec.vendor}] New vulnerability report {report.reference}",
@@ -147,14 +169,22 @@ def _notify(request, sec, report: VulnerabilityReport) -> None:
             fail_silently=False,
         )
     except Exception:
-        logger.exception("Could not notify %s about vulnerability report %s", sec.psirt.email, report.reference)
+        logger.exception(
+            "Could not notify %s about vulnerability report %s",
+            sec.psirt.email,
+            report.reference,
+        )
 
 
 class ThanksPage(View):
     def get(self, request):
         sec = _security()
         ref = request.GET.get("ref", "")
-        return render(request, "cvd/thanks.html", _context(sec, reference=ref if _REFERENCE.match(ref) else None))
+        return render(
+            request,
+            "cvd/thanks.html",
+            _context(sec, reference=ref if _REFERENCE.match(ref) else None),
+        )
 
 
 class PolicyPage(View):
@@ -166,4 +196,6 @@ class AcknowledgementsPage(View):
     def get(self, request):
         sec = _security()
         entries = sorted(sec.acknowledgements, key=lambda a: a.date, reverse=True)
-        return render(request, "cvd/acknowledgements.html", _context(sec, entries=entries))
+        return render(
+            request, "cvd/acknowledgements.html", _context(sec, entries=entries)
+        )

@@ -1,10 +1,11 @@
-from django.core.management.base import BaseCommand
-from fakts.models import KommunityPartner
-from fakts.models import Client
-from fakts.config_models import KommunityPartnerConfigModel  # <-- Your validated Pydantic schema
-from django.contrib.auth import get_user_model
 from django.conf import settings
+from django.contrib.auth import get_user_model
+from django.core.management.base import BaseCommand
 
+from fakts.config_models import (
+    KommunityPartnerConfigModel,  # <-- Your validated Pydantic schema
+)
+from fakts.models import Client, KommunityPartner
 
 User = get_user_model()
 
@@ -22,18 +23,26 @@ class Command(BaseCommand):
             # Prepare preconfigured hub data if present
             preconfigured_hub_data = None
             if partner.preconfigured_hub:
-                preconfigured_hub_data = partner.preconfigured_hub.model_dump(mode="json")
+                preconfigured_hub_data = partner.preconfigured_hub.model_dump(
+                    mode="json"
+                )
 
             # First, handle the OAuth2 client if present
             oauth_client = None
             if partner.oauth2:
                 try:
-                    oauth_client = Client.objects.get(client_id=partner.oauth2.client_id)
+                    oauth_client = Client.objects.get(
+                        client_id=partner.oauth2.client_id
+                    )
                     oauth_client.client_secret = partner.oauth2.client_secret
                     oauth_client.redirect_uris = " ".join(partner.oauth2.redirect_uris)
                     oauth_client.scope = "openid profile email"
                     oauth_client.save()
-                    self.stdout.write(self.style.SUCCESS(f"Updated OpenID client {oauth_client.client_id}"))
+                    self.stdout.write(
+                        self.style.SUCCESS(
+                            f"Updated OpenID client {oauth_client.client_id}"
+                        )
+                    )
                 except Client.DoesNotExist:
                     oauth_client = Client.objects.create(
                         client_id=partner.oauth2.client_id,
@@ -43,10 +52,18 @@ class Command(BaseCommand):
                         kind="relying_party",
                         scope="openid profile email",
                     )
-                    self.stdout.write(self.style.SUCCESS(f"Created OpenID client {oauth_client.client_id}"))
+                    self.stdout.write(
+                        self.style.SUCCESS(
+                            f"Created OpenID client {oauth_client.client_id}"
+                        )
+                    )
 
             # Create or update the KommunityPartner
-            filter_config_data = partner.filter_config.model_dump(mode="json") if partner.filter_config else {}
+            filter_config_data = (
+                partner.filter_config.model_dump(mode="json")
+                if partner.filter_config
+                else {}
+            )
 
             kommunity_partner, created = KommunityPartner.objects.update_or_create(
                 identifier=partner.identifier,
@@ -71,14 +88,32 @@ class Command(BaseCommand):
             )
 
             if created:
-                self.stdout.write(self.style.SUCCESS(f"Created KommunityPartner: {kommunity_partner.identifier}"))
+                self.stdout.write(
+                    self.style.SUCCESS(
+                        f"Created KommunityPartner: {kommunity_partner.identifier}"
+                    )
+                )
             else:
-                self.stdout.write(self.style.SUCCESS(f"Updated KommunityPartner: {kommunity_partner.identifier}"))
+                self.stdout.write(
+                    self.style.SUCCESS(
+                        f"Updated KommunityPartner: {kommunity_partner.identifier}"
+                    )
+                )
 
             if partner.preconfigured_hub:
-                self.stdout.write(self.style.SUCCESS(f"  -> Preconfigured hub: {partner.preconfigured_hub.identifier}"))
+                self.stdout.write(
+                    self.style.SUCCESS(
+                        f"  -> Preconfigured hub: {partner.preconfigured_hub.identifier}"
+                    )
+                )
             if partner.auto_configure:
-                self.stdout.write(self.style.WARNING(f"  -> Auto-configure enabled: hubs will be created for new organizations"))
+                self.stdout.write(
+                    self.style.WARNING(
+                        "  -> Auto-configure enabled: hubs will be created for new organizations"
+                    )
+                )
 
             if filter_config_data:
-                self.stdout.write(self.style.SUCCESS(f"  -> Filter config: {filter_config_data}"))
+                self.stdout.write(
+                    self.style.SUCCESS(f"  -> Filter config: {filter_config_data}")
+                )

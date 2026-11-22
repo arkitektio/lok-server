@@ -15,14 +15,12 @@ accept an RP ID that is a registrable-domain suffix of the page origin
 (``fido2/rpid.py:101-104``), so one credential then works from every subdomain.
 """
 
-from typing import Dict
-
 from allauth.mfa.adapter import DefaultMFAAdapter
 from django.conf import settings
 
 
 class LokMFAAdapter(DefaultMFAAdapter):
-    def get_public_key_credential_rp_entity(self) -> Dict[str, str]:
+    def get_public_key_credential_rp_entity(self) -> dict[str, str]:
         entity = super().get_public_key_credential_rp_entity()
         rp_id = getattr(settings, "MFA_WEBAUTHN_RP_ID", None)
         if rp_id:

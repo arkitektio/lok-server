@@ -19,7 +19,9 @@ from tests import factories
 
 def _instance(hub, service_identifier="com.example.db"):
     service = factories.make_service(identifier=service_identifier)
-    return factories.make_service_instance(hub=hub, release=factories.make_service_release(service=service))
+    return factories.make_service_instance(
+        hub=hub, release=factories.make_service_release(service=service)
+    )
 
 
 def _requirement(service="com.example.db", key="db", optional=False):
@@ -27,11 +29,18 @@ def _requirement(service="com.example.db", key="db", optional=False):
 
 
 def _manifest(*requirements):
-    return base_models.Manifest(identifier="com.example.app", version="1.0.0", scopes=[], requirements=list(requirements))
+    return base_models.Manifest(
+        identifier="com.example.app",
+        version="1.0.0",
+        scopes=[],
+        requirements=list(requirements),
+    )
 
 
 def _find(instance_hub, user, **kw):
-    return rendering.find_instance_for_requirement_and_hub(_requirement(**kw), user, instance_hub)
+    return rendering.find_instance_for_requirement_and_hub(
+        _requirement(**kw), user, instance_hub
+    )
 
 
 @pytest.mark.django_db
@@ -109,11 +118,15 @@ def test_granted_requirement_is_mapped_and_recorded():
     hub, client = _client_in_hub()
     instance = _instance(hub)
 
-    rendering.auto_compose(client, _manifest(_requirement()), client.user, client.organization)
+    rendering.auto_compose(
+        client, _manifest(_requirement()), client.user, client.organization
+    )
 
     client.refresh_from_db()
     assert client.statuses == {"db": "granted"}
-    assert list(client.mappings.values_list("key", "instance_id")) == [("db", instance.id)]
+    assert list(client.mappings.values_list("key", "instance_id")) == [
+        ("db", instance.id)
+    ]
     assert client.requirements_hash
 
 
@@ -123,12 +136,17 @@ def test_a_version_outside_the_requirement_is_said_and_still_handed_out():
     service = factories.make_service(identifier="com.example.db")
     local = factories.make_service_release(service=service, version=versions.LOCAL)
     instance = factories.make_service_instance(hub=hub, release=local)
-    wanted = base_models.Requirement(key="db", service="com.example.db", version=">=12.1")
+    wanted = base_models.Requirement(
+        key="db", service="com.example.db", version=">=12.1"
+    )
     rendering.auto_compose(client, _manifest(wanted), client.user, client.organization)
     mapping = client.mappings.get()
     assert versions.satisfies(instance.release.version, mapping.wants_version) is None
 
-    report = base_models.HubHealthReport(healthy=True, instances={instance.instance_id: {"healthy": True, "version": "11.4.0"}})
+    report = base_models.HubHealthReport(
+        healthy=True,
+        instances={instance.instance_id: {"healthy": True, "version": "11.4.0"}},
+    )
     hubs.report_hub_health(hub, report)
 
     # What the service says it runs is its release, and a manifest that cannot tell keeps it.
@@ -145,7 +163,11 @@ def test_declined_optional_requirement_is_recorded_and_not_mapped():
     _instance(hub)
 
     rendering.auto_compose(
-        client, _manifest(_requirement(optional=True)), client.user, client.organization, declined_requirements=["db"]
+        client,
+        _manifest(_requirement(optional=True)),
+        client.user,
+        client.organization,
+        declined_requirements=["db"],
     )
 
     client.refresh_from_db()
@@ -159,7 +181,13 @@ def test_declining_a_required_requirement_is_ignored():
     hub, client = _client_in_hub()
     _instance(hub)
 
-    rendering.auto_compose(client, _manifest(_requirement()), client.user, client.organization, declined_requirements=["db"])
+    rendering.auto_compose(
+        client,
+        _manifest(_requirement()),
+        client.user,
+        client.organization,
+        declined_requirements=["db"],
+    )
 
     client.refresh_from_db()
     assert client.statuses == {"db": "granted"}
@@ -172,7 +200,10 @@ def test_missing_optional_requirement_is_unavailable_and_the_rest_still_compose(
 
     rendering.auto_compose(
         client,
-        _manifest(_requirement(), _requirement(service="com.missing", key="cache", optional=True)),
+        _manifest(
+            _requirement(),
+            _requirement(service="com.missing", key="cache", optional=True),
+        ),
         client.user,
         client.organization,
     )
@@ -190,13 +221,17 @@ def test_recomposing_with_a_shrunk_manifest_drops_the_stale_mapping():
 
     rendering.auto_compose(
         client,
-        _manifest(_requirement(), _requirement(service="com.example.cache", key="cache")),
+        _manifest(
+            _requirement(), _requirement(service="com.example.cache", key="cache")
+        ),
         client.user,
         client.organization,
     )
     assert set(client.mappings.values_list("key", flat=True)) == {"db", "cache"}
 
-    rendering.auto_compose(client, _manifest(_requirement()), client.user, client.organization)
+    rendering.auto_compose(
+        client, _manifest(_requirement()), client.user, client.organization
+    )
 
     client.refresh_from_db()
     assert list(client.mappings.values_list("key", flat=True)) == ["db"]

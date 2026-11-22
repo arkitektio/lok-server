@@ -16,7 +16,6 @@ import base64
 import binascii
 
 
-
 def validate_challenge_key(value: str) -> str:
     """``value`` if it is base64 of exactly 32 bytes (a raw Ed25519 public key), else ``ValueError``."""
     try:
@@ -24,5 +23,7 @@ def validate_challenge_key(value: str) -> str:
     except (binascii.Error, ValueError) as error:
         raise ValueError("challenge_key is not base64") from error
     if len(raw) != 32:
-        raise ValueError(f"challenge_key must be a raw 32-byte Ed25519 public key, got {len(raw)} bytes")
+        raise ValueError(
+            f"challenge_key must be a raw 32-byte Ed25519 public key, got {len(raw)} bytes"
+        )
     return value

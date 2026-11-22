@@ -1,11 +1,10 @@
 import logging
 
-from kante.types import Info
 from django.contrib.auth import get_user_model
+from kante.types import Info
 
 from fakts import inputs, models, types
 from karakter.authz import get_scoped_or_denied
-
 
 logger = logging.getLogger(__name__)
 

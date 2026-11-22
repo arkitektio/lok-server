@@ -1,9 +1,9 @@
 import pytest
 from asgiref.sync import sync_to_async
-
-from lok_server.schema import schema
 from kante.context import HttpContext
+
 from karakter.models import Membership, Organization, Role, User
+from lok_server.schema import schema
 
 ADD_USER = """
     mutation AddUserToOrganization($input: AddUserToOrganizationInput!) {
@@ -27,7 +27,9 @@ def _invite(target, org):
     """
     from karakter.models import Invite
 
-    invite = Invite.objects.create(created_by=org.owner, created_for=org, email=target.email or None)
+    invite = Invite.objects.create(
+        created_by=org.owner, created_for=org, email=target.email or None
+    )
     invite.accepted_by = target
     invite.save(update_fields=["accepted_by"])
     return invite
@@ -37,13 +39,17 @@ async def _add_user(context, user_id, org_id, roles):
     return await schema.execute(
         ADD_USER,
         context_value=context,
-        variable_values={"input": {"user": str(user_id), "organization": str(org_id), "roles": roles}},
+        variable_values={
+            "input": {"user": str(user_id), "organization": str(org_id), "roles": roles}
+        },
     )
 
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_admin_can_add_user_to_organization(db, authenticated_context: HttpContext):
+async def test_admin_can_add_user_to_organization(
+    db, authenticated_context: HttpContext
+):
     # The roles field is pre-scoped to the request's active organization, so the
     # user must be added to that same org (``testorg``) for the role to be visible.
     org = await sync_to_async(Organization.objects.get)(slug="testorg")
@@ -51,13 +57,20 @@ async def test_admin_can_add_user_to_organization(db, authenticated_context: Htt
     await sync_to_async(_grant_admin)(caller, org)
 
     # A role a service registered: lok itself makes only `admin` and `guest`.
-    await sync_to_async(Role.objects.get_or_create)(identifier="mikro_labeler", organization=org)
+    await sync_to_async(Role.objects.get_or_create)(
+        identifier="mikro_labeler", organization=org
+    )
     target = await sync_to_async(User.objects.create)(username="newcomer")
     await sync_to_async(_invite)(target, org)
-    result = await _add_user(authenticated_context, target.id, org.id, ["mikro_labeler"])
+    result = await _add_user(
+        authenticated_context, target.id, org.id, ["mikro_labeler"]
+    )
 
     assert result.data, result.errors
-    assert result.data["addUserToOrganization"]["roles"][0]["identifier"] == "mikro_labeler"
+    assert (
+        result.data["addUserToOrganization"]["roles"][0]["identifier"]
+        == "mikro_labeler"
+    )
 
 
 @pytest.mark.django_db(transaction=True)
@@ -83,7 +96,9 @@ async def test_ordinary_member_cannot_add_users(db, authenticated_context: HttpC
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_cannot_add_users_to_a_foreign_organization(db, authenticated_context: HttpContext):
+async def test_cannot_add_users_to_a_foreign_organization(
+    db, authenticated_context: HttpContext
+):
     """Cross-tenant: being an admin somewhere grants nothing elsewhere."""
     org = await sync_to_async(Organization.objects.get)(slug="testorg")
     caller = await sync_to_async(User.objects.get)(username="fart")
@@ -104,14 +119,18 @@ async def test_cannot_add_users_to_a_foreign_organization(db, authenticated_cont
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_unknown_role_is_rejected_rather_than_half_applied(db, authenticated_context: HttpContext):
+async def test_unknown_role_is_rejected_rather_than_half_applied(
+    db, authenticated_context: HttpContext
+):
     org = await sync_to_async(Organization.objects.get)(slug="testorg")
     caller = await sync_to_async(User.objects.get)(username="fart")
     await sync_to_async(_grant_admin)(caller, org)
 
     target = await sync_to_async(User.objects.create)(username="rolecheck")
     await sync_to_async(_invite)(target, org)
-    result = await _add_user(authenticated_context, target.id, org.id, ["labeler", "notarole"])
+    result = await _add_user(
+        authenticated_context, target.id, org.id, ["labeler", "notarole"]
+    )
 
     assert result.errors
     assert "notarole" in str(result.errors[0])
@@ -120,13 +139,17 @@ async def test_unknown_role_is_rejected_rather_than_half_applied(db, authenticat
 def _grant_admin(user: User, organization: Organization) -> None:
     from karakter.managers import create_role
 
-    membership, _ = Membership.objects.get_or_create(user=user, organization=organization)
+    membership, _ = Membership.objects.get_or_create(
+        user=user, organization=organization
+    )
     membership.roles.add(create_role(organization=organization, identifier="admin"))
 
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_admin_cannot_add_an_uninvited_stranger(db, authenticated_context: HttpContext):
+async def test_admin_cannot_add_an_uninvited_stranger(
+    db, authenticated_context: HttpContext
+):
     """The consent gap: `input.user` was an arbitrary pk and the person named by
     it never agreed to join. Combined with self-service org creation (any user
     can create an org and be its admin) this was a directory-harvesting

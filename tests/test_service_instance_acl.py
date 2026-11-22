@@ -19,12 +19,19 @@ mutation ($id: ID!, $denied: [ID!]) {
 def _setup(as_owner: bool):
     organization = factories.make_organization()
     factories.make_membership(user=organization.owner, organization=organization)
-    instance = factories.make_service_instance(hub=factories.make_hub(organization=organization))
+    instance = factories.make_service_instance(
+        hub=factories.make_hub(organization=organization)
+    )
     member = factories.make_membership(organization=organization)
     instance.denied_users.add(member.user)
     actor = organization.owner if as_owner else member.user
     membership = organization.memberships.get(user=actor)
-    context = build_auth_context(actor, organization, factories.make_client(membership=membership), scope="openid lok_all")
+    context = build_auth_context(
+        actor,
+        organization,
+        factories.make_client(membership=membership),
+        scope="openid lok_all",
+    )
     return context, instance, member.user
 
 
@@ -38,7 +45,11 @@ def _denied_ids(instance):
 async def test_a_plain_member_cannot_lift_their_own_deny():
     context, instance, member = await sync_to_async(_setup)(as_owner=False)
 
-    result = await main_schema.execute(UPDATE, variable_values={"id": str(instance.id), "denied": []}, context_value=context)
+    result = await main_schema.execute(
+        UPDATE,
+        variable_values={"id": str(instance.id), "denied": []},
+        context_value=context,
+    )
 
     assert result.errors
     assert await _denied_ids(instance) == {member.id}
@@ -49,7 +60,11 @@ async def test_a_plain_member_cannot_lift_their_own_deny():
 async def test_the_owner_rewrites_the_acl():
     context, instance, _member = await sync_to_async(_setup)(as_owner=True)
 
-    result = await main_schema.execute(UPDATE, variable_values={"id": str(instance.id), "denied": []}, context_value=context)
+    result = await main_schema.execute(
+        UPDATE,
+        variable_values={"id": str(instance.id), "denied": []},
+        context_value=context,
+    )
 
     assert result.errors is None, result.errors
     assert await _denied_ids(instance) == set()

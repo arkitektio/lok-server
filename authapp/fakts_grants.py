@@ -40,16 +40,15 @@ fakts imports are deliberately lazy — ``fakts.models`` imports
 import json
 import logging
 
-from django.conf import settings
-from django.utils import timezone
-
-from authlib.oauth2.rfc6749 import BaseGrant, TokenEndpointMixin
 from authlib.oauth2 import OAuth2Error
+from authlib.oauth2.rfc6749 import BaseGrant, TokenEndpointMixin
 from authlib.oauth2.rfc6749.errors import (
     InvalidGrantError,
     InvalidRequestError,
 )
 from authlib.oauth2.rfc8628 import DeviceCodeGrant
+from django.conf import settings
+from django.utils import timezone
 
 logger = logging.getLogger(__name__)
 
@@ -107,13 +106,14 @@ class FaktsEnvelopeMixin:
             # The token itself is valid either way; a rendering failure must not
             # turn a successful grant into a 500. The client can re-render on
             # its next refresh.
-            logger.exception("Could not render fakts envelope for client %s", client.client_id)
+            logger.exception(
+                "Could not render fakts envelope for client %s", client.client_id
+            )
             return token
 
         token.update(envelope)
         token["client_id"] = client.client_id
         return token
-
 
     @staticmethod
     def append_mesh_key(token: dict, key) -> dict:
@@ -167,7 +167,9 @@ class FaktsDeviceCodeGrant(FaktsEnvelopeMixin, DeviceCodeGrant):
         from fakts import models as fakts_models
 
         try:
-            device_code = fakts_models.DeviceCode.objects.select_related("client__membership").get(code=user_code)
+            device_code = fakts_models.DeviceCode.objects.select_related(
+                "client__membership"
+            ).get(code=user_code)
         except fakts_models.DeviceCode.DoesNotExist:
             return None
 
@@ -204,7 +206,10 @@ class FaktsDeviceCodeGrant(FaktsEnvelopeMixin, DeviceCodeGrant):
             # Anything unexpected on the credential → token path (a membership
             # that vanished between approval and poll, a claims lookup failing,
             # ...) must surface as an OAuth error, not a 500 at /o/token/.
-            logger.exception("Device-code grant failed to mint tokens for client %s", client.client_id)
+            logger.exception(
+                "Device-code grant failed to mint tokens for client %s",
+                client.client_id,
+            )
             raise InvalidGrantError(description=str(e))
         self.append_fakts_envelope(token)
         self.append_mesh_key(token, credential.auth_key)
@@ -212,7 +217,6 @@ class FaktsDeviceCodeGrant(FaktsEnvelopeMixin, DeviceCodeGrant):
         # from here on is the refresh-token chain, not the device code.
         credential.delete()
         return 200, token, self.TOKEN_RESPONSE_HEADER
-
 
 
 class FaktsMandateKeyGrant(FaktsEnvelopeMixin, BaseGrant, TokenEndpointMixin):
@@ -246,27 +250,40 @@ class FaktsMandateKeyGrant(FaktsEnvelopeMixin, BaseGrant, TokenEndpointMixin):
                 manifest=json.loads(raw_manifest),
                 **{
                     field: data[field]
-                    for field in ("requested_client_kind", "requested_client_role", "request_auth_key")
+                    for field in (
+                        "requested_client_kind",
+                        "requested_client_role",
+                        "request_auth_key",
+                    )
                     if data.get(field) is not None
                 },
             )
         except ValidationError as e:
             # One line: an OAuth error description may not carry newlines.
-            problems = "; ".join(f"{'.'.join(str(p) for p in err['loc']) or 'request'}: {err['msg']}" for err in e.errors())
+            problems = "; ".join(
+                f"{'.'.join(str(p) for p in err['loc']) or 'request'}: {err['msg']}"
+                for err in e.errors()
+            )
             raise InvalidRequestError(f"Malformed request: {problems}")
         except ValueError as e:
             raise InvalidRequestError(f"Malformed 'manifest': {e}")
 
         try:
             grant = mandates.authenticate_key(request)
-        except (mandates.MandateError, MandatePinMismatch, client_services.DeviceAuthRequired) as e:
+        except (
+            mandates.MandateError,
+            MandatePinMismatch,
+            client_services.DeviceAuthRequired,
+        ) as e:
             raise InvalidGrantError(description=str(e))
         except OAuth2Error:
             raise
         except Exception as e:
             # Binding can fail in many domain-specific ways (a logo download, ...).
             # Every one of them is an OAuth error to the caller, never a 500.
-            logger.exception("Mandate-key grant failed for manifest %s", request.manifest.identifier)
+            logger.exception(
+                "Mandate-key grant failed for manifest %s", request.manifest.identifier
+            )
             raise InvalidGrantError(description=str(e))
 
         self.request.client = grant.client

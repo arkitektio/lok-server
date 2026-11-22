@@ -1,4 +1,5 @@
 from typing import Any, NewType
+
 import strawberry
 
 AppIdentifier = NewType("AppIdentifier", str)

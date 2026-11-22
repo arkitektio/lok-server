@@ -49,10 +49,23 @@ def test_code_placeholder_is_preserved_literally(client):
 @pytest.mark.django_db
 def test_base_fields_are_present(client):
     data = client.get(WELL_KNOWN).json()
-    assert set(data) >= {"base_url", "frontend_url", "configure", "issuer", "token_endpoint", "jwks_uri"}
+    assert set(data) >= {
+        "base_url",
+        "frontend_url",
+        "configure",
+        "issuer",
+        "token_endpoint",
+        "jwks_uri",
+    }
     # The old claim/challenge endpoints (and the pre-RFC-8414 field names) are
     # gone: the canonical grant lives on the token endpoint.
-    for legacy in ("claim", "challenge_url", "device_code_start", "token_url", "jwks_url"):
+    for legacy in (
+        "claim",
+        "challenge_url",
+        "device_code_start",
+        "token_url",
+        "jwks_url",
+    ):
         assert legacy not in data
 
 
@@ -62,10 +75,14 @@ def test_oauth_metadata_is_advertised(client):
     (device authorization + dynamic registration) and token endpoints as
     absolute URLs, plus the supported grants and client auth methods."""
     data = client.get(WELL_KNOWN).json()
-    assert data["device_authorization_endpoint"] == "http://lok/lok/o/app-authorization/"
+    assert (
+        data["device_authorization_endpoint"] == "http://lok/lok/o/app-authorization/"
+    )
     assert data["token_endpoint"] == "http://lok/lok/o/token/"
     assert data["jwks_uri"] == "http://lok/lok/o/jwks/"
-    assert "urn:ietf:params:oauth:grant-type:device_code" in data["grant_types_supported"]
+    assert (
+        "urn:ietf:params:oauth:grant-type:device_code" in data["grant_types_supported"]
+    )
     assert "urn:fakts:grant-type:mandate-key" in data["grant_types_supported"]
     assert "refresh_token" in data["grant_types_supported"]
     assert "none" in data["token_endpoint_auth_methods_supported"]
@@ -78,8 +95,13 @@ def test_oauth_authorization_server_document(client):
     rfc8414 = client.get("/lok/.well-known/oauth-authorization-server").json()
     oidc = client.get("/lok/.well-known/openid-configuration").json()
 
-    for key in ("issuer", "token_endpoint", "jwks_uri",
-                "grant_types_supported", "token_endpoint_auth_methods_supported"):
+    for key in (
+        "issuer",
+        "token_endpoint",
+        "jwks_uri",
+        "grant_types_supported",
+        "token_endpoint_auth_methods_supported",
+    ):
         assert rfc8414[key] == oidc[key]
 
     # The OIDC-specific fields live only on openid-configuration.
@@ -103,11 +125,16 @@ def test_standard_metadata_does_not_advertise_the_private_device_endpoint(client
 
     assert "device_authorization_endpoint" not in rfc8414
     assert "device_authorization_endpoint" not in oidc
-    assert fakts["device_authorization_endpoint"] == "http://lok/lok/o/app-authorization/"
+    assert (
+        fakts["device_authorization_endpoint"] == "http://lok/lok/o/app-authorization/"
+    )
 
     # The grant itself is conforming and stays advertised everywhere.
     for doc in (fakts, rfc8414, oidc):
-        assert "urn:ietf:params:oauth:grant-type:device_code" in doc["grant_types_supported"]
+        assert (
+            "urn:ietf:params:oauth:grant-type:device_code"
+            in doc["grant_types_supported"]
+        )
 
 
 @pytest.mark.django_db

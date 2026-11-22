@@ -24,9 +24,9 @@ from django.core.asgi import get_asgi_application  # noqa: E402
 django_asgi_app = get_asgi_application()
 
 
-from .schema import schema  # noqa: E402
 from kante.router import router  # noqa: E402
 
+from .schema import schema  # noqa: E402
 
 application = telemetry.wrap(
     router(

@@ -9,21 +9,24 @@ generator used to produce JWT bearer tokens. Other modules should import
 ``server.create_token_response``) to handle protocol endpoints.
 """
 
-from django.conf import settings
-from authlib.integrations.django_oauth2 import AuthorizationServer, BearerTokenValidator, ResourceProtector
-from fakts.models import Client
-from .models import OAuth2Token
-from .grants import AuthorizationCodeGrant, OpenIDCode, RefreshTokenGrant
-from .fakts_grants import FaktsDeviceCodeGrant, FaktsMandateKeyGrant
-from .token_generators import MyJWTBearerTokenGenerator
-from authlib.oidc.core import UserInfo
-from .token_generators import jwk_dict, public_jwks
-from authlib.oidc.core.userinfo import UserInfoEndpoint
-
-
+from authlib.integrations.django_oauth2 import (
+    AuthorizationServer,
+    BearerTokenValidator,
+    ResourceProtector,
+)
+from authlib.oauth2.rfc6749.errors import InvalidRequestError
 from authlib.oauth2.rfc7636 import CodeChallenge
 from authlib.oauth2.rfc9068 import JWTBearerTokenValidator
-from authlib.oauth2.rfc6749.errors import InvalidRequestError
+from authlib.oidc.core import UserInfo
+from authlib.oidc.core.userinfo import UserInfoEndpoint
+from django.conf import settings
+
+from fakts.models import Client
+
+from .fakts_grants import FaktsDeviceCodeGrant, FaktsMandateKeyGrant
+from .grants import AuthorizationCodeGrant, OpenIDCode, RefreshTokenGrant
+from .models import OAuth2Token
+from .token_generators import MyJWTBearerTokenGenerator, jwk_dict, public_jwks
 
 
 class RequiredCodeChallenge(CodeChallenge):
@@ -79,7 +82,12 @@ GRANT_TYPES_SUPPORTED = [
 
 # `none` is how the dynamically registered public fakts clients authenticate
 # (client_id only); the secret methods serve confidential OIDC relying parties.
-TOKEN_ENDPOINT_AUTH_METHODS_SUPPORTED = ["client_secret_basic", "client_secret_post", "none"]
+TOKEN_ENDPOINT_AUTH_METHODS_SUPPORTED = [
+    "client_secret_basic",
+    "client_secret_post",
+    "none",
+]
+
 
 # The AuthorizationServer is backed by the unified fakts Client (which
 # implements authlib's ClientMixin directly) and OAuth2Token.
@@ -92,7 +100,11 @@ class LokAuthorizationServer(AuthorizationServer):
         if client is None and client_id:
             from fakts.models import DeviceCode
 
-            code = DeviceCode.objects.select_related("client").filter(polling_client_id=client_id).first()
+            code = (
+                DeviceCode.objects.select_related("client")
+                .filter(polling_client_id=client_id)
+                .first()
+            )
             if code is not None:
                 return code.client
         return client
@@ -119,7 +131,9 @@ server = LokAuthorizationServer(Client, OAuth2Token)
 # `grants.OpenIDCode.validate_openid_authorization_request` applies per request.
 # The `UsedNonce` replay defence is unaffected: it still fires for every client
 # that does send a nonce.
-server.register_grant(AuthorizationCodeGrant, [OpenIDCode(require_nonce=False), RequiredCodeChallenge()])
+server.register_grant(
+    AuthorizationCodeGrant, [OpenIDCode(require_nonce=False), RequiredCodeChallenge()]
+)
 server.register_grant(RefreshTokenGrant)
 
 # The canonical fakts grants: RFC 8628 device-code (interactive, approved in the
@@ -225,9 +239,13 @@ def access_token_expires_in(client, grant_type) -> int:
     because there is no organization to ask.
     """
     organization = getattr(client, "organization", None)
-    lifetime = getattr(organization, "access_token_lifetime", None) if organization else None
     lifetime = (
-        max(MIN_ACCESS_TOKEN_EXPIRES_IN, min(int(lifetime), MAX_ACCESS_TOKEN_EXPIRES_IN))
+        getattr(organization, "access_token_lifetime", None) if organization else None
+    )
+    lifetime = (
+        max(
+            MIN_ACCESS_TOKEN_EXPIRES_IN, min(int(lifetime), MAX_ACCESS_TOKEN_EXPIRES_IN)
+        )
         if lifetime
         else ACCESS_TOKEN_EXPIRES_IN
     )

@@ -119,7 +119,9 @@ async def test_cannot_delete_another_orgs_device():
     )
     _assert_denied(result)
 
-    still_there = await sync_to_async(fakts_models.Device.objects.filter(id=device.id).exists)()
+    still_there = await sync_to_async(
+        fakts_models.Device.objects.filter(id=device.id).exists
+    )()
     assert still_there
 
 
@@ -159,15 +161,29 @@ async def test_cannot_hijack_another_orgs_alias():
 @pytest.mark.django_db(transaction=True)
 def test_upload_key_is_namespaced_to_the_caller():
     """An attacker-chosen upload key must not address another tenant's object."""
-    from api.management.mutations.upload import request_media_upload, RequestMediaUploadInput
+    from api.management.mutations.upload import (
+        RequestMediaUploadInput,
+        request_media_upload,
+    )
 
     context, _org_a, _org_b, attacker, _victim = _two_org_setup()
     info = type("Info", (), {"context": context})()
 
-    for key in ("avatar.png", "../../victim/avatar.png", "/etc/passwd.png", "users/999/avatar.png"):
-        creds = request_media_upload(info, RequestMediaUploadInput(key=key, datalayer="default"))
+    for key in (
+        "avatar.png",
+        "../../victim/avatar.png",
+        "/etc/passwd.png",
+        "users/999/avatar.png",
+    ):
+        creds = request_media_upload(
+            info, RequestMediaUploadInput(key=key, datalayer="default")
+        )
         assert creds.key.startswith(f"users/{attacker.id}/"), creds.key
-        assert ".." not in creds.key and "victim" not in creds.key and "users/999" not in creds.key
+        assert (
+            ".." not in creds.key
+            and "victim" not in creds.key
+            and "users/999" not in creds.key
+        )
 
 
 def _invite_leak_setup():
@@ -198,7 +214,9 @@ def _invite_leak_setup():
     return guest_context, owner_context, org, invite
 
 
-INVITES_QUERY = "query ($id: ID!) { organization(id: $id) { invites { id token inviteUrl } } }"
+INVITES_QUERY = (
+    "query ($id: ID!) { organization(id: $id) { invites { id token inviteUrl } } }"
+)
 
 
 @pytest.mark.django_db(transaction=True)
@@ -210,7 +228,9 @@ async def test_plain_member_cannot_read_their_orgs_invite_tokens():
     roles at all — could reach it through `organization { invites }` and read the
     tokens of pending invites, then redeem one granting `admin`.
     """
-    guest_context, _owner_context, org, _invite = await sync_to_async(_invite_leak_setup)()
+    guest_context, _owner_context, org, _invite = await sync_to_async(
+        _invite_leak_setup
+    )()
 
     result = await management_schema.execute(
         INVITES_QUERY, context_value=guest_context, variable_values={"id": str(org.id)}
@@ -224,7 +244,9 @@ async def test_plain_member_cannot_read_their_orgs_invite_tokens():
 @pytest.mark.asyncio
 async def test_owner_can_still_read_their_orgs_invites():
     """The scoping must not be so tight that legitimate invite management breaks."""
-    _guest_context, owner_context, org, invite = await sync_to_async(_invite_leak_setup)()
+    _guest_context, owner_context, org, invite = await sync_to_async(
+        _invite_leak_setup
+    )()
 
     result = await management_schema.execute(
         INVITES_QUERY, context_value=owner_context, variable_values={"id": str(org.id)}
@@ -233,7 +255,6 @@ async def test_owner_can_still_read_their_orgs_invites():
     assert not result.errors, result.errors
     tokens = [row["token"] for row in result.data["organization"]["invites"]]
     assert tokens == [str(invite.token)]
-
 
 
 def _org_with_admin_and_member():
@@ -267,12 +288,14 @@ def _org_with_admin_and_member():
     }
 
 
-DELETE_MEMBERSHIP = 'mutation ($id: ID!) { deleteMembership(input: {id: $id}) }'
+DELETE_MEMBERSHIP = "mutation ($id: ID!) { deleteMembership(input: {id: $id}) }"
 
 
 async def _delete(context, membership):
     return await management_schema.execute(
-        DELETE_MEMBERSHIP, context_value=context, variable_values={"id": str(membership.id)}
+        DELETE_MEMBERSHIP,
+        context_value=context,
+        variable_values={"id": str(membership.id)},
     )
 
 
@@ -376,7 +399,9 @@ async def _accept(context, device_code, organization):
 
 async def _hub_count(organization, identifier):
     return await sync_to_async(
-        lambda: fakts_models.Hub.objects.filter(organization=organization, identifier=identifier).count()
+        lambda: fakts_models.Hub.objects.filter(
+            organization=organization, identifier=identifier
+        ).count()
     )()
 
 

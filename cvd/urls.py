@@ -9,6 +9,10 @@ app_name = "cvd"
 urlpatterns = [
     re_path(r"^$", views.ReportPage.as_view(), name="report"),
     re_path(r"^policy/?$", views.PolicyPage.as_view(), name="policy"),
-    re_path(r"^acknowledgements/?$", views.AcknowledgementsPage.as_view(), name="acknowledgements"),
+    re_path(
+        r"^acknowledgements/?$",
+        views.AcknowledgementsPage.as_view(),
+        name="acknowledgements",
+    ),
     re_path(r"^thanks/?$", views.ThanksPage.as_view(), name="thanks"),
 ]

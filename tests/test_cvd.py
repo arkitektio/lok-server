@@ -21,10 +21,28 @@ def _security(**overrides) -> SecuritySettings:
     data = {
         "vendor": "Example",
         "page_url": "https://go.example.org/security",
-        "psirt": {"email": "psirt@example.org", "key": {"url": "https://go.example.org/.well-known/pgp/psirt.asc", "fingerprint": PSIRT_FPR}},
-        "csirt": {"email": "csirt@example.org", "key": {"url": "https://go.example.org/.well-known/pgp/csirt.asc", "fingerprint": CSIRT_FPR}},
-        "signing_key": {"url": "https://go.example.org/.well-known/pgp/security-txt.asc", "fingerprint": SIGN_FPR},
-        "canonical": ["https://go.example.org/.well-known/security.txt", "https://beta.example.org/.well-known/security.txt"],
+        "psirt": {
+            "email": "psirt@example.org",
+            "key": {
+                "url": "https://go.example.org/.well-known/pgp/psirt.asc",
+                "fingerprint": PSIRT_FPR,
+            },
+        },
+        "csirt": {
+            "email": "csirt@example.org",
+            "key": {
+                "url": "https://go.example.org/.well-known/pgp/csirt.asc",
+                "fingerprint": CSIRT_FPR,
+            },
+        },
+        "signing_key": {
+            "url": "https://go.example.org/.well-known/pgp/security-txt.asc",
+            "fingerprint": SIGN_FPR,
+        },
+        "canonical": [
+            "https://go.example.org/.well-known/security.txt",
+            "https://beta.example.org/.well-known/security.txt",
+        ],
         "expires": datetime.date(2027, 11, 15),
         "policy_updated": datetime.date(2026, 11, 16),
         "privacy_policy_url": "https://example.org/privacy",
@@ -63,10 +81,23 @@ def _report(**overrides):
 
 def test_security_txt_has_the_bsi_fields_in_order():
     body = render_security_txt(_security())
-    fields = [line.split(":", 1)[0] for line in body.splitlines() if line and not line.startswith("#")]
+    fields = [
+        line.split(":", 1)[0]
+        for line in body.splitlines()
+        if line and not line.startswith("#")
+    ]
     assert fields == [
-        "Canonical", "Canonical", "Contact", "Contact", "Contact", "Encryption", "Encryption",
-        "Acknowledgments", "Preferred-Languages", "Policy", "Expires",
+        "Canonical",
+        "Canonical",
+        "Contact",
+        "Contact",
+        "Contact",
+        "Encryption",
+        "Encryption",
+        "Acknowledgments",
+        "Preferred-Languages",
+        "Policy",
+        "Expires",
     ]
     contacts = [line for line in body.splitlines() if line.startswith("Contact:")]
     # 4.2.3: PSIRT first, CSIRT second, then the web page with the form.
@@ -81,8 +112,12 @@ def test_security_txt_has_the_bsi_fields_in_order():
 
 
 def test_security_txt_fields_are_printable_ascii():
-    body = render_security_txt(_security(csaf="https://go.example.org/.well-known/csaf/provider-metadata.json"))
-    assert "CSAF: https://go.example.org/.well-known/csaf/provider-metadata.json" in body
+    body = render_security_txt(
+        _security(csaf="https://go.example.org/.well-known/csaf/provider-metadata.json")
+    )
+    assert (
+        "CSAF: https://go.example.org/.well-known/csaf/provider-metadata.json" in body
+    )
     for line in body.splitlines():
         if not line.startswith("#"):
             assert all(0x20 <= ord(c) <= 0x7E for c in line)
@@ -96,7 +131,12 @@ def test_english_must_be_a_preferred_language():
 
 
 def test_fingerprints_are_normalized():
-    sec = _security(signing_key={"url": "https://x/k.asc", "fingerprint": "ba78 6fe4 2081 b350 7cac  f30b 363e b7a0 fbde 0ccd"})
+    sec = _security(
+        signing_key={
+            "url": "https://x/k.asc",
+            "fingerprint": "ba78 6fe4 2081 b350 7cac  f30b 363e b7a0 fbde 0ccd",
+        }
+    )
     assert sec.signing_key.fingerprint == SIGN_FPR
 
 
@@ -116,14 +156,34 @@ def test_report_page_carries_everything_without_javascript(security):
     assert response.status_code == 200
     html = response.content.decode()
     assert "<script" not in html
-    for needle in ("psirt@example.org", "csirt@example.org", "D7B9 A162", "E904 021F", "BA78 6FE4",
-                   "psirt.asc", "csirt.asc", "security-txt.asc", "15 November 2027", "/security/policy",
-                   "https://example.org/privacy", 'method="post"', 'action="/security"'):
+    for needle in (
+        "psirt@example.org",
+        "csirt@example.org",
+        "D7B9 A162",
+        "E904 021F",
+        "BA78 6FE4",
+        "psirt.asc",
+        "csirt.asc",
+        "security-txt.asc",
+        "15 November 2027",
+        "/security/policy",
+        "https://example.org/privacy",
+        'method="post"',
+        'action="/security"',
+    ):
         assert needle in html, needle
 
 
 @pytest.mark.django_db
-@pytest.mark.parametrize("path", ["/lok/security/policy", "/lok/security/policy/", "/lok/security/acknowledgements", "/lok/security/thanks"])
+@pytest.mark.parametrize(
+    "path",
+    [
+        "/lok/security/policy",
+        "/lok/security/policy/",
+        "/lok/security/acknowledgements",
+        "/lok/security/thanks",
+    ],
+)
 def test_the_other_pages_render(security, path):
     response = Client().get(path)
     assert response.status_code == 200
@@ -135,14 +195,22 @@ def test_policy_shows_its_date_and_vendor(security):
     html = Client().get("/lok/security/policy").content.decode()
     assert "16 November 2026" in html
     assert "Example" in html
-    assert "five working days" in html and "90 days" in html and "anonymous" in html.lower()
+    assert (
+        "five working days" in html
+        and "90 days" in html
+        and "anonymous" in html.lower()
+    )
 
 
 @pytest.mark.django_db
 def test_an_anonymous_report_is_stored_without_any_trace(security):
-    response = Client(REMOTE_ADDR="203.0.113.9").post("/lok/security/", _report(contact=""))
+    response = Client(REMOTE_ADDR="203.0.113.9").post(
+        "/lok/security/", _report(contact="")
+    )
     assert response.status_code == 303
-    assert re.match(r"^/security/thanks\?ref=VR-[A-Z0-9]{4}-[A-Z0-9]{4}$", response["Location"])
+    assert re.match(
+        r"^/security/thanks\?ref=VR-[A-Z0-9]{4}-[A-Z0-9]{4}$", response["Location"]
+    )
     report = VulnerabilityReport.objects.get()
     assert report.is_anonymous
     stored = " ".join(str(getattr(report, f.attname)) for f in report._meta.fields)
@@ -186,7 +254,10 @@ def test_bulk_submissions_are_throttled(security):
     client = Client(REMOTE_ADDR="198.51.100.4")
     from cvd.views import REPORT_LIMIT_PER_MINUTE
 
-    codes = [client.post("/lok/security/", _report()).status_code for _ in range(REPORT_LIMIT_PER_MINUTE + 1)]
+    codes = [
+        client.post("/lok/security/", _report()).status_code
+        for _ in range(REPORT_LIMIT_PER_MINUTE + 1)
+    ]
     assert codes[:REPORT_LIMIT_PER_MINUTE] == [303] * REPORT_LIMIT_PER_MINUTE
     assert codes[-1] == 429
 
@@ -204,7 +275,9 @@ def test_thanks_page_ignores_a_forged_reference(security):
 def test_one_analyst_cannot_close_a_report_alone(django_user_model):
     a = django_user_model.objects.create(username="a")
     b = django_user_model.objects.create(username="b")
-    report = VulnerabilityReport.objects.create(title="t", affected="x", description="d", status="triage")
+    report = VulnerabilityReport.objects.create(
+        title="t", affected="x", description="d", status="triage"
+    )
 
     assert report.request_status("closed", a) == "proposed"
     assert report.status == "triage"
@@ -221,13 +294,15 @@ def test_one_analyst_cannot_close_a_report_alone(django_user_model):
 @pytest.mark.django_db
 def test_admin_binds_the_close_to_the_logged_in_user(django_user_model):
     from django.contrib.admin.sites import site
-    from django.test import RequestFactory
     from django.contrib.messages.storage.fallback import FallbackStorage
+    from django.test import RequestFactory
 
     admin_ = site._registry[VulnerabilityReport]
     a = django_user_model.objects.create(username="a", is_staff=True, is_superuser=True)
     b = django_user_model.objects.create(username="b", is_staff=True, is_superuser=True)
-    report = VulnerabilityReport.objects.create(title="t", affected="x", description="d")
+    report = VulnerabilityReport.objects.create(
+        title="t", affected="x", description="d"
+    )
 
     def save_as(user, status):
         request = RequestFactory().post("/")

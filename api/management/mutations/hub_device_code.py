@@ -1,25 +1,31 @@
 import logging
 
-from kante import Info
+import kante
 import strawberry
 from django.db import IntegrityError, transaction
-from pydantic import ValidationError as PydanticValidationError
-from api.management import types
-from karakter import models
-from karakter.hashers import hash_device_id
-from fakts import models as fakts_models
-from api.management.authz import DENIED, HUB_ADMIN_REQUIRED, assert_member, get_or_denied, is_owner_or_admin
 from graphql import GraphQLError
-from fakts.services.mandates import MandateError
-from fakts import logic, base_models
+from kante import Info
+from pydantic import ValidationError as PydanticValidationError
+
+from api.management import types
+from api.management.authz import (
+    HUB_ADMIN_REQUIRED,
+    assert_member,
+    get_or_denied,
+    is_owner_or_admin,
+)
+from api.management.device_code_authz import resolve_device_code_with_proof
+from fakts import logic
+from fakts import models as fakts_models
 from fakts.services import aliases as alias_services
 from fakts.services import hubs as hub_services
 from fakts.services import versions
-from fakts.services.instance_keys import validate_challenge_key
-from fakts.services.permissions import register_permissions
 from fakts.services.hub_tls import validate_tls_certificate
-import kante
-from api.management.device_code_authz import resolve_device_code_with_proof
+from fakts.services.instance_keys import validate_challenge_key
+from fakts.services.mandates import MandateError
+from fakts.services.permissions import register_permissions
+from karakter import models
+from karakter.hashers import hash_device_id
 
 logger = logging.getLogger(__name__)
 
@@ -36,7 +42,9 @@ class AcceptHubDeviceCodeInput:
     allow_ionscale: bool = True
 
 
-def accept_hub_device_code(info: Info, input: AcceptHubDeviceCodeInput) -> types.ManagementHub:
+def accept_hub_device_code(
+    info: Info, input: AcceptHubDeviceCodeInput
+) -> types.ManagementHub:
     """
     Accept a pending hub device code: provision the hub described by its staged
     manifest (service instances, roles, scopes, aliases, clients) inside the
@@ -52,7 +60,10 @@ def accept_hub_device_code(info: Info, input: AcceptHubDeviceCodeInput) -> types
     """
     user = info.context.request.user
     device_code = resolve_device_code_with_proof(
-        fakts_models.DeviceCode, device_code_id=input.device_code, code=input.code, kind="hub"
+        fakts_models.DeviceCode,
+        device_code_id=input.device_code,
+        code=input.code,
+        kind="hub",
     )
     organization = get_or_denied(models.Organization.objects, id=input.organization)
 
@@ -70,14 +81,25 @@ def accept_hub_device_code(info: Info, input: AcceptHubDeviceCodeInput) -> types
 
     try:
         with transaction.atomic():
-            return _provision_hub(info, input, device_code, organization, manifest, user)
+            return _provision_hub(
+                info, input, device_code, organization, manifest, user
+            )
     except IntegrityError:
         # A concurrent accept of the same identifier, or a duplicate further down
         # the manifest; the transaction leaves no half-built hub behind.
-        raise GraphQLError("Could not provision the hub: the manifest conflicts with existing objects in this organization.")
+        raise GraphQLError(
+            "Could not provision the hub: the manifest conflicts with existing objects in this organization."
+        )
 
 
-def _provision_hub(info: Info, input: AcceptHubDeviceCodeInput, device_code, organization, manifest, user) -> fakts_models.Hub:
+def _provision_hub(
+    info: Info,
+    input: AcceptHubDeviceCodeInput,
+    device_code,
+    organization,
+    manifest,
+    user,
+) -> fakts_models.Hub:
     # The hub names itself: authorized again under the same uid, it is the same hub, and what it
     # says now replaces what was known of it (its label, its services and their keys).
     hub, created = fakts_models.Hub.objects.select_for_update().get_or_create(
@@ -96,22 +118,40 @@ def _provision_hub(info: Info, input: AcceptHubDeviceCodeInput, device_code, org
         hub.save(update_fields=["identifier", "name", "description"])
     # What it says now replaces what was known: a new certificate is the rotation, none makes
     # it a plain-HTTP hub again.
-    hub.tls_certificate = validate_tls_certificate(manifest.tls_certificate) if manifest.tls_certificate else None
+    hub.tls_certificate = (
+        validate_tls_certificate(manifest.tls_certificate)
+        if manifest.tls_certificate
+        else None
+    )
     hub.save(update_fields=["tls_certificate"])
     # A service the hub no longer runs goes, with the grants that were listed under it.
-    hub.instances.exclude(instance_id__in=[servicer.name for servicer in manifest.instances]).delete()
+    hub.instances.exclude(
+        instance_id__in=[servicer.name for servicer in manifest.instances]
+    ).delete()
 
     for servicer in manifest.instances:
         service_manifest = servicer.manifest
         device_id = service_manifest.device_id
         if device_id:
-            device, _ = fakts_models.Device.objects.get_or_create(organization=organization, node_id=hash_device_id(device_id, organization))
+            device, _ = fakts_models.Device.objects.get_or_create(
+                organization=organization,
+                node_id=hash_device_id(device_id, organization),
+            )
         else:
             device = None
-        service, _ = fakts_models.Service.objects.get_or_create(identifier=service_manifest.identifier, organization=organization, defaults={"name": service_manifest.identifier, "description": service_manifest.description or ""})
+        service, _ = fakts_models.Service.objects.get_or_create(
+            identifier=service_manifest.identifier,
+            organization=organization,
+            defaults={
+                "name": service_manifest.identifier,
+                "description": service_manifest.description or "",
+            },
+        )
         # One service of a name per hub: authorized again (by another admin, with another
         # release, from another device), it is the same instance, named as the hub names it.
-        instance = fakts_models.ServiceInstance.objects.filter(hub=hub, instance_id=servicer.name).first()
+        instance = fakts_models.ServiceInstance.objects.filter(
+            hub=hub, instance_id=servicer.name
+        ).first()
         release = versions.release_for(service, service_manifest.version, instance)
         if instance is None:
             instance = fakts_models.ServiceInstance.objects.create(
@@ -123,13 +163,20 @@ def _provision_hub(info: Info, input: AcceptHubDeviceCodeInput, device_code, org
                 instance_id=servicer.name,
                 organization=organization,
             )
-        elif (instance.release, instance.device, instance.steward) != (release, device, user):
+        elif (instance.release, instance.device, instance.steward) != (
+            release,
+            device,
+            user,
+        ):
             instance.release, instance.device, instance.steward = release, device, user
             instance.save(update_fields=["release", "device", "steward"])
 
         # The instance's public key, vouched for from here on (its private half never left the
         # instance). A re-authorized hub may bring a new one: that is the rotation.
-        if service_manifest.challenge_key and instance.public_key != service_manifest.challenge_key:
+        if (
+            service_manifest.challenge_key
+            and instance.public_key != service_manifest.challenge_key
+        ):
             instance.public_key = validate_challenge_key(service_manifest.challenge_key)
             instance.save(update_fields=["public_key"])
 
@@ -139,7 +186,9 @@ def _provision_hub(info: Info, input: AcceptHubDeviceCodeInput, device_code, org
             alias_services.upsert_instance_alias(instance, alias)
 
     accepting_user = info.context.request.user
-    membership = get_or_denied(models.Membership.objects, user=accepting_user, organization=organization)
+    membership = get_or_denied(
+        models.Membership.objects, user=accepting_user, organization=organization
+    )
 
     # The hub's own apps are approved with it: each gets a mandate under the key the
     # hub proposed, granted by the approver. Re-authorization re-pins them.
@@ -174,7 +223,9 @@ def _provision_hub(info: Info, input: AcceptHubDeviceCodeInput, device_code, org
     return hub
 
 
-def _grant_hub_mesh_key(device_code: fakts_models.DeviceCode, user, hub: fakts_models.Hub) -> None:
+def _grant_hub_mesh_key(
+    device_code: fakts_models.DeviceCode, user, hub: fakts_models.Hub
+) -> None:
     """Mint (or rotate) the hub's mesh key onto the code; the token response hands
     it out once, exactly like an app's.
 
@@ -206,14 +257,19 @@ class DeclineHubDeviceCodeInput:
     )
 
 
-def decline_hub_device_code(info: Info, input: DeclineHubDeviceCodeInput) -> types.ManagementHubDeviceCode:
+def decline_hub_device_code(
+    info: Info, input: DeclineHubDeviceCodeInput
+) -> types.ManagementHubDeviceCode:
     """
     Decline a pending hub device code.
 
     Marks the device code as denied; the polling hub receives `access_denied`.
     """
     device_code = resolve_device_code_with_proof(
-        fakts_models.DeviceCode, device_code_id=input.device_code, code=input.code, kind="hub"
+        fakts_models.DeviceCode,
+        device_code_id=input.device_code,
+        code=input.code,
+        kind="hub",
     )
 
     device_code.denied = True

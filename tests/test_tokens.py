@@ -16,9 +16,13 @@ def _generator():
 def test_get_extra_claims_includes_client_role_and_org():
     membership = factories.make_membership()
     oauth2 = factories.make_oauth2_client(membership=membership)
-    factories.make_client(membership=membership, oauth2_client=oauth2, role=ClientRoleChoices.AGENT.value)
+    factories.make_client(
+        membership=membership, oauth2_client=oauth2, role=ClientRoleChoices.AGENT.value
+    )
 
-    claims = _generator().get_extra_claims(oauth2, "client_credentials", membership, None)
+    claims = _generator().get_extra_claims(
+        oauth2, "client_credentials", membership, None
+    )
 
     assert claims["client_role"] == "agent"
     assert claims["org"] == str(membership.organization_id)
@@ -33,7 +37,9 @@ def test_get_extra_claims_defaults_role_to_interface():
     oauth2 = factories.make_oauth2_client(membership=membership)
     factories.make_client(membership=membership, oauth2_client=oauth2)
 
-    claims = _generator().get_extra_claims(oauth2, "client_credentials", membership, None)
+    claims = _generator().get_extra_claims(
+        oauth2, "client_credentials", membership, None
+    )
     assert claims["client_role"] == "interface"
 
 
@@ -57,11 +63,15 @@ def test_get_audiences_for_fakts_client_names_its_services_as_their_hub_does():
     from fakts import models as fmodels
 
     instance = factories.make_service_instance()
-    fmodels.ServiceInstanceMapping.objects.create(client=fakts_client, instance=instance, key="db")
+    fmodels.ServiceInstanceMapping.objects.create(
+        client=fakts_client, instance=instance, key="db"
+    )
 
     audiences = _generator().get_audiences(oauth2, membership, None)
     assert audiences == ["lok", instance.instance_id]
-    assert _generator().get_extra_claims(oauth2, "authorization_code", membership, None)["hub"] == str(instance.hub.uid)
+    assert _generator().get_extra_claims(
+        oauth2, "authorization_code", membership, None
+    )["hub"] == str(instance.hub.uid)
 
 
 def test_get_jwks_exposes_signing_key():
@@ -103,7 +113,9 @@ def test_audiences_distinguish_two_tenants_running_the_same_service():
     def _client_with_instance(identifier):
         membership = factories.make_membership()
         oauth2 = factories.make_oauth2_client(membership=membership)
-        fakts_client = factories.make_client(membership=membership, oauth2_client=oauth2)
+        fakts_client = factories.make_client(
+            membership=membership, oauth2_client=oauth2
+        )
         instance = factories.make_service_instance()
         # Force both tenants' services to share an identifier.
         service = instance.release.service

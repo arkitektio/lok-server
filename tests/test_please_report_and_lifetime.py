@@ -12,21 +12,20 @@
 import json
 
 import pytest
+from asgiref.sync import sync_to_async
 from django.conf import settings
 from django.urls import reverse
 from django.utils import timezone
 from joserfc import jwt
 from joserfc.jwk import RSAKey
 
-from asgiref.sync import sync_to_async
-
 from api.management.authz import DENIED
 from api.management.schema import schema as management_schema
 from authapp import server
 from fakts import base_models, models
-from karakter import models as karakter_models
 from fakts.services.clients import report_client
 from fakts.services.device_codes import validate_device_code
+from karakter import models as karakter_models
 from tests import factories
 from tests.conftest import build_auth_context
 
@@ -40,11 +39,20 @@ def _decode(access_token: str) -> dict:
 
 def _start(client):
     payload = {
-        "manifest": {"identifier": "com.example.report", "version": "1.0.0", "scopes": [], "requirements": []},
+        "manifest": {
+            "identifier": "com.example.report",
+            "version": "1.0.0",
+            "scopes": [],
+            "requirements": [],
+        },
         "requested_client_kind": "development",
         "requested_client_role": "agent",
     }
-    return client.post(reverse("app_authorization"), data=json.dumps(payload), content_type="application/json").json()
+    return client.post(
+        reverse("app_authorization"),
+        data=json.dumps(payload),
+        content_type="application/json",
+    ).json()
 
 
 def _granted(client):
@@ -54,11 +62,17 @@ def _granted(client):
     hub = factories.make_hub()
     user = factories.make_user()
     factories.make_membership(user=user, organization=hub.organization)
-    device_code = validate_device_code(device_code, user=user, organization=hub.organization, hub=hub)
+    device_code = validate_device_code(
+        device_code, user=user, organization=hub.organization, hub=hub
+    )
 
     token = client.post(
         reverse("token"),
-        data={"grant_type": DEVICE_CODE_GRANT, "device_code": body["device_code"], "client_id": body["client_id"]},
+        data={
+            "grant_type": DEVICE_CODE_GRANT,
+            "device_code": body["device_code"],
+            "client_id": body["client_id"],
+        },
         secure=True,
     ).json()
     return body, token, models.Client.objects.get(client_id=body["client_id"])
@@ -67,7 +81,11 @@ def _granted(client):
 def _refresh(client, client_id, refresh_token):
     return client.post(
         reverse("token"),
-        data={"grant_type": "refresh_token", "refresh_token": refresh_token, "client_id": client_id},
+        data={
+            "grant_type": "refresh_token",
+            "refresh_token": refresh_token,
+            "client_id": client_id,
+        },
         secure=True,
     )
 
@@ -86,7 +104,9 @@ def test_refresh_carries_please_report_only_while_requested(client):
     unflagged = _refresh(client, body["client_id"], token["refresh_token"]).json()
     assert "please_report" not in unflagged
 
-    models.Client.objects.filter(pk=fakts_client.pk).update(report_requested_at=timezone.now())
+    models.Client.objects.filter(pk=fakts_client.pk).update(
+        report_requested_at=timezone.now()
+    )
 
     flagged = _refresh(client, body["client_id"], unflagged["refresh_token"]).json()
     assert flagged["please_report"] is True
@@ -101,7 +121,9 @@ def test_please_report_survives_a_failing_envelope_render(client, monkeypatch):
     operator most wants a report from, so the flag must be set before the
     rendering guard swallows the failure."""
     body, token, fakts_client = _granted(client)
-    models.Client.objects.filter(pk=fakts_client.pk).update(report_requested_at=timezone.now())
+    models.Client.objects.filter(pk=fakts_client.pk).update(
+        report_requested_at=timezone.now()
+    )
 
     def boom(*args, **kwargs):
         raise RuntimeError("no instances for you")
@@ -125,11 +147,17 @@ def test_device_code_grant_carries_please_report(client):
     user = factories.make_user()
     factories.make_membership(user=user, organization=hub.organization)
     validate_device_code(device_code, user=user, organization=hub.organization, hub=hub)
-    models.Client.objects.filter(client_id=body["client_id"]).update(report_requested_at=timezone.now())
+    models.Client.objects.filter(client_id=body["client_id"]).update(
+        report_requested_at=timezone.now()
+    )
 
     token = client.post(
         reverse("token"),
-        data={"grant_type": DEVICE_CODE_GRANT, "device_code": body["device_code"], "client_id": body["client_id"]},
+        data={
+            "grant_type": DEVICE_CODE_GRANT,
+            "device_code": body["device_code"],
+            "client_id": body["client_id"],
+        },
         secure=True,
     ).json()
     assert token["please_report"] is True
@@ -138,7 +166,9 @@ def test_device_code_grant_carries_please_report(client):
 @pytest.mark.django_db
 def test_reporting_clears_the_request(client):
     body, token, fakts_client = _granted(client)
-    models.Client.objects.filter(pk=fakts_client.pk).update(report_requested_at=timezone.now())
+    models.Client.objects.filter(pk=fakts_client.pk).update(
+        report_requested_at=timezone.now()
+    )
 
     report_client(
         models.Client.objects.get(pk=fakts_client.pk),
@@ -149,7 +179,10 @@ def test_reporting_clears_the_request(client):
     assert fakts_client.report_requested_at is None
     assert fakts_client.report_requested_by is None
     assert fakts_client.please_report is False
-    assert "please_report" not in _refresh(client, body["client_id"], token["refresh_token"]).json()
+    assert (
+        "please_report"
+        not in _refresh(client, body["client_id"], token["refresh_token"]).json()
+    )
 
 
 # --------------------------------------------------------------------------- #
@@ -199,8 +232,14 @@ class _OrglessClient:
 
 
 def test_orgless_client_falls_back_to_the_default():
-    assert server.access_token_expires_in(_OrglessClient(), "authorization_code") == server.ACCESS_TOKEN_EXPIRES_IN
-    assert server.access_token_expires_in(object(), "authorization_code") == server.ACCESS_TOKEN_EXPIRES_IN
+    assert (
+        server.access_token_expires_in(_OrglessClient(), "authorization_code")
+        == server.ACCESS_TOKEN_EXPIRES_IN
+    )
+    assert (
+        server.access_token_expires_in(object(), "authorization_code")
+        == server.ACCESS_TOKEN_EXPIRES_IN
+    )
 
 
 # --------------------------------------------------------------------------- #
@@ -223,9 +262,15 @@ UPDATE_ORGANIZATION = """
 def _flagged_setup():
     """An organization, its owner's context, and a client in it."""
     organization = factories.make_organization()
-    owner_membership = factories.make_membership(user=organization.owner, organization=organization)
+    owner_membership = factories.make_membership(
+        user=organization.owner, organization=organization
+    )
     target = factories.make_client(membership=owner_membership)
-    context = build_auth_context(organization.owner, organization, factories.make_client(membership=owner_membership))
+    context = build_auth_context(
+        organization.owner,
+        organization,
+        factories.make_client(membership=owner_membership),
+    )
     return organization, context, target
 
 
@@ -235,7 +280,9 @@ async def test_admin_can_request_and_withdraw_a_client_report():
     organization, context, target = await sync_to_async(_flagged_setup)()
 
     result = await management_schema.execute(
-        REQUEST_REPORT, variable_values={"input": {"client": str(target.id)}}, context_value=context
+        REQUEST_REPORT,
+        variable_values={"input": {"client": str(target.id)}},
+        context_value=context,
     )
     assert not result.errors, result.errors
     assert result.data["requestClientReport"]["pleaseReport"] is True
@@ -263,13 +310,18 @@ async def test_a_plain_member_cannot_request_a_client_report():
         organization, _, target = _flagged_setup()
         member = factories.make_membership(organization=organization)
         return target, build_auth_context(
-            member.user, organization, factories.make_client(membership=member), roles=()
+            member.user,
+            organization,
+            factories.make_client(membership=member),
+            roles=(),
         )
 
     target, member_context = await sync_to_async(setup)()
 
     result = await management_schema.execute(
-        REQUEST_REPORT, variable_values={"input": {"client": str(target.id)}}, context_value=member_context
+        REQUEST_REPORT,
+        variable_values={"input": {"client": str(target.id)}},
+        context_value=member_context,
     )
     assert result.errors
     assert result.errors[0].message == DENIED
@@ -285,7 +337,9 @@ async def test_owner_sets_the_org_access_token_lifetime_within_the_allowed_range
 
     result = await management_schema.execute(
         UPDATE_ORGANIZATION,
-        variable_values={"input": {"id": str(organization.id), "accessTokenLifetime": 7200}},
+        variable_values={
+            "input": {"id": str(organization.id), "accessTokenLifetime": 7200}
+        },
         context_value=context,
     )
     assert not result.errors, result.errors
@@ -295,11 +349,18 @@ async def test_owner_sets_the_org_access_token_lifetime_within_the_allowed_range
     # types a year should be told the cap exists.
     result = await management_schema.execute(
         UPDATE_ORGANIZATION,
-        variable_values={"input": {"id": str(organization.id), "accessTokenLifetime": 60 * 60 * 24 * 365}},
+        variable_values={
+            "input": {
+                "id": str(organization.id),
+                "accessTokenLifetime": 60 * 60 * 24 * 365,
+            }
+        },
         context_value=context,
     )
     assert result.errors
     assert "between" in result.errors[0].message
 
-    stored = await sync_to_async(karakter_models.Organization.objects.get)(pk=organization.pk)
+    stored = await sync_to_async(karakter_models.Organization.objects.get)(
+        pk=organization.pk
+    )
     assert stored.access_token_lifetime == 7200

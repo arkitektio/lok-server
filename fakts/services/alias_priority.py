@@ -14,7 +14,8 @@ can reach is still decided by their challenge.
 from __future__ import annotations
 
 from collections import defaultdict
-from typing import TYPE_CHECKING, Iterable
+from collections.abc import Iterable
+from typing import TYPE_CHECKING
 
 from django.db.models import Q
 
@@ -31,7 +32,7 @@ Rules = dict[int, list["models.AliasRule"]]
 _SPECIFICITY = ("client", "app", "user", "role")
 
 
-def rules_for(client: "models.Client") -> Rules:
+def rules_for(client: models.Client) -> Rules:
     """Every rule that names ``client``: itself, its app, its user, or a role its member holds."""
     from fakts import models
 
@@ -47,16 +48,28 @@ def rules_for(client: "models.Client") -> Rules:
     return rules
 
 
-def _specificity(rule: "models.AliasRule") -> int:
-    return next(index for index, field in enumerate(_SPECIFICITY) if getattr(rule, f"{field}_id"))
+def _specificity(rule: models.AliasRule) -> int:
+    return next(
+        index
+        for index, field in enumerate(_SPECIFICITY)
+        if getattr(rule, f"{field}_id")
+    )
 
 
-def effective_priority(alias: "models.InstanceAlias", rules: Iterable["models.AliasRule"] = ()) -> int | None:
+def effective_priority(
+    alias: models.InstanceAlias, rules: Iterable[models.AliasRule] = ()
+) -> int | None:
     """Where ``alias`` ranks for a client its ``rules`` were found for; ``None`` when that client
     is not handed it (disabled, or disabled for it)."""
     if not alias.enabled:
         return None
-    ranked = sorted(rules, key=lambda rule: (_specificity(rule), rule.effect != enums.AliasRuleEffectChoices.DISABLE.value))
+    ranked = sorted(
+        rules,
+        key=lambda rule: (
+            _specificity(rule),
+            rule.effect != enums.AliasRuleEffectChoices.DISABLE.value,
+        ),
+    )
     if ranked:
         winner = ranked[0]
         if winner.effect == enums.AliasRuleEffectChoices.DISABLE.value:
@@ -65,6 +78,10 @@ def effective_priority(alias: "models.InstanceAlias", rules: Iterable["models.Al
     return own_priority(alias)
 
 
-def own_priority(alias: "models.InstanceAlias") -> int:
+def own_priority(alias: models.InstanceAlias) -> int:
     """The alias's priority before any rule: the owner's, or its reach's default."""
-    return alias.priority if alias.priority is not None else default_priority(alias.reach, alias.ssl)
+    return (
+        alias.priority
+        if alias.priority is not None
+        else default_priority(alias.reach, alias.ssl)
+    )

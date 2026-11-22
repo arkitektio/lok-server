@@ -2,8 +2,9 @@ import strawberry
 import strawberry_django
 from django.db.models import Exists, F, OuterRef, Q
 from kante.types import Info
-from fakts import models as fakts_models
+
 from fakts import enums as fakts_enums
+from fakts import models as fakts_models
 from karakter import models as karakter_models
 
 
@@ -283,7 +284,9 @@ class ManagementBugReportFilter:
 
     @strawberry_django.filter_field
     def search(self, value: str, prefix: str) -> Q:
-        return Q(**{f"{prefix}title__icontains": value}) | Q(**{f"{prefix}description__icontains": value})
+        return Q(**{f"{prefix}title__icontains": value}) | Q(
+            **{f"{prefix}description__icontains": value}
+        )
 
     @strawberry_django.filter_field
     def organization(self, value: strawberry.ID, prefix: str) -> Q:
@@ -293,11 +296,15 @@ class ManagementBugReportFilter:
     def client(self, value: strawberry.ID, prefix: str) -> Q:
         return Q(**{f"{prefix}client__id": value})
 
-    @strawberry_django.filter_field(description="Reports filed from any client of this release.")
+    @strawberry_django.filter_field(
+        description="Reports filed from any client of this release."
+    )
     def release(self, value: strawberry.ID, prefix: str) -> Q:
         return Q(**{f"{prefix}release__id": value})
 
-    @strawberry_django.filter_field(description="Reports filed from any release of this app.")
+    @strawberry_django.filter_field(
+        description="Reports filed from any release of this app."
+    )
     def app(self, value: strawberry.ID, prefix: str) -> Q:
         return Q(**{f"{prefix}release__app__id": value})
 
@@ -305,11 +312,15 @@ class ManagementBugReportFilter:
     def reporter(self, value: strawberry.ID, prefix: str) -> Q:
         return Q(**{f"{prefix}reporter__id": value})
 
-    @strawberry_django.filter_field(description="True: only resolved reports. False: only the ones still open.")
+    @strawberry_django.filter_field(
+        description="True: only resolved reports. False: only the ones still open."
+    )
     def resolved(self, value: bool, prefix: str) -> Q:
         return Q(**{f"{prefix}resolved_at__isnull": not value})
 
-    @strawberry_django.filter_field(description="True: only reports already passed on to an issue tracker. False: only those that were not.")
+    @strawberry_django.filter_field(
+        description="True: only reports already passed on to an issue tracker. False: only those that were not."
+    )
     def forwarded(self, value: bool, prefix: str) -> Q:
         return Q(**{f"{prefix}forwarded_at__isnull": not value})
 
@@ -392,7 +403,9 @@ class ManagementMandateFilter:
     @strawberry_django.filter_field
     def search(self, value: str, prefix: str) -> Q:
         # Never on the key hash or prefix: matching on a credential is an oracle for it.
-        return Q(**{f"{prefix}label__icontains": value}) | Q(**{f"{prefix}subject_manifest__identifier__icontains": value})
+        return Q(**{f"{prefix}label__icontains": value}) | Q(
+            **{f"{prefix}subject_manifest__identifier__icontains": value}
+        )
 
     @strawberry_django.filter_field
     def hub(self, value: strawberry.ID, prefix: str) -> Q:
@@ -411,7 +424,8 @@ class ManagementMandateFilter:
         from django.utils import timezone
 
         live = Q(**{f"{prefix}revoked_at__isnull": True}) & (
-            Q(**{f"{prefix}expires_at__isnull": True}) | Q(**{f"{prefix}expires_at__gt": timezone.now()})
+            Q(**{f"{prefix}expires_at__isnull": True})
+            | Q(**{f"{prefix}expires_at__gt": timezone.now()})
         )
         return live if value else ~live
 

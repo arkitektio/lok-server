@@ -55,7 +55,9 @@ def _store_request(user, organization_id, reason) -> None:
     except (models.Organization.DoesNotExist, ValueError, TypeError):
         return
     # A guest of some collaborations may still ask to become a full member.
-    if models.Membership.objects.filter(user=user, organization=organization, collaboration_grants__isnull=True).exists():
+    if models.Membership.objects.filter(
+        user=user, organization=organization, collaboration_grants__isnull=True
+    ).exists():
         return
 
     mine = models.MembershipRequest.objects.filter(user=user)
@@ -65,7 +67,10 @@ def _store_request(user, organization_id, reason) -> None:
     )
     if mine.filter(recent, organization=organization).exists():
         return
-    if mine.filter(status=models.MembershipRequest.Status.PENDING).count() >= MAX_PENDING_REQUESTS:
+    if (
+        mine.filter(status=models.MembershipRequest.Status.PENDING).count()
+        >= MAX_PENDING_REQUESTS
+    ):
         return
 
     try:
@@ -84,7 +89,11 @@ def _store_request(user, organization_id, reason) -> None:
         .select_related("user")
         .prefetch_related("user__com_channels")
     )
-    _notify(admins, "Request to join", f"{user.username} asks to join {organization.name or organization.slug}.")
+    _notify(
+        admins,
+        "Request to join",
+        f"{user.username} asks to join {organization.name or organization.slug}.",
+    )
 
 
 def request_membership(info: Info, input: RequestMembershipInput) -> bool:
@@ -129,7 +138,9 @@ def _pending_request(info: Info, id) -> models.MembershipRequest:
     Scoped in the lookup, and a member who may not answer gets the same denial
     as a missing id.
     """
-    membership_request = get_scoped_or_denied(models.MembershipRequest.objects, info, id=id)
+    membership_request = get_scoped_or_denied(
+        models.MembershipRequest.objects, info, id=id
+    )
     if not is_owner_or_admin(get_user(info), membership_request.organization):
         raise GraphQLError(DENIED)
     if membership_request.status != models.MembershipRequest.Status.PENDING:
@@ -137,7 +148,9 @@ def _pending_request(info: Info, id) -> models.MembershipRequest:
     return membership_request
 
 
-def approve_membership_request(info: Info, input: ApproveMembershipRequestInput) -> types.Membership:
+def approve_membership_request(
+    info: Info, input: ApproveMembershipRequestInput
+) -> types.Membership:
     """Approve a pending request to join. Only the organization's owner or admins
     may do this.
 
@@ -145,17 +158,28 @@ def approve_membership_request(info: Info, input: ApproveMembershipRequestInput)
     """
     membership_request = _pending_request(info, input.id)
     roles = list(
-        models.Role.objects.filter(identifier__in=input.roles or [], organization=membership_request.organization)
+        models.Role.objects.filter(
+            identifier__in=input.roles or [],
+            organization=membership_request.organization,
+        )
     )
     membership = membership_request.approve(get_user(info), roles)
 
     organization = membership_request.organization
-    requester = models.User.objects.prefetch_related("com_channels").get(pk=membership_request.user_id)
-    _notify([requester], "You were added", f"You are now a member of {organization.name or organization.slug}.")
+    requester = models.User.objects.prefetch_related("com_channels").get(
+        pk=membership_request.user_id
+    )
+    _notify(
+        [requester],
+        "You were added",
+        f"You are now a member of {organization.name or organization.slug}.",
+    )
     return membership
 
 
-def decline_membership_request(info: Info, input: DeclineMembershipRequestInput) -> types.MembershipRequest:
+def decline_membership_request(
+    info: Info, input: DeclineMembershipRequestInput
+) -> types.MembershipRequest:
     """Decline a pending request to join. Only the organization's owner or admins
     may do this."""
     membership_request = _pending_request(info, input.id)

@@ -1,11 +1,12 @@
-from kante import Info
-import strawberry
-from api.management import types
-from karakter import models
 import kante
+import strawberry
 from django.db import IntegrityError
 from graphql import GraphQLError
+from kante import Info
+
+from api.management import types
 from api.management.authz import get_or_denied, is_owner
+from karakter import models
 
 
 @kante.input
@@ -22,7 +23,9 @@ def _assert_owner(info: Info, organization: models.Organization) -> None:
         raise GraphQLError("You must own the organization to manage role sets")
 
 
-def _roles_for_org(role_ids: list[strawberry.ID] | None, organization: models.Organization):
+def _roles_for_org(
+    role_ids: list[strawberry.ID] | None, organization: models.Organization
+):
     """Resolve role IDs to Role objects, scoped to the organization (ignores foreign ids)."""
     if not role_ids:
         return models.Role.objects.none()
@@ -34,12 +37,20 @@ def create_role_set(info: Info, input: CreateRoleSetInput) -> types.ManagementRo
     organization = get_or_denied(models.Organization.objects, id=input.organization)
     _assert_owner(info, organization)
 
-    if models.RoleSet.objects.filter(name=input.name, organization=organization).exists():
-        raise GraphQLError(f"A role set named '{input.name}' already exists in this organization.")
+    if models.RoleSet.objects.filter(
+        name=input.name, organization=organization
+    ).exists():
+        raise GraphQLError(
+            f"A role set named '{input.name}' already exists in this organization."
+        )
     try:
-        role_set = models.RoleSet.objects.create(name=input.name, organization=organization)
+        role_set = models.RoleSet.objects.create(
+            name=input.name, organization=organization
+        )
     except IntegrityError:
-        raise GraphQLError(f"A role set named '{input.name}' already exists in this organization.")
+        raise GraphQLError(
+            f"A role set named '{input.name}' already exists in this organization."
+        )
     role_set.roles.set(_roles_for_org(input.roles, organization))
     return role_set
 
@@ -60,16 +71,22 @@ def update_role_set(info: Info, input: UpdateRoleSetInput) -> types.ManagementRo
 
     if input.name is not None:
         if (
-            models.RoleSet.objects.filter(name=input.name, organization=role_set.organization)
+            models.RoleSet.objects.filter(
+                name=input.name, organization=role_set.organization
+            )
             .exclude(pk=role_set.pk)
             .exists()
         ):
-            raise GraphQLError(f"A role set named '{input.name}' already exists in this organization.")
+            raise GraphQLError(
+                f"A role set named '{input.name}' already exists in this organization."
+            )
         role_set.name = input.name
         try:
             role_set.save()
         except IntegrityError:
-            raise GraphQLError(f"A role set named '{input.name}' already exists in this organization.")
+            raise GraphQLError(
+                f"A role set named '{input.name}' already exists in this organization."
+            )
     if input.roles is not None:
         role_set.roles.set(_roles_for_org(input.roles, role_set.organization))
     return role_set

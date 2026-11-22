@@ -1,21 +1,23 @@
 import datetime
-
-import strawberry_django
-import strawberry
 from typing import Optional
-from karakter import types
-from fakts import models, scalars, filters, enums
-from authapp import types as atypes
+
+import strawberry
+import strawberry_django
+from django.db.models import Count, Q
 from kante.types import Info
 from strawberry.scalars import JSON
-from django.db.models import Count, Q
+
+from fakts import enums, filters, models, scalars
+from karakter import types
 
 # `DENIED` is re-exported for `fakts.graphql.mutations.render`; the single source
 # of truth (and of the tenant-scoping helpers) is `karakter.authz`.
 from karakter.authz import DENIED, build_prescoped_queryset  # noqa: F401
 
 
-@strawberry.type(description="Temporary Credentials for a file upload that can be used by a Client (e.g. in a python datalayer)")
+@strawberry.type(
+    description="Temporary Credentials for a file upload that can be used by a Client (e.g. in a python datalayer)"
+)
 class PresignedPostCredentials:
     """Temporary Credentials for a a file upload."""
 
@@ -28,14 +30,24 @@ class PresignedPostCredentials:
     datalayer: str
     bucket: str
     store: str
-    content_type: str = strawberry.field(description="The Content-Type the upload form must send; the policy pins it exactly.")
+    content_type: str = strawberry.field(
+        description="The Content-Type the upload form must send; the policy pins it exactly."
+    )
 
 
-@strawberry.type(description="A scope that can be assigned to a client. Scopes are used to limit the access of a client to a user's data. They represent app-level permissions.")
+@strawberry.type(
+    description="A scope that can be assigned to a client. Scopes are used to limit the access of a client to a user's data. They represent app-level permissions."
+)
 class Scope:
-    label: str = strawberry.field(description="The label of the scope. This is the human readable name of the scope.")
-    description: str = strawberry.field(description="The description of the scope. This is a human readable description of the scope.")
-    value: str = strawberry.field(description="The value of the scope. This is the value that is used in the OAuth2 flow.")
+    label: str = strawberry.field(
+        description="The label of the scope. This is the human readable name of the scope."
+    )
+    description: str = strawberry.field(
+        description="The description of the scope. This is a human readable description of the scope."
+    )
+    value: str = strawberry.field(
+        description="The value of the scope. This is the value that is used in the OAuth2 flow."
+    )
 
 
 @strawberry_django.type(
@@ -48,9 +60,15 @@ class Scope:
 class Layer:
     id: strawberry.ID
     name: str = strawberry.field(description="The name of the layer")
-    identifier: scalars.ServiceIdentifier = strawberry.field(description="The identifier of the layer. This should be a globally unique string that identifies the layer. We encourage you to use the reverse domain name notation. E.g. `com.example.mylayer`")
-    logo: types.MediaStore | None = strawberry.field(description="The logo of the layer. This should be a url to a logo that can be used to represent the layer.")
-    description: str | None = strawberry.field(description="The description of the layer. This should be a human readable description of the layer.")
+    identifier: scalars.ServiceIdentifier = strawberry.field(
+        description="The identifier of the layer. This should be a globally unique string that identifies the layer. We encourage you to use the reverse domain name notation. E.g. `com.example.mylayer`"
+    )
+    logo: types.MediaStore | None = strawberry.field(
+        description="The logo of the layer. This should be a url to a logo that can be used to represent the layer."
+    )
+    description: str | None = strawberry.field(
+        description="The description of the layer. This should be a human readable description of the layer."
+    )
 
     @classmethod
     def get_queryset(cls, queryset, info: Info, **kwargs):
@@ -66,25 +84,49 @@ class Layer:
 )
 class Hub:
     id: strawberry.ID
-    organization: types.Organization = strawberry.field(description="The organization that this hub belongs to.")
-    identifier: scalars.ServiceIdentifier = strawberry.field(description="The identifier of the hub. This should be a globally unique string that identifies the hub. We encourage you to use the reverse domain name notation. E.g. `com.example.myhub`")
-    description: str | None = strawberry.field(description="The description of the service. This should be a human readable description of the service.")
-    name: str = strawberry.field(description="The name of the hub. This should be a human readable name of the hub.")
-    last_seen_at: Optional[datetime.datetime] = strawberry.field(description="When the hub last reported its health. Null if it never has.")
-    last_healthy: Optional[bool] = strawberry.field(description="Whether the hub's last health report said it was healthy. Null if it never reported.")
-    version: str = strawberry.field(description="The hub software version, as last reported (empty if never reported).")
-    mesh_connected: Optional[bool] = strawberry.field(description="Whether the hub's last health report said its node is on the mesh. Null if it never reported mesh state.")
-    mesh_host: str = strawberry.field(description="The hub node's MagicDNS name (or mesh IP), as last reported by the hub. Empty when unknown or off the mesh.")
+    organization: types.Organization = strawberry.field(
+        description="The organization that this hub belongs to."
+    )
+    identifier: scalars.ServiceIdentifier = strawberry.field(
+        description="The identifier of the hub. This should be a globally unique string that identifies the hub. We encourage you to use the reverse domain name notation. E.g. `com.example.myhub`"
+    )
+    description: str | None = strawberry.field(
+        description="The description of the service. This should be a human readable description of the service."
+    )
+    name: str = strawberry.field(
+        description="The name of the hub. This should be a human readable name of the hub."
+    )
+    last_seen_at: datetime.datetime | None = strawberry.field(
+        description="When the hub last reported its health. Null if it never has."
+    )
+    last_healthy: bool | None = strawberry.field(
+        description="Whether the hub's last health report said it was healthy. Null if it never reported."
+    )
+    version: str = strawberry.field(
+        description="The hub software version, as last reported (empty if never reported)."
+    )
+    mesh_connected: bool | None = strawberry.field(
+        description="Whether the hub's last health report said its node is on the mesh. Null if it never reported mesh state."
+    )
+    mesh_host: str = strawberry.field(
+        description="The hub node's MagicDNS name (or mesh IP), as last reported by the hub. Empty when unknown or off the mesh."
+    )
 
-    @strawberry_django.field(description="Whether the hub reported its health within the last three reporting intervals.")
+    @strawberry_django.field(
+        description="Whether the hub reported its health within the last three reporting intervals."
+    )
     def online(self) -> bool:
         return self.online
 
-    @strawberry_django.field(description="When the hub stops counting as online unless it reports again: its last report plus three reporting intervals. Null if it never reported. A client watching `hubHealth` sets a timer for it instead of polling.")
-    def offline_at(self) -> Optional[datetime.datetime]:
+    @strawberry_django.field(
+        description="When the hub stops counting as online unless it reports again: its last report plus three reporting intervals. Null if it never reported. A client watching `hubHealth` sets a timer for it instead of polling."
+    )
+    def offline_at(self) -> datetime.datetime | None:
         return self.offline_at
 
-    @strawberry_django.field(description="The hub's most recent health report, or null if it never reported.")
+    @strawberry_django.field(
+        description="The hub's most recent health report, or null if it never reported."
+    )
     def latest_health(self) -> Optional["HubHealthReport"]:
         return self.health_snapshots.first()
 
@@ -97,29 +139,53 @@ def _granted_hubs(queryset, user, membership):
     """A guest sees the hubs their live collaborations run on, as on the management schema."""
     from karakter.collaboration_grants import live_grants
 
-    return queryset.filter(pk__in=live_grants(membership).filter(instance__hub__isnull=False).values("instance__hub_id"))
+    return queryset.filter(
+        pk__in=live_grants(membership)
+        .filter(instance__hub__isnull=False)
+        .values("instance__hub_id")
+    )
 
 
-@strawberry.type(description="The health a hub reported for one of its service instances.")
+@strawberry.type(
+    description="The health a hub reported for one of its service instances."
+)
 class InstanceHealth:
-    instance: "ServiceInstance" = strawberry.field(description="The service instance this entry is about.")
-    healthy: bool = strawberry.field(description="Did the hub report the instance healthy?")
-    reason: Optional[str] = strawberry.field(default=None, description="Why the instance is unhealthy, if the hub said.")
+    instance: "ServiceInstance" = strawberry.field(
+        description="The service instance this entry is about."
+    )
+    healthy: bool = strawberry.field(
+        description="Did the hub report the instance healthy?"
+    )
+    reason: str | None = strawberry.field(
+        default=None, description="Why the instance is unhealthy, if the hub said."
+    )
 
 
-@strawberry_django.type(models.HubHealthSnapshot, description="One health report a hub posted to lok.")
+@strawberry_django.type(
+    models.HubHealthSnapshot, description="One health report a hub posted to lok."
+)
 class HubHealthReport:
     id: strawberry.ID
     healthy: bool = strawberry.field(description="Did the hub report itself healthy?")
-    created_at: datetime.datetime = strawberry.field(description="When the hub reported.")
+    created_at: datetime.datetime = strawberry.field(
+        description="When the hub reported."
+    )
 
-    @strawberry_django.field(description="The per-instance health in this report. Only instances of the hub are listed.")
+    @strawberry_django.field(
+        description="The per-instance health in this report. Only instances of the hub are listed."
+    )
     def instances(self) -> list[InstanceHealth]:
         reported = (self.payload or {}).get("instances") or {}
         # A hub names an instance by its name there; older ones by its token.
-        known = {key: i for i in self.hub.instances.all() for key in (i.token, i.instance_id)}
+        known = {
+            key: i for i in self.hub.instances.all() for key in (i.token, i.instance_id)
+        }
         return [
-            InstanceHealth(instance=known[key], healthy=bool(value.get("healthy")), reason=value.get("reason"))
+            InstanceHealth(
+                instance=known[key],
+                healthy=bool(value.get("healthy")),
+                reason=value.get("reason"),
+            )
             for key, value in reported.items()
             if key in known
         ]
@@ -135,12 +201,18 @@ class HubHealthReport:
 class Service:
     id: strawberry.ID
     name: str = strawberry.field(description="The name of the service")
-    identifier: scalars.ServiceIdentifier = strawberry.field(description="The identifier of the service. This should be a globally unique string that identifies the service. We encourage you to use the reverse domain name notation. E.g. `com.example.myservice`")
-    description: str | None = strawberry.field(description="The description of the service. This should be a human readable description of the service.")
+    identifier: scalars.ServiceIdentifier = strawberry.field(
+        description="The identifier of the service. This should be a globally unique string that identifies the service. We encourage you to use the reverse domain name notation. E.g. `com.example.myservice`"
+    )
+    description: str | None = strawberry.field(
+        description="The description of the service. This should be a human readable description of the service."
+    )
     releases: list["ServiceRelease"] = strawberry_django.field(
         description="The releases of the service. A service release is a specific version of a service. It will be configured by a configuration backend and will be used to send to the client as a configuration. It should never contain sensitive information."
     )
-    logo: types.MediaStore | None = strawberry.field(description="The logo of the service. This should be a url to a logo that can be used to represent the service.")
+    logo: types.MediaStore | None = strawberry.field(
+        description="The logo of the service. This should be a url to a logo that can be used to represent the service."
+    )
 
     @classmethod
     def get_queryset(cls, queryset, info: Info, **kwargs):
@@ -156,8 +228,12 @@ class Service:
 )
 class ServiceRelease:
     id: strawberry.ID
-    version: str = strawberry.field(description="The version of the service. This should be a human readable version string.")
-    service: Service = strawberry.field(description="The service that this release belongs to.")
+    version: str = strawberry.field(
+        description="The version of the service. This should be a human readable version string."
+    )
+    service: Service = strawberry.field(
+        description="The service that this release belongs to."
+    )
     instances: list["ServiceInstance"] = strawberry_django.field(
         description="The instances of the service. A service instance is a configured instance of a service. It will be configured by a configuration backend and will be used to send to the client as a configuration. It should never contain sensitive information."
     )
@@ -176,19 +252,38 @@ class ServiceRelease:
 )
 class ServiceInstance:
     id: strawberry.ID
-    release: ServiceRelease = strawberry.field(description="The service release that this instance belongs to.")
-    instance_id: strawberry.ID = strawberry.field(description="The instance id of the instance. This is a unique string that identifies the instance. It is used to identify the instance in the code and in the database.")  
-    allowed_users: list[types.User] = strawberry_django.field(description="The users that are allowed to use this instance.")
+    release: ServiceRelease = strawberry.field(
+        description="The service release that this instance belongs to."
+    )
+    instance_id: strawberry.ID = strawberry.field(
+        description="The instance id of the instance. This is a unique string that identifies the instance. It is used to identify the instance in the code and in the database."
+    )
+    allowed_users: list[types.User] = strawberry_django.field(
+        description="The users that are allowed to use this instance."
+    )
 
-    @strawberry_django.field(description="A human readable name of the instance, derived from its service identifier and instance id.", select_related=["release__service"])
+    @strawberry_django.field(
+        description="A human readable name of the instance, derived from its service identifier and instance id.",
+        select_related=["release__service"],
+    )
     def name(self, info: Info) -> str:
         return f"{self.release.service.identifier}:{self.instance_id}"
 
-    denied_users: list[types.User] = strawberry_django.field(description="The users that are denied to use this instance.")
-    allowed_groups: list[types.Group] = strawberry_django.field(description="The groups that are allowed to use this instance.")
-    denied_groups: list[types.Group] = strawberry_django.field(description="The groups that are denied to use this instance.")
-    mappings: list["ServiceInstanceMapping"] = strawberry_django.field(description="The mappings of the hub. A mapping is a mapping of a service to a service instance. This is used to configure the hub.")
-    logo: types.MediaStore | None = strawberry.field(description="The logo of the app. This should be a url to a logo that can be used to represent the app.")
+    denied_users: list[types.User] = strawberry_django.field(
+        description="The users that are denied to use this instance."
+    )
+    allowed_groups: list[types.Group] = strawberry_django.field(
+        description="The groups that are allowed to use this instance."
+    )
+    denied_groups: list[types.Group] = strawberry_django.field(
+        description="The groups that are denied to use this instance."
+    )
+    mappings: list["ServiceInstanceMapping"] = strawberry_django.field(
+        description="The mappings of the hub. A mapping is a mapping of a service to a service instance. This is used to configure the hub."
+    )
+    logo: types.MediaStore | None = strawberry.field(
+        description="The logo of the app. This should be a url to a logo that can be used to represent the app."
+    )
     aliases: list["InstanceAlias"] = strawberry_django.field(
         description="The aliases of the instance. An alias is a way to reach the instance. Clients can use these aliases to check if they can reach the instance."
     )
@@ -205,15 +300,33 @@ class ServiceInstance:
 )
 class InstanceAlias:
     id: strawberry.ID
-    layer: Optional[Layer] = strawberry.field(description="The layer that this alias belongs to, if any.")
-    instance: ServiceInstance = strawberry.field(description="The instance that this alias belongs to.")
-    kind: str = strawberry.field(description="The kind of alias. If absolute, it is a full URL; if mesh, it resolves to its hub node on the organization's mesh; if docker, it is only reachable from inside the hub's own docker environment.")
-    host: Optional[str] = strawberry.field(description="The host of the alias (e.g. 'example.com'). Not set for a mesh alias, which resolves to its hub node's MagicDNS name.")
-    port: Optional[int] = strawberry.field(description="The port of the alias (e.g. 8080 for 'example.com:8080'). If not set, the scheme's default port is used.")
-    path: Optional[str] = strawberry.field(description="The path of the alias (e.g. 'path' for 'example.com/path').")
-    ssl: bool = strawberry.field(description="Is this alias using SSL? If true, the alias will be accessed via https:// instead of http://. This is used to indicate that the alias is secure and should be accessed via SSL")
-    challenge: str = strawberry.field(description="The challenge of the alias. This is used to verify that the alias is reachable. If set, the alias will be accessed via the challenge URL (e.g. 'example.com/.well-known/challenge'). If not set, the alias will be accessed via the instance's URL.")
-    public: bool = strawberry.field(description="Is this alias publicly reachable? If true, the coordination server can also check the alias's health directly, enabling health checks from the kontrol interface.")
+    layer: Layer | None = strawberry.field(
+        description="The layer that this alias belongs to, if any."
+    )
+    instance: ServiceInstance = strawberry.field(
+        description="The instance that this alias belongs to."
+    )
+    kind: str = strawberry.field(
+        description="The kind of alias. If absolute, it is a full URL; if mesh, it resolves to its hub node on the organization's mesh; if docker, it is only reachable from inside the hub's own docker environment."
+    )
+    host: str | None = strawberry.field(
+        description="The host of the alias (e.g. 'example.com'). Not set for a mesh alias, which resolves to its hub node's MagicDNS name."
+    )
+    port: int | None = strawberry.field(
+        description="The port of the alias (e.g. 8080 for 'example.com:8080'). If not set, the scheme's default port is used."
+    )
+    path: str | None = strawberry.field(
+        description="The path of the alias (e.g. 'path' for 'example.com/path')."
+    )
+    ssl: bool = strawberry.field(
+        description="Is this alias using SSL? If true, the alias will be accessed via https:// instead of http://. This is used to indicate that the alias is secure and should be accessed via SSL"
+    )
+    challenge: str = strawberry.field(
+        description="The challenge of the alias. This is used to verify that the alias is reachable. If set, the alias will be accessed via the challenge URL (e.g. 'example.com/.well-known/challenge'). If not set, the alias will be accessed via the instance's URL."
+    )
+    public: bool = strawberry.field(
+        description="Is this alias publicly reachable? If true, the coordination server can also check the alias's health directly, enabling health checks from the kontrol interface."
+    )
 
     @classmethod
     def get_queryset(cls, queryset, info: Info, **kwargs):
@@ -227,10 +340,18 @@ class InstanceAlias:
 )
 class ServiceInstanceMapping:
     id: strawberry.ID
-    instance: ServiceInstance = strawberry.field(description="The service instance this requirement is mapped to.")
-    client: "Client" = strawberry.field(description="The client whose requirement this mapping fulfils.")
-    key: str = strawberry.field(description="The requirement key of the client that this mapping fulfils. Unique per client.")
-    optional: bool = strawberry.field(description="Is this mapping optional? If a mapping is optional, you can configure the client without this mapping.")
+    instance: ServiceInstance = strawberry.field(
+        description="The service instance this requirement is mapped to."
+    )
+    client: "Client" = strawberry.field(
+        description="The client whose requirement this mapping fulfils."
+    )
+    key: str = strawberry.field(
+        description="The requirement key of the client that this mapping fulfils. Unique per client."
+    )
+    optional: bool = strawberry.field(
+        description="Is this mapping optional? If a mapping is optional, you can configure the client without this mapping."
+    )
 
     @classmethod
     def get_queryset(cls, queryset, info: Info, **kwargs):
@@ -254,16 +375,26 @@ class DefinedValue:
 class App:
     id: strawberry.ID
     name: str = strawberry.field(description="The name of the app")
-    identifier: scalars.AppIdentifier = strawberry.field(description="The identifier of the app. This should be a globally unique string that identifies the app. We encourage you to use the reverse domain name notation. E.g. `com.example.myapp`")
+    identifier: scalars.AppIdentifier = strawberry.field(
+        description="The identifier of the app. This should be a globally unique string that identifies the app. We encourage you to use the reverse domain name notation. E.g. `com.example.myapp`"
+    )
 
-    releases: list["Release"] = strawberry.field(description="The releases of the app. A release is a version of the app that can be installed by a user.")
-    @strawberry_django.field(annotate={"release_count_annotated": Count("releases", distinct=True)}, description="How many releases the app has.")
+    releases: list["Release"] = strawberry.field(
+        description="The releases of the app. A release is a version of the app that can be installed by a user."
+    )
+
+    @strawberry_django.field(
+        annotate={"release_count_annotated": Count("releases", distinct=True)},
+        description="How many releases the app has.",
+    )
     def release_count(self) -> int:
         # Annotated when the object comes from a list; counted when a resolver hands it over.
         counted = getattr(self, "release_count_annotated", None)
         return counted if counted is not None else self.releases.count()
 
-    logo: types.MediaStore | None = strawberry.field(description="The logo of the app. This should be a url to a logo that can be used to represent the app.")
+    logo: types.MediaStore | None = strawberry.field(
+        description="The logo of the app. This should be a url to a logo that can be used to represent the app."
+    )
 
     @classmethod
     def get_queryset(cls, queryset, info: Info, **kwargs):
@@ -280,12 +411,24 @@ class App:
 class Release:
     id: strawberry.ID
     app: App = strawberry.field(description="The app that this release belongs to.")
-    version: scalars.Version = strawberry.field(description="The version of the release. This should be a string that identifies the version of the release. We enforce semantic versioning notation. E.g. `0.1.0`. The version is unique per app.")
-    name: str = strawberry.field(description="The name of the release. This should be a string that identifies the release beyond the version number. E.g. `canary`.")
-    logo: types.MediaStore | None = strawberry.field(description="The logo of the release. This should be a url to a logo that can be used to represent the release.")
-    scopes: list[str] = strawberry.field(description="The scopes of the release. Scopes are used to limit the access of a client to a user's data. They represent app-level permissions.")
+    version: scalars.Version = strawberry.field(
+        description="The version of the release. This should be a string that identifies the version of the release. We enforce semantic versioning notation. E.g. `0.1.0`. The version is unique per app."
+    )
+    name: str = strawberry.field(
+        description="The name of the release. This should be a string that identifies the release beyond the version number. E.g. `canary`."
+    )
+    logo: types.MediaStore | None = strawberry.field(
+        description="The logo of the release. This should be a url to a logo that can be used to represent the release."
+    )
+    scopes: list[str] = strawberry.field(
+        description="The scopes of the release. Scopes are used to limit the access of a client to a user's data. They represent app-level permissions."
+    )
     clients: list["Client"] = strawberry.field(description="The clients of the release")
-    @strawberry_django.field(annotate={"client_count_annotated": Count("clients", distinct=True)}, description="How many clients run the release.")
+
+    @strawberry_django.field(
+        annotate={"client_count_annotated": Count("clients", distinct=True)},
+        description="How many clients run the release.",
+    )
     def client_count(self) -> int:
         # Annotated when the object comes from a list; counted when a resolver hands it over.
         counted = getattr(self, "client_count_annotated", None)
@@ -310,7 +453,9 @@ class Release:
 
 @strawberry.type
 class PublicSource:
-    kind: str = strawberry.field(description="The kind of the public source. E.g. 'github'")
+    kind: str = strawberry.field(
+        description="The kind of the public source. E.g. 'github'"
+    )
     url: str = strawberry.field(description="The url of the public source")
 
 
@@ -326,9 +471,13 @@ _CLIENT_KINDS = {
 }
 
 
-@strawberry.type(description="A client looked up by an id another service knows it by (`clientsByClientId`).")
+@strawberry.type(
+    description="A client looked up by an id another service knows it by (`clientsByClientId`)."
+)
 class ClientByClientId:
-    requested_id: strawberry.ID = strawberry.field(description="The id that was asked for. The client's current `clientId` may differ: a client keeps one id per release it ran.")
+    requested_id: strawberry.ID = strawberry.field(
+        description="The id that was asked for. The client's current `clientId` may differ: a client keeps one id per release it ran."
+    )
     client: "Client" = strawberry.field(description="The client known by that id.")
 
 
@@ -344,15 +493,26 @@ class ClientByClientId:
 )
 class Client:
     id: strawberry.ID
-    functional: bool = strawberry_django.field(description="Is this client functional? A functional client is a client that is able to authenticate users. If a client is not functional, it will not be able to authenticate users.")
-    release: Release | None = strawberry_django.field(description="The release that this client belongs to. Null for clients that are not bound to an app release (hub identities, relying parties, pending registrations).")
+    functional: bool = strawberry_django.field(
+        description="Is this client functional? A functional client is a client that is able to authenticate users. If a client is not functional, it will not be able to authenticate users."
+    )
+    release: Release | None = strawberry_django.field(
+        description="The release that this client belongs to. Null for clients that are not bound to an app release (hub identities, relying parties, pending registrations)."
+    )
 
-    @strawberry_django.field(description="The id the services know this client by: the `client_id` claim of its tokens. It is the client's own OAuth2 client id until the client has run more than one release of its app, and from then on one per release, so that what it did as an earlier version stays that version's. A client can still be looked up by any id it has had.", prefetch_related=["identities"])
+    @strawberry_django.field(
+        description="The id the services know this client by: the `client_id` claim of its tokens. It is the client's own OAuth2 client id until the client has run more than one release of its app, and from then on one per release, so that what it did as an earlier version stays that version's. A client can still be looked up by any id it has had.",
+        prefetch_related=["identities"],
+    )
     def client_id(self, info: Info) -> str:
         return self.token_client_id
 
-    mandate: Optional["Mandate"] = strawberry_django.field(description="The mandate this client logs in with, if it logs in with a key.")
-    public: bool = strawberry_django.field(description="Is this client public? A public client cannot keep a secret (desktop apps, mobile apps, SPAs, hub identities) and authenticates without one, relying on PKCE / device-code flows instead.")
+    mandate: Optional["Mandate"] = strawberry_django.field(
+        description="The mandate this client logs in with, if it logs in with a key."
+    )
+    public: bool = strawberry_django.field(
+        description="Is this client public? A public client cannot keep a secret (desktop apps, mobile apps, SPAs, hub identities) and authenticates without one, relying on PKCE / device-code flows instead."
+    )
 
     @strawberry_django.field(
         description="The user this client acts for (derived from its membership).",
@@ -362,8 +522,12 @@ class Client:
     def user(self, info: Info) -> types.User | None:
         return self.membership.user if self.membership_id else None
 
-    logo: types.MediaStore | None = strawberry_django.field(description="The logo of the release. This should be a url to a logo that can be used to represent the release.")
-    node: Optional["Device"] = strawberry_django.field(description="The node this runs on")
+    logo: types.MediaStore | None = strawberry_django.field(
+        description="The logo of the release. This should be a url to a logo that can be used to represent the release."
+    )
+    node: Optional["Device"] = strawberry_django.field(
+        description="The node this runs on"
+    )
 
     @strawberry_django.field(
         description="A human-readable label for the client that folds in the app, version, "
@@ -372,7 +536,11 @@ class Client:
     )
     def name(self, info: Info) -> str:
         release = self.release
-        label = f"{release.app.identifier}:v{release.version}" if release else (self.name or "Unknown client")
+        label = (
+            f"{release.app.identifier}:v{release.version}"
+            if release
+            else (self.name or "Unknown client")
+        )
         person = self.membership.user if self.membership_id else None
         if person:
             full = f"{person.first_name or ''} {person.last_name or ''}".strip()
@@ -380,24 +548,28 @@ class Client:
         if self.node and self.node.name:
             label += f" on {self.node.name}"
         return label
-    mappings: list["ServiceInstanceMapping"] = strawberry_django.field(description="The mappings of the client. A mapping is a mapping of a service to a service instance. This is used to configure the hub.")
 
+    mappings: list["ServiceInstanceMapping"] = strawberry_django.field(
+        description="The mappings of the client. A mapping is a mapping of a service to a service instance. This is used to configure the hub."
+    )
 
-
-
-
-
-    @strawberry_django.field(description="What kind of principal this client is (its authentication strategy): DEVELOPMENT, WEBSITE, DESKTOP, MOBILE, HUB or RELYING_PARTY.")
+    @strawberry_django.field(
+        description="What kind of principal this client is (its authentication strategy): DEVELOPMENT, WEBSITE, DESKTOP, MOBILE, HUB or RELYING_PARTY."
+    )
     def kind(self, info: Info) -> enums.ClientKind:
         return _CLIENT_KINDS.get(self.kind, enums.ClientKind.DEVELOPMENT)
 
-    @strawberry_django.field(description="The operational role of the client. INTERFACE clients are human interfaces operated by a user in real time. AGENT clients are authorized once and then run unattended, receiving and processing tasks on the user's behalf.")
+    @strawberry_django.field(
+        description="The operational role of the client. INTERFACE clients are human interfaces operated by a user in real time. AGENT clients are authorized once and then run unattended, receiving and processing tasks on the user's behalf."
+    )
     def role(self, info: Info) -> enums.ClientRole:
         if self.role == "agent":
             return enums.ClientRole.AGENT
         return enums.ClientRole.INTERFACE
 
-    @strawberry_django.field(description="The issue url of the client. This is the url where users can report issues and get more information about the client.")
+    @strawberry_django.field(
+        description="The issue url of the client. This is the url where users can report issues and get more information about the client."
+    )
     def issue_url(self, info: Info) -> str | None:
         for source in self.public_sources or []:
             if not isinstance(source, dict):
@@ -408,7 +580,9 @@ class Client:
 
         return None
 
-    @strawberry_django.field(description="The public sources of the client. These are the public sources where users can find more information about the client.")
+    @strawberry_django.field(
+        description="The public sources of the client. These are the public sources where users can find more information about the client."
+    )
     def public_sources(self, info: Info) -> list[PublicSource]:
         sources = []
         for source in self.public_sources or []:
@@ -441,33 +615,73 @@ class Client:
 )
 class BugReport:
     id: strawberry.ID
-    client: Optional[Client] = strawberry_django.field(description="The client the report was filed from. Null once that client is gone.")
-    release: Optional[Release] = strawberry_django.field(description="The release that client ran when the report was filed.")
-    reporter: Optional[types.User] = strawberry_django.field(description="Who filed it.")
-    title: str = strawberry_django.field(description="The first line of what the reporter wrote.")
-    description: str = strawberry_django.field(description="What happened, in the reporter's words.")
-    expected: Optional[str] = strawberry_django.field(description="What the reporter expected instead.")
-    route: Optional[str] = strawberry_django.field(description="The page the reporter was on.")
-    app_version: Optional[str] = strawberry_django.field(description="The version the client says it runs.")
-    platform: Optional[str] = strawberry_django.field(description="The operating system the client says it runs on.")
-    diagnostics: JSON = strawberry_django.field(description="What the client recorded: recent errors, failed requests, steps, console. Its shape is the client's.")
-    created_at: datetime.datetime = strawberry_django.field(description="When it was filed.")
-    resolved_at: Optional[datetime.datetime] = strawberry_django.field(description="When an admin closed it; null while it is open.")
-    resolved_by: Optional[types.User] = strawberry_django.field(description="The admin who closed it.")
-    resolution_note: Optional[str] = strawberry_django.field(description="What the admin noted when closing it.")
-    forwarded_at: Optional[datetime.datetime] = strawberry_django.field(description="When an admin passed it on to the app's issue tracker.")
-    forwarded_by: Optional[types.User] = strawberry_django.field(description="The admin who passed it on.")
-    forwarded_url: Optional[str] = strawberry_django.field(description="The issue it became, when the admin recorded it.")
+    client: Client | None = strawberry_django.field(
+        description="The client the report was filed from. Null once that client is gone."
+    )
+    release: Release | None = strawberry_django.field(
+        description="The release that client ran when the report was filed."
+    )
+    reporter: types.User | None = strawberry_django.field(description="Who filed it.")
+    title: str = strawberry_django.field(
+        description="The first line of what the reporter wrote."
+    )
+    description: str = strawberry_django.field(
+        description="What happened, in the reporter's words."
+    )
+    expected: str | None = strawberry_django.field(
+        description="What the reporter expected instead."
+    )
+    route: str | None = strawberry_django.field(
+        description="The page the reporter was on."
+    )
+    app_version: str | None = strawberry_django.field(
+        description="The version the client says it runs."
+    )
+    platform: str | None = strawberry_django.field(
+        description="The operating system the client says it runs on."
+    )
+    diagnostics: JSON = strawberry_django.field(
+        description="What the client recorded: recent errors, failed requests, steps, console. Its shape is the client's."
+    )
+    created_at: datetime.datetime = strawberry_django.field(
+        description="When it was filed."
+    )
+    resolved_at: datetime.datetime | None = strawberry_django.field(
+        description="When an admin closed it; null while it is open."
+    )
+    resolved_by: types.User | None = strawberry_django.field(
+        description="The admin who closed it."
+    )
+    resolution_note: str | None = strawberry_django.field(
+        description="What the admin noted when closing it."
+    )
+    forwarded_at: datetime.datetime | None = strawberry_django.field(
+        description="When an admin passed it on to the app's issue tracker."
+    )
+    forwarded_by: types.User | None = strawberry_django.field(
+        description="The admin who passed it on."
+    )
+    forwarded_url: str | None = strawberry_django.field(
+        description="The issue it became, when the admin recorded it."
+    )
 
-    @strawberry_django.field(description="Has an admin closed this report?", only=["resolved_at"])
+    @strawberry_django.field(
+        description="Has an admin closed this report?", only=["resolved_at"]
+    )
     def is_resolved(self, info: Info) -> bool:
         return self.resolved_at is not None
 
-    @strawberry_django.field(description="The app the report is about: the app of the release it was filed from.", select_related=["release__app"])
-    def app(self, info: Info) -> Optional[App]:
+    @strawberry_django.field(
+        description="The app the report is about: the app of the release it was filed from.",
+        select_related=["release__app"],
+    )
+    def app(self, info: Info) -> App | None:
         return self.release.app if self.release_id else None
 
-    @strawberry_django.field(description="Does the report carry a screenshot?", only=["screenshot_content_type"])
+    @strawberry_django.field(
+        description="Does the report carry a screenshot?",
+        only=["screenshot_content_type"],
+    )
     def has_screenshot(self, info: Info) -> bool:
         return bool(self.screenshot_content_type)
 
@@ -475,7 +689,7 @@ class BugReport:
         description="The screenshot as a data URL. Kept in the database and served only here, to those who may read the report: it can show the reporter's data, so it never goes to the public media bucket. Ask for it on one report, not on a list.",
         only=["screenshot", "screenshot_content_type"],
     )
-    def screenshot(self, info: Info) -> Optional[str]:
+    def screenshot(self, info: Info) -> str | None:
         import base64
 
         if not self.screenshot or not self.screenshot_content_type:
@@ -484,7 +698,9 @@ class BugReport:
 
     @classmethod
     def get_queryset(cls, queryset, info: Info, **kwargs):
-        return models.BugReport.visible_to(build_prescoped_queryset(info, queryset), info.context.request.user)
+        return models.BugReport.visible_to(
+            build_prescoped_queryset(info, queryset), info.context.request.user
+        )
 
 
 @strawberry_django.type(
@@ -497,29 +713,45 @@ class BugReport:
 class DeviceGroup:
     id: strawberry.ID
     name: str = strawberry.field(description="The name of the device group.")
-    devices: list["Device"] = strawberry_django.field(description="The devices that belong to this device group.")
+    devices: list["Device"] = strawberry_django.field(
+        description="The devices that belong to this device group."
+    )
 
     @classmethod
     def get_queryset(cls, queryset, info: Info, **kwargs):
         return build_prescoped_queryset(info, queryset)
 
 
-@strawberry_django.type(models.Device, filters=filters.DeviceFilter, pagination=True, ordering=filters.DeviceOrdering)
+@strawberry_django.type(
+    models.Device,
+    filters=filters.DeviceFilter,
+    pagination=True,
+    ordering=filters.DeviceOrdering,
+)
 class Device:
     id: strawberry.ID
     name: str | None
     node_id: strawberry.ID = strawberry_django.field(deprecation_reason="Use deviceId.")
     clients: list[Client]
-    @strawberry_django.field(annotate={"client_count_annotated": Count("clients", distinct=True)}, description="How many clients run on this device.")
+
+    @strawberry_django.field(
+        annotate={"client_count_annotated": Count("clients", distinct=True)},
+        description="How many clients run on this device.",
+    )
     def client_count(self) -> int:
         # Annotated when the object comes from a list; counted when a resolver hands it over.
         counted = getattr(self, "client_count_annotated", None)
         return counted if counted is not None else self.clients.count()
 
-    @strawberry_django.field(description="The (per-organization hashed) id of the device.")
+    @strawberry_django.field(
+        description="The (per-organization hashed) id of the device."
+    )
     def device_id(self) -> strawberry.ID:
         return self.node_id
-    device_groups: list[DeviceGroup] = strawberry_django.field(description="The device groups that belong to this device.")
+
+    device_groups: list[DeviceGroup] = strawberry_django.field(
+        description="The device groups that belong to this device."
+    )
 
     @classmethod
     def get_queryset(cls, queryset, info: Info, **kwargs):
@@ -532,13 +764,25 @@ class RequirementPin:
     service: str
 
 
-@strawberry.type(description="The ceiling a mandate puts on the apps that log in under it. A null field is open.")
+@strawberry.type(
+    description="The ceiling a mandate puts on the apps that log in under it. A null field is open."
+)
 class MandatePin:
-    identifier: str | None = strawberry.field(description="The app. Null: fixed by the first app that logs in.")
-    version: str | None = strawberry.field(description="The release. Null: every release.")
-    device_id: str | None = strawberry.field(description="The device. Null: any device.")
-    scopes: list[str] | None = strawberry.field(description="The most scopes an app may ask for. Null: the organization's.")
-    requirements: list[RequirementPin] | None = strawberry.field(description="The most requirements an app may ask for. Null: any.")
+    identifier: str | None = strawberry.field(
+        description="The app. Null: fixed by the first app that logs in."
+    )
+    version: str | None = strawberry.field(
+        description="The release. Null: every release."
+    )
+    device_id: str | None = strawberry.field(
+        description="The device. Null: any device."
+    )
+    scopes: list[str] | None = strawberry.field(
+        description="The most scopes an app may ask for. Null: the organization's."
+    )
+    requirements: list[RequirementPin] | None = strawberry.field(
+        description="The most requirements an app may ask for. Null: any."
+    )
 
 
 @strawberry_django.type(
@@ -550,7 +794,9 @@ class MandatePin:
 )
 class Mandate:
     id: strawberry.ID
-    hub: Hub = strawberry_django.field(description="The hub the clients compose against.")
+    hub: Hub = strawberry_django.field(
+        description="The hub the clients compose against."
+    )
 
     @strawberry_django.field(description="Who may use the mandate.", only=["claimant"])
     def claimant(self, info: Info) -> enums.MandateClaimant:
@@ -560,32 +806,72 @@ class Mandate:
     def origin(self, info: Info) -> enums.MandateOrigin:
         return enums.MandateOrigin[str(self.origin).upper()]
 
-    @strawberry_django.field(description="Why the mandate was withdrawn.", only=["revocation_reason"])
+    @strawberry_django.field(
+        description="Why the mandate was withdrawn.", only=["revocation_reason"]
+    )
     def revocation_reason(self, info: Info) -> enums.MandateRevocation | None:
-        return enums.MandateRevocation[str(self.revocation_reason).upper()] if self.revocation_reason else None
+        return (
+            enums.MandateRevocation[str(self.revocation_reason).upper()]
+            if self.revocation_reason
+            else None
+        )
 
     label: str = strawberry_django.field(description="A human name for the mandate.")
-    key_prefix: str = strawberry_django.field(description="The first characters of the key, to recognise it by. Empty for an agent mandate.")
-    agent_identifier: str | None = strawberry_django.field(description="The app allowed to issue keys under this mandate. Null for a keyed mandate.")
-    agent_device: Optional[Device] = strawberry_django.field(description="If set, only an agent running on this device may issue.")
-    attestation: str = strawberry_django.field(description="Opaque binding set by the approving service (e.g. a release digest).")
-    max_clients: int | None = strawberry_django.field(description="Keyed: on how many devices the key may log in. Agent: how many live keys may be issued under it. Null means unlimited.")
-    allow_mesh: bool = strawberry_django.field(description="Whether a client logging in with the key may ask for a mesh key.")
+    key_prefix: str = strawberry_django.field(
+        description="The first characters of the key, to recognise it by. Empty for an agent mandate."
+    )
+    agent_identifier: str | None = strawberry_django.field(
+        description="The app allowed to issue keys under this mandate. Null for a keyed mandate."
+    )
+    agent_device: Device | None = strawberry_django.field(
+        description="If set, only an agent running on this device may issue."
+    )
+    attestation: str = strawberry_django.field(
+        description="Opaque binding set by the approving service (e.g. a release digest)."
+    )
+    max_clients: int | None = strawberry_django.field(
+        description="Keyed: on how many devices the key may log in. Agent: how many live keys may be issued under it. Null means unlimited."
+    )
+    allow_mesh: bool = strawberry_django.field(
+        description="Whether a client logging in with the key may ask for a mesh key."
+    )
     created_at: datetime.datetime
-    expires_at: datetime.datetime | None = strawberry_django.field(description="After this the mandate no longer works. Null: as long as its issuer.")
-    revoked_at: datetime.datetime | None = strawberry_django.field(description="When the mandate was withdrawn; its clients were deleted then.")
-    last_used_at: datetime.datetime | None = strawberry_django.field(description="When the key was last exchanged for a token.")
-    clients: list[Client] = strawberry_django.field(description="The clients logged in with the key, one per device.")
-    @strawberry_django.field(annotate={"client_count_annotated": Count("clients", distinct=True)}, description="How many clients are logged in with the key.")
+    expires_at: datetime.datetime | None = strawberry_django.field(
+        description="After this the mandate no longer works. Null: as long as its issuer."
+    )
+    revoked_at: datetime.datetime | None = strawberry_django.field(
+        description="When the mandate was withdrawn; its clients were deleted then."
+    )
+    last_used_at: datetime.datetime | None = strawberry_django.field(
+        description="When the key was last exchanged for a token."
+    )
+    clients: list[Client] = strawberry_django.field(
+        description="The clients logged in with the key, one per device."
+    )
+
+    @strawberry_django.field(
+        annotate={"client_count_annotated": Count("clients", distinct=True)},
+        description="How many clients are logged in with the key.",
+    )
     def client_count(self) -> int:
         # Annotated when the object comes from a list; counted when a resolver hands it over.
         counted = getattr(self, "client_count_annotated", None)
         return counted if counted is not None else self.clients.count()
-    parent: Optional["Mandate"] = strawberry_django.field(description="The agent mandate this one was issued under.")
-    children: list["Mandate"] = strawberry_django.field(description="The keyed mandates the agent issued under this one.")
-    issuing_client: Optional[Client] = strawberry_django.field(description="The app that issued this mandate.")
 
-    @strawberry_django.field(description="The app the mandate admits, and the ceilings it puts on it.", only=["subject_manifest"])
+    parent: Optional["Mandate"] = strawberry_django.field(
+        description="The agent mandate this one was issued under."
+    )
+    children: list["Mandate"] = strawberry_django.field(
+        description="The keyed mandates the agent issued under this one."
+    )
+    issuing_client: Client | None = strawberry_django.field(
+        description="The app that issued this mandate."
+    )
+
+    @strawberry_django.field(
+        description="The app the mandate admits, and the ceilings it puts on it.",
+        only=["subject_manifest"],
+    )
     def subject(self, info: Info) -> MandatePin:
         pin = self.pin
         return MandatePin(
@@ -593,41 +879,72 @@ class Mandate:
             version=pin.version,
             device_id=pin.device_id,
             scopes=pin.scopes,
-            requirements=[RequirementPin(key=r.key, service=r.service) for r in pin.requirements] if pin.requirements is not None else None,
+            requirements=[
+                RequirementPin(key=r.key, service=r.service) for r in pin.requirements
+            ]
+            if pin.requirements is not None
+            else None,
         )
 
-    @strawberry_django.field(description="The user the clients act as.", select_related=["membership__user"])
+    @strawberry_django.field(
+        description="The user the clients act as.", select_related=["membership__user"]
+    )
     def grantor(self, info: Info) -> types.User:
         return self.membership.user
 
-    @strawberry_django.field(description="If set, only an agent acting as this user may issue.", select_related=["agent_membership__user"])
+    @strawberry_django.field(
+        description="If set, only an agent acting as this user may issue.",
+        select_related=["agent_membership__user"],
+    )
     def agent_user(self, info: Info) -> types.User | None:
         return self.agent_membership.user if self.agent_membership_id else None
 
-    @strawberry_django.field(description="Whether the mandate still works.", only=["revoked_at", "expires_at", "membership"], select_related=["membership__user"])
+    @strawberry_django.field(
+        description="Whether the mandate still works.",
+        only=["revoked_at", "expires_at", "membership"],
+        select_related=["membership__user"],
+    )
     def is_live(self, info: Info) -> bool:
         return self.is_live()
 
     @classmethod
     def get_queryset(cls, queryset, info: Info, **kwargs):
         """Visible to its grantor, to org admins, to the app that issued it, and to the agent it names or was issued by."""
-        from karakter.models import Membership
         from fakts.services.mandates import is_org_admin
+        from karakter.models import Membership
 
         queryset = build_prescoped_queryset(info, queryset)
         request = info.context.request
-        membership = Membership.objects.filter(user=request.user, organization=request.organization).select_related("organization").first()
+        membership = (
+            Membership.objects.filter(
+                user=request.user, organization=request.organization
+            )
+            .select_related("organization")
+            .first()
+        )
         if membership is not None and is_org_admin(membership):
             return queryset
         client = getattr(request, "client", None)
-        agent = client.release.app.identifier if client is not None and client.release_id else None
-        visible = Q(membership__user=request.user) | Q(agent_identifier=agent) | Q(parent__agent_identifier=agent)
+        agent = (
+            client.release.app.identifier
+            if client is not None and client.release_id
+            else None
+        )
+        visible = (
+            Q(membership__user=request.user)
+            | Q(agent_identifier=agent)
+            | Q(parent__agent_identifier=agent)
+        )
         if client is not None:
             visible |= Q(issuing_client=client)
         return queryset.filter(visible)
 
 
-@strawberry.type(description="A freshly issued mandate and its key. The key is shown only here, once.")
+@strawberry.type(
+    description="A freshly issued mandate and its key. The key is shown only here, once."
+)
 class IssuedMandateKey:
     mandate: Mandate
-    key: str = strawberry.field(description="The mandate key. Hand it to the app as FAKTS_MANDATE_KEY; lok keeps only its hash.")
+    key: str = strawberry.field(
+        description="The mandate key. Hand it to the app as FAKTS_MANDATE_KEY; lok keeps only its hash."
+    )

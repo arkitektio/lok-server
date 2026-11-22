@@ -31,7 +31,9 @@ EMPTY = {"linkPreview": {"organization": None, "inviter": None}}
 def _anonymous():
     request = UniversalRequest(_extensions={})
     request.set_user(AnonymousUser())
-    return HttpContext(request=request, response=TemporalResponse(), headers={}, type="http")
+    return HttpContext(
+        request=request, response=TemporalResponse(), headers={}, type="http"
+    )
 
 
 def _setup(org_public: bool, user_public: bool):
@@ -41,11 +43,13 @@ def _setup(org_public: bool, user_public: bool):
     organization.save(update_fields=["public_link_preview"])
     sharer = factories.make_membership(organization=organization)
     models.Profile.objects.update_or_create(
-        user=sharer.user, defaults={"name": "Ada Sharer", "public_link_preview": user_public}
+        user=sharer.user,
+        defaults={"name": "Ada Sharer", "public_link_preview": user_public},
     )
     outsider = factories.make_membership()
     models.Profile.objects.update_or_create(
-        user=outsider.user, defaults={"name": "Not A Member", "public_link_preview": True}
+        user=outsider.user,
+        defaults={"name": "Not A Member", "public_link_preview": True},
     )
     return organization, sharer.user, outsider.user
 
@@ -53,7 +57,10 @@ def _setup(org_public: bool, user_public: bool):
 async def _preview(organization, user=None):
     result = await management_schema.execute(
         PREVIEW,
-        variable_values={"organization": organization, "user": None if user is None else str(user)},
+        variable_values={
+            "organization": organization,
+            "user": None if user is None else str(user),
+        },
         context_value=_anonymous(),
     )
     assert not result.errors, result.errors
@@ -63,7 +70,9 @@ async def _preview(organization, user=None):
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
 async def test_nothing_is_shown_by_default():
-    organization, sharer, _ = await sync_to_async(_setup)(org_public=False, user_public=False)
+    organization, sharer, _ = await sync_to_async(_setup)(
+        org_public=False, user_public=False
+    )
 
     assert await _preview(str(organization.id), sharer.id) == EMPTY
 
@@ -71,7 +80,9 @@ async def test_nothing_is_shown_by_default():
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
 async def test_a_public_organization_and_sharer_are_shown_to_an_anonymous_visitor():
-    organization, sharer, _ = await sync_to_async(_setup)(org_public=True, user_public=True)
+    organization, sharer, _ = await sync_to_async(_setup)(
+        org_public=True, user_public=True
+    )
 
     assert await _preview(str(organization.id), sharer.id) == {
         "linkPreview": {
@@ -88,7 +99,9 @@ async def test_a_public_organization_and_sharer_are_shown_to_an_anonymous_visito
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
 async def test_a_private_sharer_is_not_named_even_in_a_public_organization():
-    organization, sharer, _ = await sync_to_async(_setup)(org_public=True, user_public=False)
+    organization, sharer, _ = await sync_to_async(_setup)(
+        org_public=True, user_public=False
+    )
 
     data = await _preview(str(organization.id), sharer.id)
     assert data["linkPreview"]["organization"]["slug"] == organization.slug
@@ -100,7 +113,9 @@ async def test_a_private_sharer_is_not_named_even_in_a_public_organization():
 async def test_a_public_sharer_is_not_named_for_a_private_organization():
     """Naming them would reveal that they belong to an organization that chose
     not to be seen."""
-    organization, sharer, _ = await sync_to_async(_setup)(org_public=False, user_public=True)
+    organization, sharer, _ = await sync_to_async(_setup)(
+        org_public=False, user_public=True
+    )
 
     assert await _preview(str(organization.id), sharer.id) == EMPTY
 
@@ -108,7 +123,9 @@ async def test_a_public_sharer_is_not_named_for_a_private_organization():
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
 async def test_a_link_cannot_claim_a_public_user_who_is_not_a_member():
-    organization, _, outsider = await sync_to_async(_setup)(org_public=True, user_public=True)
+    organization, _, outsider = await sync_to_async(_setup)(
+        org_public=True, user_public=True
+    )
 
     data = await _preview(str(organization.id), outsider.id)
     assert data["linkPreview"]["organization"] is not None
@@ -122,7 +139,9 @@ async def test_unknown_handles_and_junk_user_ids_answer_empty(user):
     organization, _, _ = await sync_to_async(_setup)(org_public=True, user_public=True)
 
     assert await _preview("no-such-org", user) == EMPTY
-    assert (await _preview(str(organization.id), user))["linkPreview"]["inviter"] is None
+    assert (await _preview(str(organization.id), user))["linkPreview"][
+        "inviter"
+    ] is None
 
 
 # --------------------------------------------------------------------------- #
@@ -135,17 +154,26 @@ async def test_unknown_handles_and_junk_user_ids_answer_empty(user):
 async def test_the_owner_opts_the_organization_in_and_a_user_opts_themselves_in():
     def setup():
         organization = factories.make_organization()
-        owner = factories.make_membership(user=organization.owner, organization=organization)
+        owner = factories.make_membership(
+            user=organization.owner, organization=organization
+        )
         profile, _ = models.Profile.objects.get_or_create(user=organization.owner)
-        context = build_auth_context(organization.owner, organization, factories.make_client(membership=owner))
+        context = build_auth_context(
+            organization.owner, organization, factories.make_client(membership=owner)
+        )
         return organization, profile, context
 
     organization, profile, context = await sync_to_async(setup)()
-    assert (organization.public_link_preview, profile.public_link_preview) == (False, False)
+    assert (organization.public_link_preview, profile.public_link_preview) == (
+        False,
+        False,
+    )
 
     result = await management_schema.execute(
         "mutation ($input: UpdateOrganizationInput!) { updateOrganization(input: $input) { publicLinkPreview } }",
-        variable_values={"input": {"id": str(organization.id), "publicLinkPreview": True}},
+        variable_values={
+            "input": {"id": str(organization.id), "publicLinkPreview": True}
+        },
         context_value=context,
     )
     assert not result.errors, result.errors

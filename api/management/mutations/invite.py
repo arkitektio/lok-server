@@ -1,14 +1,15 @@
-from kante import Info
-import strawberry
-from api.management import types
-from karakter import models
-from django.utils import timezone
 from datetime import timedelta
+
 import kante
-from graphql import GraphQLError
+import strawberry
 from django.core.exceptions import ValidationError
+from django.utils import timezone
+from graphql import GraphQLError
+from kante import Info
+
+from api.management import types
 from api.management.authz import DENIED, get_or_denied, is_owner, is_owner_or_admin
-from karakter import collaboration_grants
+from karakter import collaboration_grants, models
 from karakter.invites import InviteError, redeem_invite
 
 
@@ -20,7 +21,9 @@ class SharedCollaborationInput:
         description="The service instance the collaboration lives in (on a hub of the organization): its id, or, when called "
         "from an app, the app's own requirement key for it (e.g. 'mikro'), resolved through the app's service mappings."
     )
-    collaboration: str = strawberry.field(description="The collaboration's id in that service.")
+    collaboration: str = strawberry.field(
+        description="The collaboration's id in that service."
+    )
     roles: list[str] = strawberry.field(
         default_factory=list,
         description="Identifiers of the organization's roles that hold for the guest inside the collaboration. Empty: view only.",
@@ -51,17 +54,31 @@ def _resolve_instance(instance: str, client) -> str:
         raise GraphQLError(f"'{instance}' is not a service instance id.")
     from fakts.models import ServiceInstanceMapping
 
-    instance_id = ServiceInstanceMapping.objects.filter(client__client_id=client.client_id, key=instance).values_list("instance_id", flat=True).first()
+    instance_id = (
+        ServiceInstanceMapping.objects.filter(
+            client__client_id=client.client_id, key=instance
+        )
+        .values_list("instance_id", flat=True)
+        .first()
+    )
     if instance_id is None:
-        raise GraphQLError(f"'{instance}' is neither a service instance id nor a requirement key of this app.")
+        raise GraphQLError(
+            f"'{instance}' is neither a service instance id nor a requirement key of this app."
+        )
     return str(instance_id)
 
 
-def collaboration_entries(collaborations: list[SharedCollaborationInput], info: Info | None = None) -> list[dict]:
+def collaboration_entries(
+    collaborations: list[SharedCollaborationInput], info: Info | None = None
+) -> list[dict]:
     """The input as the entries ``karakter.collaboration_grants`` validates, with app requirement keys resolved to instance ids."""
     client = _calling_client(info)
     return [
-        {"instance": _resolve_instance(str(s.instance), client), "collaboration": s.collaboration, "roles": list(s.roles or [])}
+        {
+            "instance": _resolve_instance(str(s.instance), client),
+            "collaboration": s.collaboration,
+            "roles": list(s.roles or []),
+        }
         for s in collaborations
     ]
 
@@ -73,7 +90,9 @@ class CreateInviteInput:
     organization: strawberry.ID | None = None
     expires_in_days: int | None = 7
     roles: list[str] | None = None  # Role identifiers to assign
-    public: bool = True  # If true, the invite can be previewed before signing in (default)
+    public: bool = (
+        True  # If true, the invite can be previewed before signing in (default)
+    )
     collaborations: list[SharedCollaborationInput] | None = strawberry.field(
         default=None,
         description="Grant only these collaborations of the organization's service instances, each with the roles that hold "
@@ -99,7 +118,9 @@ def _may_share(user, organization) -> bool:
     """
     if is_owner(user, organization):
         return True
-    membership = organization.memberships.filter(user=user, collaboration_grants__isnull=True).first()
+    membership = organization.memberships.filter(
+        user=user, collaboration_grants__isnull=True
+    ).first()
     if membership is None:
         return False
     return membership.roles.exclude(identifier="guest").exists()
@@ -127,13 +148,19 @@ def create_invite(info: Info, input: CreateInviteInput) -> types.ManagementInvit
     shared_collaborations = None
     if input.collaborations is not None:
         if not _may_share(user, organization):
-            raise GraphQLError("Only members of the organization can grant its collaborations.")
+            raise GraphQLError(
+                "Only members of the organization can grant its collaborations."
+            )
         try:
-            shared_collaborations = collaboration_grants.normalize_collaborations(collaboration_entries(input.collaborations, info), organization)
+            shared_collaborations = collaboration_grants.normalize_collaborations(
+                collaboration_entries(input.collaborations, info), organization
+            )
         except ValidationError as e:
             raise GraphQLError(" ".join(e.messages))
         if input.roles:
-            raise GraphQLError("An invite that grants collaborations grants no roles in the organization.")
+            raise GraphQLError(
+                "An invite that grants collaborations grants no roles in the organization."
+            )
         if input.max_uses is not None and input.max_uses < 1:
             raise GraphQLError("max_uses must be at least 1.")
     elif not is_owner(user, organization):
@@ -161,14 +188,18 @@ def create_invite(info: Info, input: CreateInviteInput) -> types.ManagementInvit
         # Add specified roles
         for role_identifier in input.roles:
             try:
-                role = models.Role.objects.get(identifier=role_identifier, organization=organization)
+                role = models.Role.objects.get(
+                    identifier=role_identifier, organization=organization
+                )
                 invite.roles.add(role)
             except models.Role.DoesNotExist:
                 pass
     else:
         # Default to guest role if no roles specified
         try:
-            guest_role = models.Role.objects.get(identifier="guest", organization=organization)
+            guest_role = models.Role.objects.get(
+                identifier="guest", organization=organization
+            )
             invite.roles.add(guest_role)
         except models.Role.DoesNotExist:
             # No guest role exists, invite will have no roles
@@ -251,7 +282,9 @@ def cancel_invite(info: Info, input: CancelInviteInput) -> types.ManagementInvit
 
     Marks the invite as cancelled.
     """
-    invite = get_or_denied(models.Invite.objects.select_related("created_for"), id=input.id)
+    invite = get_or_denied(
+        models.Invite.objects.select_related("created_for"), id=input.id
+    )
     user = info.context.request.user
 
     # Whoever granted collaborations may take them back; everything else is for the

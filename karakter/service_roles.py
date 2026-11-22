@@ -36,7 +36,9 @@ from karakter import models
 from karakter.roles import ADMIN
 
 #: Set while lok changes roles itself: those changes are not an admin taking a role away.
-_syncing: contextvars.ContextVar[bool] = contextvars.ContextVar("service_roles_syncing", default=False)
+_syncing: contextvars.ContextVar[bool] = contextvars.ContextVar(
+    "service_roles_syncing", default=False
+)
 
 
 @contextmanager
@@ -50,14 +52,19 @@ def _by_lok() -> Iterator[None]:
 
 def _sync(membership: models.Membership) -> None:
     organization = membership.organization
-    service_roles = models.Role.objects.filter(Q(is_admin_role=True) | Q(is_default_role=True), organization=organization)
+    service_roles = models.Role.objects.filter(
+        Q(is_admin_role=True) | Q(is_default_role=True), organization=organization
+    )
     admin_roles = {role.pk for role in service_roles if role.is_admin_role}
     default_roles = {role.pk for role in service_roles if role.is_default_role}
     held = set(membership.roles.values_list("pk", flat=True))
     automatic = set(membership.automatic_roles.values_list("pk", flat=True))
     withheld = set(membership.withheld_roles.values_list("pk", flat=True))
 
-    administers = membership.user_id == organization.owner_id or membership.roles.filter(identifier=ADMIN).exists()
+    administers = (
+        membership.user_id == organization.owner_id
+        or membership.roles.filter(identifier=ADMIN).exists()
+    )
     wanted = (admin_roles if administers else set()) | (default_roles - withheld)
     give = wanted - held
     take = (automatic & held) - wanted
@@ -78,7 +85,13 @@ def sync_service_roles(membership_ids: Iterable[int]) -> None:
         return
     with _by_lok():
         # A guest holds no roles (karakter.collaboration_grants refuses them).
-        for membership in models.Membership.objects.filter(pk__in=ids, collaboration_grants__isnull=True).select_related("organization").distinct():
+        for membership in (
+            models.Membership.objects.filter(
+                pk__in=ids, collaboration_grants__isnull=True
+            )
+            .select_related("organization")
+            .distinct()
+        ):
             _sync(membership)
 
 
@@ -94,7 +107,11 @@ _held_before: dict[int, set[int]] = {}
 
 
 def _default_roles(pks: Iterable[int]) -> set[int]:
-    return set(models.Role.objects.filter(pk__in=list(pks), is_default_role=True).values_list("pk", flat=True))
+    return set(
+        models.Role.objects.filter(pk__in=list(pks), is_default_role=True).values_list(
+            "pk", flat=True
+        )
+    )
 
 
 def _taken_by_an_admin(membership_ids: Iterable[int], role_ids: set[int]) -> None:
@@ -113,7 +130,14 @@ def _given_by_an_admin(membership_ids: Iterable[int], role_ids: set[int]) -> Non
 
 
 @receiver(m2m_changed, sender=models.Membership.roles.through)
-def _roles_changed(sender: Any, instance: models.Membership | models.Role, action: str, reverse: bool, pk_set: set[int] | None, **kwargs: Any) -> None:
+def _roles_changed(
+    sender: Any,
+    instance: models.Membership | models.Role,
+    action: str,
+    reverse: bool,
+    pk_set: set[int] | None,
+    **kwargs: Any,
+) -> None:
     if _syncing.get():
         return
     if isinstance(instance, models.Role):
@@ -127,7 +151,9 @@ def _roles_changed(sender: Any, instance: models.Membership | models.Role, actio
             sync_service_roles(memberships)
         return
     if action == "pre_clear":
-        _held_before[instance.pk] = _default_roles(instance.roles.values_list("pk", flat=True))
+        _held_before[instance.pk] = _default_roles(
+            instance.roles.values_list("pk", flat=True)
+        )
     elif action == "post_clear":
         _taken_by_an_admin([instance.pk], _held_before.pop(instance.pk, set()))
     elif action == "post_remove":
@@ -139,7 +165,9 @@ def _roles_changed(sender: Any, instance: models.Membership | models.Role, actio
 
 
 @receiver(post_save, sender=models.Membership)
-def _membership_made(sender: Any, instance: models.Membership, created: bool, **kwargs: Any) -> None:
+def _membership_made(
+    sender: Any, instance: models.Membership, created: bool, **kwargs: Any
+) -> None:
     if created:
         pk = instance.pk
         transaction.on_commit(lambda: sync_service_roles([pk]))

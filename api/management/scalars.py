@@ -1,6 +1,6 @@
 from typing import Any, NewType
-import strawberry
 
+import strawberry
 
 ExtraData = NewType("ExtraData", object)
 

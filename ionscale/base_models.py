@@ -1,11 +1,11 @@
-from pydantic import BaseModel, Field
-from typing import List, Optional
 from datetime import datetime
+
+from pydantic import BaseModel, Field
 
 
 class TailnetCreate(BaseModel):
     name: str = Field(..., description="The unique name of the tailnet")
-    organization: Optional[str] = Field(
+    organization: str | None = Field(
         default=None,
         description=(
             "Organization this tailnet is bound to. Must be the organization *pk* as a string, "
@@ -37,55 +37,58 @@ class DNSConfig(BaseModel):
     magic_dns: bool = False
     https_certs: bool = False
     override_local_dns: bool = False
-    nameservers: List[str] = Field(default_factory=list)
-    search_domains: List[str] = Field(default_factory=list)
-    extra_records: List[DNSRecord] = Field(default_factory=list)
+    nameservers: list[str] = Field(default_factory=list)
+    search_domains: list[str] = Field(default_factory=list)
+    extra_records: list[DNSRecord] = Field(default_factory=list)
 
 
 class Tailnet(BaseModel):
     id: str
     name: str
-    dns_name: Optional[str] = None
-    created_at: Optional[datetime] = None
+    dns_name: str | None = None
+    created_at: datetime | None = None
     # The organization pk the tailnet is bound to (None for unbound tailnets).
-    organization: Optional[str] = None
+    organization: str | None = None
 
     # Use ConfigDict for Pydantic v2, or class Config for v1
     model_config = {"from_attributes": True}
 
 
 class TailnetList(BaseModel):
-    tailnets: List[Tailnet]
+    tailnets: list[Tailnet]
 
 
 class Machine(BaseModel):
     id: str
     name: str
-    tailnet: Optional[str] = None
-    ipv4: Optional[str] = None
-    ipv6: Optional[str] = None
+    tailnet: str | None = None
+    ipv4: str | None = None
+    ipv6: str | None = None
     ephemeral: bool = False
     connected: bool = False
-    last_seen: Optional[datetime] = None
-    tags: List[str] = Field(default_factory=list)
+    last_seen: datetime | None = None
+    tags: list[str] = Field(default_factory=list)
     # `ionscale machines list` reports AUTHORIZED, so it's reliably available. None = unknown.
-    authorized: Optional[bool] = None
+    authorized: bool | None = None
 
     model_config = {"from_attributes": True}
 
+
 class MachineDetail(Machine):
-    os: Optional[str] = None
-    key_expiry: Optional[datetime] = None
+    os: str | None = None
+    key_expiry: datetime | None = None
     # None means "not reported by the CLI" (unknown) — distinct from a known False. Not sourced
     # from the CLI yet, so it stays None rather than a misleading False.
-    is_external: Optional[bool] = None
-    fqdn: Optional[str] = None  # The machine's MagicDNS name, if present in the CLI output.
+    is_external: bool | None = None
+    fqdn: str | None = (
+        None  # The machine's MagicDNS name, if present in the CLI output.
+    )
 
     # Add other fields as needed based on `ionscale machines get` output
 
 
 class MachineList(BaseModel):
-    machines: List[Machine]
+    machines: list[Machine]
 
 
 class TailnetUser(BaseModel):
@@ -96,7 +99,7 @@ class TailnetUser(BaseModel):
     role: str = ""
     # The OIDC subject the user logged in with -- lok's user pk. None for users
     # an older ionscale does not report it for.
-    external_id: Optional[str] = None
+    external_id: str | None = None
 
 
 class NodeLockState(BaseModel):
@@ -125,4 +128,4 @@ class TailnetLockStatus(BaseModel):
     # not the same as one that never existed.
     authority_disabled: bool = False
     head: str = ""
-    nodes: List[NodeLockState] = []
+    nodes: list[NodeLockState] = []

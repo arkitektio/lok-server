@@ -1,16 +1,17 @@
 import logging
 import secrets
-from typing import TYPE_CHECKING, Any, Optional, List, Tuple
+import uuid
+from typing import TYPE_CHECKING, Any
 
 import requests
 from django.conf import settings
-from django.core.cache import cache
 from django.contrib.auth.models import AbstractUser, Group, Permission
+from django.core.cache import cache
 from django.db import models
 from django.db.models.functions import Now
 from django.utils import timezone
-import uuid
-from karakter import fields, datalayer
+
+from karakter import datalayer, fields
 from karakter.deeplinks import default_deeplink_apps
 
 if TYPE_CHECKING:
@@ -31,7 +32,9 @@ class S3Store(models.Model):
     codebase.
     """
 
-    path = fields.S3Field(null=True, blank=True, help_text="The stodre of the image", unique=True)
+    path = fields.S3Field(
+        null=True, blank=True, help_text="The stodre of the image", unique=True
+    )
     key = models.CharField(max_length=1000)
     bucket = models.CharField(max_length=1000)
     populated = models.BooleanField(default=False)
@@ -44,7 +47,9 @@ class MediaStore(S3Store):
     uploading content.
     """
 
-    def get_presigned_url(self, info, datalayer: datalayer.Datalayer, host: Optional[str] = None) -> str:
+    def get_presigned_url(
+        self, info, datalayer: datalayer.Datalayer, host: str | None = None
+    ) -> str:
         """Return a presigned URL for the stored S3 object.
 
         The same URL for an hour: a fresh signature on every resolve made every answer carry a
@@ -119,7 +124,9 @@ class Organization(models.Model):
     # Deprecated: the canonical organization logo is `OrganizationProfile.avatar`.
     # Writes go there; this column is only read as a fallback for old rows.
     avatar = models.ForeignKey(MediaStore, on_delete=models.CASCADE, null=True)
-    owner = models.ForeignKey("User", on_delete=models.CASCADE, related_name="owned_organizations")
+    owner = models.ForeignKey(
+        "User", on_delete=models.CASCADE, related_name="owned_organizations"
+    )
     brand_hue = models.FloatField(
         null=True,
         blank=True,
@@ -164,7 +171,9 @@ class Organization(models.Model):
     )
     # Server-only secret. Combined with SECRET_KEY to hash device ids so the same
     # device hashes differently across organizations and is never stored in the clear.
-    device_salt = models.CharField(max_length=64, default=generate_device_salt, editable=False)
+    device_salt = models.CharField(
+        max_length=64, default=generate_device_salt, editable=False
+    )
 
     def __str__(self):
         return self.name or self.slug or "Unnamed Organization"
@@ -172,6 +181,7 @@ class Organization(models.Model):
 
 class Role(models.Model):
     if TYPE_CHECKING:
+
         @property
         def memberships(self) -> "RelatedManager[Membership]":
             """The memberships that hold this role."""
@@ -179,9 +189,16 @@ class Role(models.Model):
 
     identifier = models.CharField(max_length=1000, null=True, blank=True)
     description = models.CharField(max_length=4000, null=True, blank=True)
-    organization = models.ForeignKey(Organization, on_delete=models.CASCADE, related_name="roles")
-    creating_instance = models.ForeignKey("fakts.ServiceInstance", on_delete=models.CASCADE, null=True, blank=True)
-    is_builtin = models.BooleanField(default=False, help_text="If this role is a built-in role that cannot be deleted (admin)")
+    organization = models.ForeignKey(
+        Organization, on_delete=models.CASCADE, related_name="roles"
+    )
+    creating_instance = models.ForeignKey(
+        "fakts.ServiceInstance", on_delete=models.CASCADE, null=True, blank=True
+    )
+    is_builtin = models.BooleanField(
+        default=False,
+        help_text="If this role is a built-in role that cannot be deleted (admin)",
+    )
     is_admin_role = models.BooleanField(
         default=False,
         db_default=False,
@@ -192,7 +209,9 @@ class Role(models.Model):
         db_default=False,
         help_text="The role every full member holds in the service declaring it, unless an admin took it away (karakter.service_roles).",
     )
-    used_by = models.ManyToManyField("fakts.ServiceInstance", related_name="roles", blank=True)
+    used_by = models.ManyToManyField(
+        "fakts.ServiceInstance", related_name="roles", blank=True
+    )
 
     class Meta:
         unique_together = ("identifier", "organization")
@@ -207,7 +226,9 @@ class RoleSet(models.Model):
     """
 
     name = models.CharField(max_length=1000)
-    organization = models.ForeignKey(Organization, on_delete=models.CASCADE, related_name="role_sets")
+    organization = models.ForeignKey(
+        Organization, on_delete=models.CASCADE, related_name="role_sets"
+    )
     roles = models.ManyToManyField(Role, related_name="role_sets", blank=True)
 
     class Meta:
@@ -220,15 +241,24 @@ class RoleSet(models.Model):
 class Scope(models.Model):
     identifier = models.CharField(max_length=1000, null=True, blank=True)
     description = models.CharField(max_length=4000, null=True, blank=True)
-    organization = models.ForeignKey(Organization, on_delete=models.CASCADE, related_name="scopes")
-    creating_instance = models.ForeignKey("fakts.ServiceInstance", on_delete=models.CASCADE, null=True, blank=True)
-    is_builtin = models.BooleanField(default=False, help_text="If this scope is a built-in scope that cannot be deleted (admin)")
+    organization = models.ForeignKey(
+        Organization, on_delete=models.CASCADE, related_name="scopes"
+    )
+    creating_instance = models.ForeignKey(
+        "fakts.ServiceInstance", on_delete=models.CASCADE, null=True, blank=True
+    )
+    is_builtin = models.BooleanField(
+        default=False,
+        help_text="If this scope is a built-in scope that cannot be deleted (admin)",
+    )
     is_all_scope = models.BooleanField(
         default=False,
         db_default=False,
         help_text="The scope that grants an app everything the service declaring it offers.",
     )
-    used_by = models.ManyToManyField("fakts.ServiceInstance", related_name="scopes", blank=True)
+    used_by = models.ManyToManyField(
+        "fakts.ServiceInstance", related_name="scopes", blank=True
+    )
 
     class Meta:
         unique_together = ("identifier", "organization")
@@ -237,8 +267,12 @@ class Scope(models.Model):
 class Membership(models.Model):
     """A Membership of a User in an Organization with a Role"""
 
-    user = models.ForeignKey("User", on_delete=models.CASCADE, related_name="memberships")
-    organization = models.ForeignKey(Organization, on_delete=models.CASCADE, related_name="memberships")
+    user = models.ForeignKey(
+        "User", on_delete=models.CASCADE, related_name="memberships"
+    )
+    organization = models.ForeignKey(
+        Organization, on_delete=models.CASCADE, related_name="memberships"
+    )
     roles = models.ManyToManyField(Role, related_name="memberships", blank=True)
     is_admin = models.BooleanField(
         default=False,
@@ -247,7 +281,12 @@ class Membership(models.Model):
         help_text="Whether the member holds the organization's admin role: recomputed from `roles` "
         "whenever they change (karakter.roles), never set by hand.",
     )
-    created_through = models.ForeignKey("Invite", on_delete=models.SET_NULL, null=True, related_name="created_memberships")
+    created_through = models.ForeignKey(
+        "Invite",
+        on_delete=models.SET_NULL,
+        null=True,
+        related_name="created_memberships",
+    )
     created_at = models.DateTimeField(
         null=True,
         blank=True,
@@ -308,11 +347,19 @@ class Membership(models.Model):
         """Save the membership, never its ``is_admin``: that is recomputed from the roles
         (``karakter.roles``), and a membership loaded before its roles changed would write the
         old value back."""
-        if self.pk is not None and not kwargs.get("force_insert") and kwargs.get("update_fields") is None:
-            kwargs["update_fields"] = [field.name for field in self._meta.concrete_fields if not field.primary_key and field.name != "is_admin"]
+        if (
+            self.pk is not None
+            and not kwargs.get("force_insert")
+            and kwargs.get("update_fields") is None
+        ):
+            kwargs["update_fields"] = [
+                field.name
+                for field in self._meta.concrete_fields
+                if not field.primary_key and field.name != "is_admin"
+            ]
         super().save(*args, **kwargs)
 
-    def notify(self, title: str, message: str) -> List[Tuple[Optional[int], str]]:
+    def notify(self, title: str, message: str) -> list[tuple[int | None, str]]:
         """Send an organization notification to this member's devices.
 
         The per-organization opt-in is enforced here rather than at the call
@@ -343,15 +390,26 @@ class RoleRequest(models.Model):
         APPROVED = "approved", "Approved"
         DECLINED = "declined", "Declined"
 
-    membership = models.ForeignKey(Membership, on_delete=models.CASCADE, related_name="role_requests")
+    membership = models.ForeignKey(
+        Membership, on_delete=models.CASCADE, related_name="role_requests"
+    )
     role = models.ForeignKey(Role, on_delete=models.CASCADE, related_name="requests")
     reason = models.CharField(
-        max_length=2000, null=True, blank=True, help_text="Optional note from the member explaining the request."
+        max_length=2000,
+        null=True,
+        blank=True,
+        help_text="Optional note from the member explaining the request.",
     )
-    status = models.CharField(max_length=20, choices=Status.choices, default=Status.PENDING)
+    status = models.CharField(
+        max_length=20, choices=Status.choices, default=Status.PENDING
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     resolved_by = models.ForeignKey(
-        "User", on_delete=models.SET_NULL, null=True, blank=True, related_name="resolved_role_requests"
+        "User",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="resolved_role_requests",
     )
     responded_at = models.DateTimeField(null=True, blank=True)
 
@@ -394,19 +452,36 @@ class MembershipRequest(models.Model):
         APPROVED = "approved", "Approved"
         DECLINED = "declined", "Declined"
 
-    user = models.ForeignKey("User", on_delete=models.CASCADE, related_name="membership_requests")
-    organization = models.ForeignKey(Organization, on_delete=models.CASCADE, related_name="membership_requests")
-    reason = models.CharField(
-        max_length=2000, null=True, blank=True, help_text="Optional note from the user explaining the request."
+    user = models.ForeignKey(
+        "User", on_delete=models.CASCADE, related_name="membership_requests"
     )
-    status = models.CharField(max_length=20, choices=Status.choices, default=Status.PENDING)
+    organization = models.ForeignKey(
+        Organization, on_delete=models.CASCADE, related_name="membership_requests"
+    )
+    reason = models.CharField(
+        max_length=2000,
+        null=True,
+        blank=True,
+        help_text="Optional note from the user explaining the request.",
+    )
+    status = models.CharField(
+        max_length=20, choices=Status.choices, default=Status.PENDING
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     resolved_by = models.ForeignKey(
-        "User", on_delete=models.SET_NULL, null=True, blank=True, related_name="resolved_membership_requests"
+        "User",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="resolved_membership_requests",
     )
     responded_at = models.DateTimeField(null=True, blank=True)
     created_membership = models.ForeignKey(
-        Membership, on_delete=models.SET_NULL, null=True, blank=True, related_name="created_through_request"
+        Membership,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="created_through_request",
     )
 
     class Meta:
@@ -424,20 +499,31 @@ class MembershipRequest(models.Model):
     def approve(self, user, roles=None):
         """Let the requester in. `roles` are Role rows of this organization;
         without any the member gets `guest`, as an invite without roles does."""
-        membership, _ = Membership.objects.get_or_create(user=self.user, organization=self.organization)
+        membership, _ = Membership.objects.get_or_create(
+            user=self.user, organization=self.organization
+        )
         if membership.is_scoped:
             from karakter.collaboration_grants import upgrade_to_full
 
             # They were a guest of some collaborations; now they are in.
             upgrade_to_full(membership)
         if not roles:
-            roles = list(Role.objects.filter(identifier="guest", organization=self.organization))
+            roles = list(
+                Role.objects.filter(identifier="guest", organization=self.organization)
+            )
         membership.roles.add(*roles)
         self.status = self.Status.APPROVED
         self.resolved_by = user
         self.responded_at = timezone.now()
         self.created_membership = membership
-        self.save(update_fields=["status", "resolved_by", "responded_at", "created_membership"])
+        self.save(
+            update_fields=[
+                "status",
+                "resolved_by",
+                "responded_at",
+                "created_membership",
+            ]
+        )
         return membership
 
     def decline(self, user):
@@ -499,19 +585,23 @@ class User(AbstractUser):
         profile = Profile.objects.filter(user=self).select_related("avatar").first()
         return profile.avatar if profile else None
 
-    def notify(self, title: str, message: str) -> List[Tuple[Optional[int], str]]:
+    def notify(self, title: str, message: str) -> list[tuple[int | None, str]]:
         """Send a notification to all registered communication channels.
 
         Logs publish failures but attempts all channels. Returns a list of
         (channel_id, status) tuples so callers can inspect individual
         delivery results.
         """
-        results: List[Tuple[Optional[int], str]] = []
+        results: list[tuple[int | None, str]] = []
         for channel in self.com_channels.all():
             try:
                 status = channel.publish(title, message)
             except Exception:
-                logger.exception("Error publishing to channel=%s for user=%s", getattr(channel, "id", None), getattr(self, "id", None))
+                logger.exception(
+                    "Error publishing to channel=%s for user=%s",
+                    getattr(channel, "id", None),
+                    getattr(self, "id", None),
+                )
                 status = "Error"
             results.append((getattr(channel, "id", None), status))
 
@@ -525,7 +615,9 @@ class Profile(models.Model):
     bio = models.CharField(max_length=4000, null=True, blank=True)
     user = models.OneToOneField(User, on_delete=models.CASCADE, related_name="profile")
     avatar = models.ForeignKey(MediaStore, on_delete=models.CASCADE, null=True)
-    banner = models.ForeignKey(MediaStore, on_delete=models.CASCADE, null=True, related_name="profile_banners")
+    banner = models.ForeignKey(
+        MediaStore, on_delete=models.CASCADE, null=True, related_name="profile_banners"
+    )
     public_link_preview = models.BooleanField(
         default=False,
         help_text="Opt-in: show this user's name and picture on kontrol's link pages when a "
@@ -539,16 +631,25 @@ class OrganizationProfile(models.Model):
 
     name = models.CharField(max_length=1000, null=True, blank=True)
     bio = models.CharField(max_length=4000, null=True, blank=True)
-    organization = models.OneToOneField(Organization, on_delete=models.CASCADE, related_name="profile")
+    organization = models.OneToOneField(
+        Organization, on_delete=models.CASCADE, related_name="profile"
+    )
     avatar = models.ForeignKey(MediaStore, on_delete=models.CASCADE, null=True)
-    banner = models.ForeignKey(MediaStore, on_delete=models.CASCADE, null=True, related_name="organization_banners")
+    banner = models.ForeignKey(
+        MediaStore,
+        on_delete=models.CASCADE,
+        null=True,
+        related_name="organization_banners",
+    )
 
 
 class GroupProfile(models.Model):
     """A Profile of a Group"""
 
     name = models.CharField(max_length=1000, null=True, blank=True)
-    group = models.OneToOneField(Group, on_delete=models.CASCADE, related_name="profile")
+    group = models.OneToOneField(
+        Group, on_delete=models.CASCADE, related_name="profile"
+    )
     bio = models.CharField(max_length=4000, null=True, blank=True)
     avatar = models.ForeignKey(MediaStore, on_delete=models.CASCADE, null=True)
 
@@ -557,7 +658,9 @@ class ComChannel(models.Model):
     """A Channel to send notifications to a user"""
 
     name = models.CharField(max_length=1000, null=True, blank=True)
-    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="com_channels")
+    user = models.ForeignKey(
+        User, on_delete=models.CASCADE, related_name="com_channels"
+    )
     token = models.CharField(max_length=1000, null=True, blank=True, unique=True)
 
     def publish(self, title: str, message: str) -> str:
@@ -587,7 +690,9 @@ class ComChannel(models.Model):
             status = data.get("data", {}).get("status", "unknown")
             return status
         except ValueError:
-            logger.exception("Invalid JSON response when publishing to token=%s", self.token)
+            logger.exception(
+                "Invalid JSON response when publishing to token=%s", self.token
+            )
             return "Error"
 
 
@@ -618,8 +723,12 @@ class Invite(models.Model):
 
     token = models.UUIDField(default=uuid.uuid4, unique=True, db_index=True)
     email = models.EmailField(null=True, blank=True)  # Optional, for reference only
-    created_by = models.ForeignKey(User, on_delete=models.CASCADE, related_name="created_invites")
-    created_for = models.ForeignKey(Organization, on_delete=models.CASCADE, related_name="invites")
+    created_by = models.ForeignKey(
+        User, on_delete=models.CASCADE, related_name="created_invites"
+    )
+    created_for = models.ForeignKey(
+        Organization, on_delete=models.CASCADE, related_name="invites"
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     expires_at = models.DateTimeField(null=True, blank=True)
     public = models.BooleanField(
@@ -630,9 +739,23 @@ class Invite(models.Model):
     )
 
     # Status tracking
-    status = models.CharField(max_length=20, choices=Status.choices, default=Status.PENDING)
-    accepted_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name="accepted_invites")
-    declined_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name="declined_invites")
+    status = models.CharField(
+        max_length=20, choices=Status.choices, default=Status.PENDING
+    )
+    accepted_by = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="accepted_invites",
+    )
+    declined_by = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="declined_invites",
+    )
     responded_at = models.DateTimeField(null=True, blank=True)
 
     # Roles to assign when invite is accepted
@@ -654,7 +777,9 @@ class Invite(models.Model):
         help_text="How many people may accept a collaboration invite. Null: anyone with the link "
         "until it expires. Ordinary invites are always single-use.",
     )
-    uses = models.PositiveIntegerField(default=0, db_default=0, help_text="How many people accepted it so far.")
+    uses = models.PositiveIntegerField(
+        default=0, db_default=0, help_text="How many people accepted it so far."
+    )
     mesh = models.BooleanField(
         default=True,
         db_default=True,
@@ -705,12 +830,37 @@ class CollaborationGrant(models.Model):
     guest's tokens (``collabs``), and the service enforces them.
     """
 
-    membership = models.ForeignKey(Membership, on_delete=models.CASCADE, related_name="collaboration_grants")
-    instance = models.ForeignKey("fakts.ServiceInstance", on_delete=models.CASCADE, related_name="collaboration_grants", help_text="The service instance the collaboration lives in")
-    collaboration_id = models.CharField(max_length=200, help_text="The collaboration's id in its service")
-    roles = models.JSONField(default=list, blank=True, help_text="Role identifiers of the organization that hold inside the collaboration. Empty: view only.")
-    granted_through = models.ForeignKey(Invite, on_delete=models.SET_NULL, null=True, blank=True, related_name="collaboration_grants")
-    granted_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name="collaboration_grants_given")
+    membership = models.ForeignKey(
+        Membership, on_delete=models.CASCADE, related_name="collaboration_grants"
+    )
+    instance = models.ForeignKey(
+        "fakts.ServiceInstance",
+        on_delete=models.CASCADE,
+        related_name="collaboration_grants",
+        help_text="The service instance the collaboration lives in",
+    )
+    collaboration_id = models.CharField(
+        max_length=200, help_text="The collaboration's id in its service"
+    )
+    roles = models.JSONField(
+        default=list,
+        blank=True,
+        help_text="Role identifiers of the organization that hold inside the collaboration. Empty: view only.",
+    )
+    granted_through = models.ForeignKey(
+        Invite,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="collaboration_grants",
+    )
+    granted_by = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="collaboration_grants_given",
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     expires_at = models.DateTimeField(null=True, blank=True)
     mesh = models.BooleanField(
@@ -722,7 +872,10 @@ class CollaborationGrant(models.Model):
 
     class Meta:
         constraints = [
-            models.UniqueConstraint(fields=["membership", "instance", "collaboration_id"], name="one_grant_per_collaboration_and_membership"),
+            models.UniqueConstraint(
+                fields=["membership", "instance", "collaboration_id"],
+                name="one_grant_per_collaboration_and_membership",
+            ),
         ]
 
     def is_live(self) -> bool:

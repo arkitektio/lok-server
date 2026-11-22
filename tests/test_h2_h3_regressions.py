@@ -12,7 +12,6 @@ from lok_server.schema import schema
 from tests import factories
 from tests.conftest import build_auth_context
 
-
 LIST_INVITE_TOKENS = "query { invites { id token } }"
 
 
@@ -50,7 +49,9 @@ async def test_plain_member_cannot_read_invite_tokens_of_own_org():
 
     assert not result.errors, result.errors
     returned = {row["id"] for row in result.data["invites"]}
-    assert str(invite.id) not in returned, "an ordinary member read an admin invite token"
+    assert str(invite.id) not in returned, (
+        "an ordinary member read an admin invite token"
+    )
 
 
 @pytest.mark.django_db(transaction=True)

@@ -1,6 +1,6 @@
-
 import strawberry
 from kante.types import Info
+
 from karakter import models, types
 from karakter.authz import get_or_denied, get_user
 

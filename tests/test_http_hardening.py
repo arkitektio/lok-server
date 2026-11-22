@@ -36,7 +36,9 @@ PRIVATE_JWK_MEMBERS = {"d", "p", "q", "dp", "dq", "qi", "oth"}
 
 
 def _post(client, name, payload, **kw):
-    return client.post(reverse(name), data=json.dumps(payload), content_type="application/json", **kw)
+    return client.post(
+        reverse(name), data=json.dumps(payload), content_type="application/json", **kw
+    )
 
 
 def _prefixed(path: str) -> str:
@@ -77,7 +79,9 @@ def test_claimhub_throttles_past_the_limit(client):
 
 @pytest.mark.django_db
 def test_claimhub_malformed_body_is_400_invalid_request(client):
-    resp = client.post(reverse("fakts:hubclaim"), data="{nope", content_type="application/json")
+    resp = client.post(
+        reverse("fakts:hubclaim"), data="{nope", content_type="application/json"
+    )
     assert resp.status_code == 400
     body = resp.json()
     assert body["error"] == "invalid_request"
@@ -125,7 +129,9 @@ def test_mesh_challenge_is_throttled(client, monkeypatch):
 
 @pytest.mark.django_db
 def test_mesh_start_rejects_invalid_body_with_400(client):
-    resp = client.post(reverse("fakts:meshstart"), data="nope", content_type="application/json")
+    resp = client.post(
+        reverse("fakts:meshstart"), data="nope", content_type="application/json"
+    )
     assert resp.status_code == 400
     assert resp.json()["error"] == "invalid_request"
 
@@ -151,8 +157,12 @@ def _mesh_code_and_key(ionscale_repo):
 
     org = factories.make_organization()
     layer = ensure_org_mesh(org)
-    dc = device_codes.start_mesh_device_code(base_models.MeshDeviceCodeStartRequest(requested_machine_name="gpu-01"))
-    key = models.IonscaleAuthKey.objects.create(layer=layer, key="tskey-auth-test", creator=org.owner)
+    dc = device_codes.start_mesh_device_code(
+        base_models.MeshDeviceCodeStartRequest(requested_machine_name="gpu-01")
+    )
+    key = models.IonscaleAuthKey.objects.create(
+        layer=layer, key="tskey-auth-test", creator=org.owner
+    )
     return dc, key
 
 
@@ -225,13 +235,23 @@ def test_mesh_challenge_expired_and_denied_vocabulary(client, ionscale_repo):
 @pytest.mark.django_db
 def test_report_client_ignores_alias_from_another_organization():
     reporter = factories.make_client()  # its own organization
-    foreign_instance = factories.make_service_instance()  # hub in a different organization
-    foreign_alias = models.InstanceAlias.objects.create(instance=foreign_instance, host="foreign.example", kind="absolute")
+    foreign_instance = (
+        factories.make_service_instance()
+    )  # hub in a different organization
+    foreign_alias = models.InstanceAlias.objects.create(
+        instance=foreign_instance, host="foreign.example", kind="absolute"
+    )
     assert foreign_instance.hub.organization_id != reporter.organization_id
 
     clients.report_client(
         reporter,
-        base_models.ReportRequest(alias_reports={"db": base_models.AliasReport(alias_id=str(foreign_alias.id), valid=True)}),
+        base_models.ReportRequest(
+            alias_reports={
+                "db": base_models.AliasReport(
+                    alias_id=str(foreign_alias.id), valid=True
+                )
+            }
+        ),
     )
 
     usage = models.UsedAlias.objects.get(client=reporter, key="db")
@@ -244,11 +264,17 @@ def test_report_client_applies_alias_from_own_organization():
     reporter = factories.make_client()
     hub = factories.make_hub(organization=reporter.organization)
     instance = factories.make_service_instance(hub=hub)
-    alias = models.InstanceAlias.objects.create(instance=instance, host="mine.example", kind="absolute")
+    alias = models.InstanceAlias.objects.create(
+        instance=instance, host="mine.example", kind="absolute"
+    )
 
     clients.report_client(
         reporter,
-        base_models.ReportRequest(alias_reports={"db": base_models.AliasReport(alias_id=str(alias.id), valid=True)}),
+        base_models.ReportRequest(
+            alias_reports={
+                "db": base_models.AliasReport(alias_id=str(alias.id), valid=True)
+            }
+        ),
     )
 
     assert models.UsedAlias.objects.get(client=reporter, key="db").alias_id == alias.id
@@ -259,7 +285,13 @@ def test_report_client_ignores_unknown_alias_id():
     reporter = factories.make_client()
     clients.report_client(
         reporter,
-        base_models.ReportRequest(alias_reports={"db": base_models.AliasReport(alias_id="999999", valid=False, reason="x")}),
+        base_models.ReportRequest(
+            alias_reports={
+                "db": base_models.AliasReport(
+                    alias_id="999999", valid=False, reason="x"
+                )
+            }
+        ),
     )
     usage = models.UsedAlias.objects.get(client=reporter, key="db")
     assert usage.alias is None
@@ -274,13 +306,20 @@ def test_report_client_ignores_unknown_alias_id():
 def _login(client, key, manifest, **extra):
     return client.post(
         reverse("token"),
-        data={"grant_type": MANDATE_KEY_GRANT, "key": key, "manifest": json.dumps(manifest), **extra},
+        data={
+            "grant_type": MANDATE_KEY_GRANT,
+            "key": key,
+            "manifest": json.dumps(manifest),
+            **extra,
+        },
         secure=True,
     )
 
 
 @pytest.mark.django_db
-def test_a_key_login_asking_for_a_scope_the_organization_lacks_is_granted_what_it_has(client):
+def test_a_key_login_asking_for_a_scope_the_organization_lacks_is_granted_what_it_has(
+    client,
+):
     """An app that knows many services logs in where only some run: what is absent is not granted."""
     from fakts.models import Client
 
@@ -302,7 +341,12 @@ def test_a_key_login_the_organization_refuses_is_invalid_grant(client):
     mandate, key = factories.make_mandate_key()
     mandate.organization.require_device_auth = True
     mandate.organization.save(update_fields=["require_device_auth"])
-    manifest = {"identifier": "com.example.deviceless", "version": "1.0.0", "scopes": [], "requirements": []}
+    manifest = {
+        "identifier": "com.example.deviceless",
+        "version": "1.0.0",
+        "scopes": [],
+        "requirements": [],
+    }
 
     resp = _login(client, key, manifest)
 
@@ -315,7 +359,12 @@ def test_a_key_login_the_organization_refuses_is_invalid_grant(client):
 @pytest.mark.django_db
 def test_a_key_login_with_a_bogus_client_role_is_invalid_request(client):
     mandate, key = factories.make_mandate_key()
-    manifest = {"identifier": "com.example.role", "version": "1.0.0", "scopes": [], "requirements": []}
+    manifest = {
+        "identifier": "com.example.role",
+        "version": "1.0.0",
+        "scopes": [],
+        "requirements": [],
+    }
     resp = _login(client, key, manifest, requested_client_role="bogus")
     assert resp.status_code == 400
     body = resp.json()
@@ -331,7 +380,12 @@ def test_app_authorization_with_bogus_client_role_is_invalid_request(client):
         client,
         "app_authorization",
         {
-            "manifest": {"identifier": "com.example.role", "version": "1.0.0", "scopes": [], "requirements": []},
+            "manifest": {
+                "identifier": "com.example.role",
+                "version": "1.0.0",
+                "scopes": [],
+                "requirements": [],
+            },
             "requested_client_role": "bogus",
         },
     )
@@ -367,7 +421,9 @@ def test_jwks_endpoint_has_no_private_members(client):
 def test_bearer_validator_jwks_has_no_private_members():
     from authapp.server import MyBearerTokenValidator
 
-    validator = MyBearerTokenValidator(issuer=settings.OIDC_ISSUER, resource_server=None)
+    validator = MyBearerTokenValidator(
+        issuer=settings.OIDC_ISSUER, resource_server=None
+    )
     _assert_public_only(validator.get_jwks())
 
 
@@ -393,16 +449,31 @@ def test_cors_is_wired_first_and_regex_covers_only_api_surfaces():
     assert settings.CORS_ALLOW_CREDENTIALS is False
 
     rx = settings.CORS_URLS_REGEX
-    for path in ("/o/token/", "/f/report/", "/.well-known/fakts", "/lok/o/token/", "/lok/f/claimhub/", "/lok/.well-known/openid-configuration"):
+    for path in (
+        "/o/token/",
+        "/f/report/",
+        "/.well-known/fakts",
+        "/lok/o/token/",
+        "/lok/f/claimhub/",
+        "/lok/.well-known/openid-configuration",
+    ):
         assert re.match(rx, path), path
-    for path in ("/managementgraphql/", "/lok/managementgraphql/", "/admin/", "/_allauth/browser/v1/config", "/lok/_allauth/app/v1/auth/login"):
+    for path in (
+        "/managementgraphql/",
+        "/lok/managementgraphql/",
+        "/admin/",
+        "/_allauth/browser/v1/config",
+        "/lok/_allauth/app/v1/auth/login",
+    ):
         assert not re.match(rx, path), path
 
 
 @pytest.mark.django_db
 @override_settings(CORS_ALLOWED_ORIGINS=["https://app.example"])
 def test_cors_headers_on_well_known_for_allowed_origin(client):
-    resp = client.get(_prefixed("/.well-known/fakts"), HTTP_ORIGIN="https://app.example")
+    resp = client.get(
+        _prefixed("/.well-known/fakts"), HTTP_ORIGIN="https://app.example"
+    )
     assert resp.status_code == 200
     assert resp["Access-Control-Allow-Origin"] == "https://app.example"
 
@@ -449,7 +520,9 @@ def test_cors_headers_absent_on_graphql(client):
 @pytest.mark.django_db
 @override_settings(CORS_ALLOW_ALL_ORIGINS=True, CORS_ALLOWED_ORIGINS=[])
 def test_cors_allow_all_origins_answers_any_origin(client):
-    resp = client.get(_prefixed("/.well-known/fakts"), HTTP_ORIGIN="https://anything.example")
+    resp = client.get(
+        _prefixed("/.well-known/fakts"), HTTP_ORIGIN="https://anything.example"
+    )
     assert resp["Access-Control-Allow-Origin"] == "*"
 
 
@@ -458,7 +531,9 @@ def test_cors_default_config_sends_no_headers(client):
     """With the config defaults (no allowed origins, allow-all off) nothing is
     served cross-origin — the pre-CORS behaviour."""
     with override_settings(CORS_ALLOWED_ORIGINS=[], CORS_ALLOW_ALL_ORIGINS=False):
-        resp = client.get(_prefixed("/.well-known/fakts"), HTTP_ORIGIN="https://app.example")
+        resp = client.get(
+            _prefixed("/.well-known/fakts"), HTTP_ORIGIN="https://app.example"
+        )
         assert "Access-Control-Allow-Origin" not in resp
 
 
@@ -475,10 +550,16 @@ def test_cors_config_defaults():
 
 def test_cors_config_env_override(monkeypatch):
     monkeypatch.setenv("DJANGO__CORS_ALLOW_ALL_ORIGINS", "true")
-    monkeypatch.setenv("DJANGO__CORS_ALLOWED_ORIGINS", '["https://a.example", "https://b.example:8443"]')
+    monkeypatch.setenv(
+        "DJANGO__CORS_ALLOWED_ORIGINS",
+        '["https://a.example", "https://b.example:8443"]',
+    )
     s = Settings()
     assert s.django.cors_allow_all_origins is True
-    assert s.django.cors_allowed_origins == ["https://a.example", "https://b.example:8443"]
+    assert s.django.cors_allowed_origins == [
+        "https://a.example",
+        "https://b.example:8443",
+    ]
 
 
 def test_cors_config_is_documented():

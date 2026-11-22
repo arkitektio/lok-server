@@ -1,4 +1,5 @@
 import uuid
+
 """End-to-end HTTP tests for the canonical fakts grant.
 
 The flow under test:
@@ -35,18 +36,31 @@ DEVICE_CODE_GRANT = "urn:ietf:params:oauth:grant-type:device_code"
 def _start(client, manifest=None, **extra):
     payload = {
         "manifest": manifest
-        or {"identifier": "com.example.flow", "version": "1.0.0", "scopes": [], "requirements": []},
+        or {
+            "identifier": "com.example.flow",
+            "version": "1.0.0",
+            "scopes": [],
+            "requirements": [],
+        },
         "requested_client_kind": "development",
         "requested_client_role": "agent",
     }
     payload.update(extra)
-    return client.post(reverse("app_authorization"), data=json.dumps(payload), content_type="application/json").json()
+    return client.post(
+        reverse("app_authorization"),
+        data=json.dumps(payload),
+        content_type="application/json",
+    ).json()
 
 
 def _poll(client, device_code, client_id):
     return client.post(
         reverse("token"),
-        data={"grant_type": DEVICE_CODE_GRANT, "device_code": device_code, "client_id": client_id},
+        data={
+            "grant_type": DEVICE_CODE_GRANT,
+            "device_code": device_code,
+            "client_id": client_id,
+        },
         secure=True,  # authlib rejects the token endpoint over plain HTTP
     )
 
@@ -57,7 +71,9 @@ def _accept(device_code, hub=None):
         hub = factories.make_hub()
     user = factories.make_user()
     factories.make_membership(user=user, organization=hub.organization)
-    return validate_device_code(device_code, user=user, organization=hub.organization, hub=hub)
+    return validate_device_code(
+        device_code, user=user, organization=hub.organization, hub=hub
+    )
 
 
 def _decode(access_token: str) -> dict:
@@ -229,7 +245,11 @@ def test_empty_refresh_token_is_rejected_cleanly(client):
 
     resp = client.post(
         reverse("token"),
-        data={"grant_type": "refresh_token", "refresh_token": "", "client_id": body["client_id"]},
+        data={
+            "grant_type": "refresh_token",
+            "refresh_token": "",
+            "client_id": body["client_id"],
+        },
         secure=True,
     )
     assert resp.status_code == 400
@@ -250,7 +270,9 @@ def test_full_hub_grant_returns_tokens_and_hub_config(client):
 
     body = client.post(
         reverse("hub_authorization"),
-        data=json.dumps({"hub": {"identifier": "hubgrant", "instances": [], "clients": []}}),
+        data=json.dumps(
+            {"hub": {"identifier": "hubgrant", "instances": [], "clients": []}}
+        ),
         content_type="application/json",
     ).json()
     assert body["status"] == "granted"
@@ -267,7 +289,9 @@ def test_full_hub_grant_returns_tokens_and_hub_config(client):
     # org owner is made an admin member by the organization post_save signal).
     org = factories.make_organization()
     membership = factories.make_membership(user=org.owner, organization=org)
-    info = SimpleNamespace(context=SimpleNamespace(request=SimpleNamespace(user=membership.user)))
+    info = SimpleNamespace(
+        context=SimpleNamespace(request=SimpleNamespace(user=membership.user))
+    )
     hub = accept_hub_device_code(
         info,
         AcceptHubDeviceCodeInput(
@@ -324,38 +348,66 @@ def _approve_twice(client, first_manifest, second_manifest):
     tokens = []
     for manifest in (first_manifest, second_manifest):
         body = _start(client, manifest=manifest)
-        validate_device_code(models.DeviceCode.objects.get(secret=body["device_code"]), user=user, organization=hub.organization, hub=hub)
+        validate_device_code(
+            models.DeviceCode.objects.get(secret=body["device_code"]),
+            user=user,
+            organization=hub.organization,
+            hub=hub,
+        )
         resp = _poll(client, body["device_code"], body["client_id"])
         assert resp.status_code == 200, resp.json()
         tokens.append((body["client_id"], resp.json()))
     return tokens
 
 
-UNCHANGED = {"identifier": "com.example.flow", "version": "1.0.0", "scopes": [], "requirements": [], "device_id": "box-1"}
+UNCHANGED = {
+    "identifier": "com.example.flow",
+    "version": "1.0.0",
+    "scopes": [],
+    "requirements": [],
+    "device_id": "box-1",
+}
 
 
 @pytest.mark.django_db
-@pytest.mark.parametrize("manifest", [UNCHANGED, {k: v for k, v in UNCHANGED.items() if k != "device_id"}], ids=["device", "deviceless"])
+@pytest.mark.parametrize(
+    "manifest",
+    [UNCHANGED, {k: v for k, v in UNCHANGED.items() if k != "device_id"}],
+    ids=["device", "deviceless"],
+)
 def test_reapproving_an_unchanged_app_keeps_its_client(client, manifest):
     """The same app, unchanged, approved again by the same member on the same device
     into the same hub keeps its client_id (services key on it) with a fresh session."""
-    (first_staged, first), (second_staged, second) = _approve_twice(client, manifest, manifest)
+    (first_staged, first), (second_staged, second) = _approve_twice(
+        client, manifest, manifest
+    )
 
     assert first["client_id"] == first_staged
     # The device polled as the client_id it registered with, and got the kept one.
     assert second_staged != first_staged
     assert second["client_id"] == first["client_id"]
     assert not models.Client.objects.filter(client_id=second_staged).exists()
-    assert models.Client.objects.filter(release__app__identifier="com.example.flow").count() == 1
+    assert (
+        models.Client.objects.filter(
+            release__app__identifier="com.example.flow"
+        ).count()
+        == 1
+    )
     # The new session refreshes as the kept client.
     refreshed = client.post(
         reverse("token"),
-        data={"grant_type": "refresh_token", "refresh_token": second["refresh_token"], "client_id": second["client_id"]},
+        data={
+            "grant_type": "refresh_token",
+            "refresh_token": second["refresh_token"],
+            "client_id": second["client_id"],
+        },
         secure=True,
     )
     assert refreshed.status_code == 200, refreshed.json()
     # The staged client_id resolves to nothing once the code is burned.
-    assert not models.DeviceCode.objects.filter(polling_client_id=second_staged).exists()
+    assert not models.DeviceCode.objects.filter(
+        polling_client_id=second_staged
+    ).exists()
 
 
 @pytest.mark.django_db
@@ -365,7 +417,9 @@ def test_reapproving_an_unchanged_app_keeps_its_client(client, manifest):
     ids=["new-version", "changed-manifest", "other-device"],
 )
 def test_reapproving_a_changed_app_is_a_new_client(client, change):
-    (_, first), (second_staged, second) = _approve_twice(client, UNCHANGED, {**UNCHANGED, **change})
+    (_, first), (second_staged, second) = _approve_twice(
+        client, UNCHANGED, {**UNCHANGED, **change}
+    )
 
     assert second["client_id"] == second_staged != first["client_id"]
 
@@ -375,7 +429,9 @@ def test_reapproval_with_a_changed_manifest_rotates_identity(client):
     """Approving the same release again with a changed manifest (same org, hub, user):
     the previous bound client row — and with it its client_id and refresh chain — is
     deleted, and the freshly registered row takes over."""
-    (first_staged, first), (second_staged, second) = _approve_twice(client, UNCHANGED, {**UNCHANGED, "title": "Renamed"})
+    (first_staged, first), (second_staged, second) = _approve_twice(
+        client, UNCHANGED, {**UNCHANGED, "title": "Renamed"}
+    )
 
     assert not models.Client.objects.filter(client_id=first["client_id"]).exists()
     assert models.Client.objects.filter(client_id=second_staged).exists()
@@ -392,27 +448,38 @@ def test_same_app_on_same_device_can_be_approved_into_two_hubs(client):
     user = factories.make_user()
     factories.make_membership(user=user, organization=hub_a.organization)
     manifest = {
-        "identifier": "com.example.multihub", "version": "1.0.0",
-        "scopes": [], "requirements": [], "device_id": "same-laptop",
+        "identifier": "com.example.multihub",
+        "version": "1.0.0",
+        "scopes": [],
+        "requirements": [],
+        "device_id": "same-laptop",
     }
 
     first = _start(client, manifest=manifest)
     validate_device_code(
         models.DeviceCode.objects.get(secret=first["device_code"]),
-        user=user, organization=hub_a.organization, hub=hub_a,
+        user=user,
+        organization=hub_a.organization,
+        hub=hub_a,
     )
     assert _poll(client, first["device_code"], first["client_id"]).status_code == 200
 
     second = _start(client, manifest=manifest)
     validate_device_code(
         models.DeviceCode.objects.get(secret=second["device_code"]),
-        user=user, organization=hub_a.organization, hub=hub_b,
+        user=user,
+        organization=hub_a.organization,
+        hub=hub_b,
     )
     assert _poll(client, second["device_code"], second["client_id"]).status_code == 200
 
     a = models.Client.objects.get(client_id=first["client_id"])
     b = models.Client.objects.get(client_id=second["client_id"])
-    assert (a.release_id, a.membership_id, a.node_id) == (b.release_id, b.membership_id, b.node_id)
+    assert (a.release_id, a.membership_id, a.node_id) == (
+        b.release_id,
+        b.membership_id,
+        b.node_id,
+    )
     assert {a.hub_id, b.hub_id} == {hub_a.id, hub_b.id}
 
 

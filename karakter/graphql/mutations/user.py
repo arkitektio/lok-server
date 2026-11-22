@@ -1,11 +1,12 @@
-from kante import Info
-import strawberry
-from karakter import types, models
 import logging
+
 import kante
+import strawberry
 from graphql import GraphQLError
+from kante import Info
 
 from api.management.authz import DENIED, assert_owner_or_admin
+from karakter import models, types
 from karakter.collaboration_grants import upgrade_to_full
 
 logger = logging.getLogger(__name__)
@@ -18,7 +19,9 @@ class AddUserToOrganizationInput:
     roles: list[str]
 
 
-def add_user_to_organization(info: Info, input: AddUserToOrganizationInput) -> types.Membership:
+def add_user_to_organization(
+    info: Info, input: AddUserToOrganizationInput
+) -> types.Membership:
     """Add a user to an organization and set their roles.
 
     Requires the caller to own the organization or hold its ``admin`` role — this
@@ -47,7 +50,9 @@ def add_user_to_organization(info: Info, input: AddUserToOrganizationInput) -> t
         raise GraphQLError(DENIED)
 
     already_related = (
-        models.Membership.objects.filter(user=target, organization=organization).exists()
+        models.Membership.objects.filter(
+            user=target, organization=organization
+        ).exists()
         or models.Invite.objects.filter(
             created_for=organization, accepted_by=target
         ).exists()
@@ -68,14 +73,20 @@ def add_user_to_organization(info: Info, input: AddUserToOrganizationInput) -> t
         organization=organization,
     )
 
-    roles = list(models.Role.objects.filter(identifier__in=input.roles, organization=organization))
+    roles = list(
+        models.Role.objects.filter(
+            identifier__in=input.roles, organization=organization
+        )
+    )
     if len(roles) != len(set(input.roles)):
         # Don't half-apply: an unknown identifier means the caller's intent is
         # unclear, and silently dropping it could leave the member over- or
         # under-privileged relative to what was asked for.
         known = {role.identifier for role in roles}
         unknown = sorted(set(input.roles) - known)
-        raise GraphQLError(f"Unknown role(s) for this organization: {', '.join(unknown)}")
+        raise GraphQLError(
+            f"Unknown role(s) for this organization: {', '.join(unknown)}"
+        )
 
     if membership.is_scoped:
         upgrade_to_full(membership)
@@ -87,4 +98,3 @@ def add_user_to_organization(info: Info, input: AddUserToOrganizationInput) -> t
         organization.slug,
     )
     return membership
-

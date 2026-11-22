@@ -1,8 +1,15 @@
-from kante.types import Info
-import strawberry
-from karakter import types, models
-from karakter.authz import assert_is_self, get_or_denied, get_user, resolve_own_media_store
 import logging
+
+import strawberry
+from kante.types import Info
+
+from karakter import models, types
+from karakter.authz import (
+    assert_is_self,
+    get_or_denied,
+    get_user,
+    resolve_own_media_store,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -41,8 +48,3 @@ def update_profile(info: Info, input: UpdateProfileInput) -> types.Profile:
     profile.avatar = resolve_own_media_store(info, input.avatar, models.MediaStore)
     profile.save()
     return profile
-
-
-
-
-

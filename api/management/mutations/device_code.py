@@ -1,17 +1,17 @@
 import logging
 
-from django.db import transaction
-from kante import Info
-import strawberry
-from api.management import types
-from karakter import models
-from fakts import models as fakts_models
-from api.management.authz import DENIED, assert_member_or_guest, get_or_denied
-from karakter.collaboration_grants import live_grants, mesh_hub_ids
-from graphql import GraphQLError
-from fakts import logic
 import kante
+import strawberry
+from django.db import transaction
+from graphql import GraphQLError
+from kante import Info
+
+from api.management import types
+from api.management.authz import DENIED, assert_member_or_guest, get_or_denied
 from api.management.device_code_authz import resolve_device_code_with_proof
+from fakts import logic
+from fakts import models as fakts_models
+from karakter.collaboration_grants import live_grants, mesh_hub_ids
 
 logger = logging.getLogger(__name__)
 
@@ -25,7 +25,10 @@ class AcceptDeviceCodeInput:
         description="The user-facing code the device displayed — proof that the approver actually saw the enrolment request"
     )
     hub: strawberry.ID
-    device_name: str | None = strawberry.field(default=None, description="Name to give a newly created device (ignored if the device already exists).")
+    device_name: str | None = strawberry.field(
+        default=None,
+        description="Name to give a newly created device (ignored if the device already exists).",
+    )
     declined_requirements: list[str] = strawberry.field(default_factory=list)
     """Requirement keys the user has explicitly declined (optional requirements only)."""
     allow_ionscale: bool = strawberry.field(
@@ -34,7 +37,9 @@ class AcceptDeviceCodeInput:
     )
 
 
-def accept_device_code(info: Info, input: AcceptDeviceCodeInput) -> types.ManagementClient:
+def accept_device_code(
+    info: Info, input: AcceptDeviceCodeInput
+) -> types.ManagementClient:
     """
     Accept a pending app device code: bind the staged client to the caller's
     membership in the hub's organization, map its requirements onto the hub's
@@ -49,7 +54,10 @@ def accept_device_code(info: Info, input: AcceptDeviceCodeInput) -> types.Manage
     """
     user = info.context.request.user
     device_code = resolve_device_code_with_proof(
-        fakts_models.DeviceCode, device_code_id=input.device_code, code=input.code, kind="app"
+        fakts_models.DeviceCode,
+        device_code_id=input.device_code,
+        code=input.code,
+        kind="app",
     )
 
     # A code that can never yield a token must not be "accepted": the grant side
@@ -103,7 +111,9 @@ def _grant_mesh_key(device_code: fakts_models.DeviceCode, user, organization) ->
     Best-effort: without a mesh, or with ionscale failing, the app is still
     authorized and falls back to the interactive mesh login.
     """
-    client = fakts_models.Client.objects.select_related("membership", "release__app", "node").get(pk=device_code.client_id)
+    client = fakts_models.Client.objects.select_related(
+        "membership", "release__app", "node"
+    ).get(pk=device_code.client_id)
     try:
         # A savepoint, so a failed enrollment cannot poison the caller's transaction.
         with transaction.atomic():
@@ -115,13 +125,20 @@ def _grant_mesh_key(device_code: fakts_models.DeviceCode, user, organization) ->
                 device=client.node,
             )
     except Exception:
-        logger.warning("Could not mint a mesh key for client %s", client.client_id, exc_info=True)
+        logger.warning(
+            "Could not mint a mesh key for client %s", client.client_id, exc_info=True
+        )
         return
     if key is not None:
         # `update`, not `save(update_fields=...)`: if the code was already redeemed
         # (and burned), the app is authorized without a key; don't fail the approval.
-        if not fakts_models.DeviceCode.objects.filter(pk=device_code.pk).update(auth_key=key):
-            logger.warning("Device code for client %s was redeemed before its mesh key was attached", client.client_id)
+        if not fakts_models.DeviceCode.objects.filter(pk=device_code.pk).update(
+            auth_key=key
+        ):
+            logger.warning(
+                "Device code for client %s was redeemed before its mesh key was attached",
+                client.client_id,
+            )
 
 
 @kante.input
@@ -137,14 +154,20 @@ class DeclineDeviceCodeInput:
     )
 
 
-def decline_device_code(info: Info, input: DeclineDeviceCodeInput) -> types.ManagementDeviceCode:
+def decline_device_code(
+    info: Info, input: DeclineDeviceCodeInput
+) -> types.ManagementDeviceCode:
     """
     Decline a pending app device code.
 
     Marks the device code as denied; the polling device receives `access_denied`.
     """
     device_code = resolve_device_code_with_proof(
-        fakts_models.DeviceCode, device_code_id=input.device_code, code=input.code, kind="app")
+        fakts_models.DeviceCode,
+        device_code_id=input.device_code,
+        code=input.code,
+        kind="app",
+    )
 
     device_code.denied = True
     device_code.save()

@@ -93,7 +93,9 @@ async def _post(creds: dict, body: bytes, content_type: str | None = None):
 
 def test_initc_provisioned_the_media_bucket(s3_client):
     """`initc` ran and created the bucket settings_test points at."""
-    assert settings.MEDIA_BUCKET in {b["Name"] for b in s3_client.list_buckets()["Buckets"]}
+    assert settings.MEDIA_BUCKET in {
+        b["Name"] for b in s3_client.list_buckets()["Buckets"]
+    }
 
 
 @pytest.mark.django_db(transaction=True)
@@ -105,7 +107,9 @@ async def test_presigned_post_upload_is_accepted_by_the_store(s3_client):
     This is the assertion moto could not make.
     """
     user, organization, request_client = await sync_to_async(_setup)()
-    creds = await _request_upload(build_auth_context(user, organization, request_client), "avatar.png")
+    creds = await _request_upload(
+        build_auth_context(user, organization, request_client), "avatar.png"
+    )
 
     body = b"\x89PNG\r\n\x1a\n not really a png"
     response = await sync_to_async(requests.post)(
@@ -117,7 +121,9 @@ async def test_presigned_post_upload_is_accepted_by_the_store(s3_client):
     assert response.status_code in (200, 204), response.text
 
     got = await sync_to_async(
-        lambda: s3_client.get_object(Bucket=creds["bucket"], Key=creds["key"])["Body"].read()
+        lambda: s3_client.get_object(Bucket=creds["bucket"], Key=creds["key"])[
+            "Body"
+        ].read()
     )()
     assert got == body
 
@@ -133,7 +139,9 @@ async def test_upload_key_is_namespaced_under_the_calling_user():
     """
     user, organization, request_client = await sync_to_async(_setup)()
     creds = await _request_upload(
-        build_auth_context(user, organization, request_client), "../../etc/passwd", "image/png"
+        build_auth_context(user, organization, request_client),
+        "../../etc/passwd",
+        "image/png",
     )
 
     assert creds["key"].startswith(f"users/{user.id}/")
@@ -153,7 +161,9 @@ async def test_presigned_post_cannot_write_a_different_key():
     policy is signed, so swapping the key invalidates the signature.
     """
     user, organization, request_client = await sync_to_async(_setup)()
-    creds = await _request_upload(build_auth_context(user, organization, request_client), "avatar.png")
+    creds = await _request_upload(
+        build_auth_context(user, organization, request_client), "avatar.png"
+    )
 
     response = await sync_to_async(requests.post)(
         f"{settings.AWS_S3_ENDPOINT_URL}/{creds['bucket']}",
@@ -177,7 +187,9 @@ def test_media_store_presigned_url_downloads_the_object(s3_client):
     s3_client.put_object(Bucket=settings.MEDIA_BUCKET, Key=key, Body=body)
 
     store = models.MediaStore.objects.create(
-        path=f"s3://{settings.MEDIA_BUCKET}/{key}", key=key, bucket=settings.MEDIA_BUCKET
+        path=f"s3://{settings.MEDIA_BUCKET}/{key}",
+        key=key,
+        bucket=settings.MEDIA_BUCKET,
     )
 
     # host=None makes get_presigned_url strip the endpoint prefix and return a
@@ -209,12 +221,20 @@ async def test_reuploading_the_same_filename_gets_a_fresh_key_and_store():
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
     "key,content_type",
-    [("logo.svg", None), ("logo.png", "image/svg+xml"), ("page.html", None), ("blob", None), ("x.png", "text/html")],
+    [
+        ("logo.svg", None),
+        ("logo.png", "image/svg+xml"),
+        ("page.html", None),
+        ("blob", None),
+        ("x.png", "text/html"),
+    ],
 )
 async def test_non_raster_image_types_are_refused(key, content_type):
     """Script-capable types (SVG, HTML) must never be presigned into the public bucket."""
     user, organization, request_client = await sync_to_async(_setup)()
-    result = await _execute_upload(build_auth_context(user, organization, request_client), key, content_type)
+    result = await _execute_upload(
+        build_auth_context(user, organization, request_client), key, content_type
+    )
     assert result.errors and "Unsupported media type" in result.errors[0].message
 
 
@@ -223,9 +243,13 @@ async def test_non_raster_image_types_are_refused(key, content_type):
 async def test_store_rejects_a_content_type_other_than_the_signed_one():
     """The policy pins Content-Type exactly, so the form cannot switch it to text/html."""
     user, organization, request_client = await sync_to_async(_setup)()
-    creds = await _request_upload(build_auth_context(user, organization, request_client), "avatar.png")
+    creds = await _request_upload(
+        build_auth_context(user, organization, request_client), "avatar.png"
+    )
 
-    response = await _post(creds, b"<script>alert(1)</script>", content_type="text/html")
+    response = await _post(
+        creds, b"<script>alert(1)</script>", content_type="text/html"
+    )
     assert response.status_code >= 400, f"{response.status_code} {response.text}"
 
 
@@ -236,7 +260,9 @@ async def test_store_rejects_an_oversized_upload():
     from karakter.graphql.mutations.upload import UPLOAD_MAX_BYTES
 
     user, organization, request_client = await sync_to_async(_setup)()
-    creds = await _request_upload(build_auth_context(user, organization, request_client), "avatar.png")
+    creds = await _request_upload(
+        build_auth_context(user, organization, request_client), "avatar.png"
+    )
 
     response = await _post(creds, b"\0" * (UPLOAD_MAX_BYTES + 1))
     assert response.status_code >= 400, f"{response.status_code} {response.text}"
@@ -248,7 +274,9 @@ def test_user_avatar_reads_from_the_profile():
     membership = factories.make_membership()
     user, org = membership.user, membership.organization
     store = models.MediaStore.objects.create(
-        path=f"s3://{settings.MEDIA_BUCKET}/users/{user.id}/x.png", key=f"users/{user.id}/x.png", bucket=settings.MEDIA_BUCKET
+        path=f"s3://{settings.MEDIA_BUCKET}/users/{user.id}/x.png",
+        key=f"users/{user.id}/x.png",
+        bucket=settings.MEDIA_BUCKET,
     )
     assert user.avatar is None
 
@@ -261,8 +289,12 @@ def test_user_avatar_reads_from_the_profile():
 
 def _owner_setup():
     organization = factories.make_organization()
-    membership = factories.make_membership(user=organization.owner, organization=organization)
-    context = build_auth_context(organization.owner, organization, factories.make_client(membership=membership))
+    membership = factories.make_membership(
+        user=organization.owner, organization=organization
+    )
+    context = build_auth_context(
+        organization.owner, organization, factories.make_client(membership=membership)
+    )
     return organization, context
 
 
@@ -277,12 +309,16 @@ async def test_update_organization_avatar_lands_on_the_organization_profile():
 
     result = await management_schema.execute(
         """mutation ($input: UpdateOrganizationInput!) { updateOrganization(input: $input) { id } }""",
-        variable_values={"input": {"id": str(organization.id), "avatar": creds["store"]}},
+        variable_values={
+            "input": {"id": str(organization.id), "avatar": creds["store"]}
+        },
         context_value=context,
     )
     assert not result.errors, result.errors
 
-    profile = await sync_to_async(OrganizationProfile.objects.get)(organization_id=organization.id)
+    profile = await sync_to_async(OrganizationProfile.objects.get)(
+        organization_id=organization.id
+    )
     assert str(profile.avatar_id) == str(creds["store"])
 
 
@@ -291,7 +327,9 @@ def _attach_avatars():
     organization, context = _owner_setup()
     owner = organization.owner
     store = models.MediaStore.objects.create(
-        path=f"s3://{settings.MEDIA_BUCKET}/users/{owner.id}/a.png", key=f"users/{owner.id}/a.png", bucket=settings.MEDIA_BUCKET
+        path=f"s3://{settings.MEDIA_BUCKET}/users/{owner.id}/a.png",
+        key=f"users/{owner.id}/a.png",
+        bucket=settings.MEDIA_BUCKET,
     )
     return organization, context, store
 
@@ -315,7 +353,9 @@ async def test_user_avatar_resolves_through_the_management_schema():
     await sync_to_async(_set)()
     result = await management_schema.execute(query, context_value=context)
     assert not result.errors, result.errors
-    assert result.data["me"]["avatar"].startswith(f"/{settings.MEDIA_BUCKET}/{store.key}?")
+    assert result.data["me"]["avatar"].startswith(
+        f"/{settings.MEDIA_BUCKET}/{store.key}?"
+    )
 
 
 @pytest.mark.django_db(transaction=True)
@@ -328,12 +368,18 @@ async def test_organization_avatar_resolves_from_the_profile_on_the_main_schema(
     query = "query ($id: ID!) { organization(id: $id) { id avatar { key } } }"
     variables = {"id": str(organization.id)}
 
-    result = await main_schema.execute(query, variable_values=variables, context_value=context)
+    result = await main_schema.execute(
+        query, variable_values=variables, context_value=context
+    )
     assert not result.errors, result.errors
     assert result.data["organization"]["avatar"] is None
 
-    await sync_to_async(OrganizationProfile.objects.filter(organization=organization).update)(avatar=store)
-    result = await main_schema.execute(query, variable_values=variables, context_value=context)
+    await sync_to_async(
+        OrganizationProfile.objects.filter(organization=organization).update
+    )(avatar=store)
+    result = await main_schema.execute(
+        query, variable_values=variables, context_value=context
+    )
     assert not result.errors, result.errors
     assert result.data["organization"]["avatar"] == {"key": store.key}
 
@@ -348,7 +394,9 @@ async def test_profile_bio_can_be_set_and_cleared_through_the_management_schema(
 
     created = await management_schema.execute(
         "mutation ($input: CreateProfileInput!) { createProfile(input: $input) { id name bio } }",
-        variable_values={"input": {"user": str(owner.id), "name": "Ada", "bio": "hello"}},
+        variable_values={
+            "input": {"user": str(owner.id), "name": "Ada", "bio": "hello"}
+        },
         context_value=context,
     )
     assert not created.errors, created.errors
@@ -357,7 +405,9 @@ async def test_profile_bio_can_be_set_and_cleared_through_the_management_schema(
     update = "mutation ($input: UpdateProfileInput!) { updateProfile(input: $input) { bio } }"
     for bio in ("new bio", ""):
         result = await management_schema.execute(
-            update, variable_values={"input": {"id": str(profile_id), "bio": bio}}, context_value=context
+            update,
+            variable_values={"input": {"id": str(profile_id), "bio": bio}},
+            context_value=context,
         )
         assert not result.errors, result.errors
         assert result.data["updateProfile"]["bio"] == bio
@@ -367,6 +417,7 @@ async def test_profile_bio_can_be_set_and_cleared_through_the_management_schema(
 @pytest.mark.asyncio
 async def test_membership_is_owner_marks_only_the_owner():
     """kontrol hides "Remove from organization" on the owner's membership, which lok refuses to delete."""
+
     def _setup_two():
         organization, context = _owner_setup()
         member = factories.make_membership(organization=organization)
@@ -376,6 +427,8 @@ async def test_membership_is_owner_marks_only_the_owner():
     context, owner_membership, member = await sync_to_async(_setup_two)()
     query = "query ($id: ID!) { membership(id: $id) { id isOwner } }"
     for membership, expected in ((owner_membership, True), (member, False)):
-        result = await management_schema.execute(query, variable_values={"id": str(membership.id)}, context_value=context)
+        result = await management_schema.execute(
+            query, variable_values={"id": str(membership.id)}, context_value=context
+        )
         assert not result.errors, result.errors
         assert result.data["membership"]["isOwner"] is expected

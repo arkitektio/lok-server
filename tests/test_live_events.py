@@ -37,7 +37,11 @@ async def ws_context():
 
     async def make(membership) -> WsContext:
         def authenticate():
-            return build_auth_context(membership.user, membership.organization, factories.make_client(membership=membership))
+            return build_auth_context(
+                membership.user,
+                membership.organization,
+                factories.make_client(membership=membership),
+            )
 
         http = await sync_to_async(authenticate)()
         token = http.headers["Authorization"].removeprefix("Bearer ")
@@ -94,7 +98,9 @@ class Listener:
 
 
 async def _subscribe(context, document, **variables) -> Listener:
-    generator = await schema.subscribe(document, context_value=context, variable_values=variables)
+    generator = await schema.subscribe(
+        document, context_value=context, variable_values=variables
+    )
     listener = Listener(generator)
     # Let the resolver join its group before anything is broadcast.
     await asyncio.sleep(0.3)
@@ -106,12 +112,20 @@ MY_MESSAGES = "subscription { myMessages { create { id title } update { id } del
 
 async def test_my_messages_tells_the_owner_and_nobody_else(ws_context):
     me = await sync_to_async(factories.make_membership)()
-    someone = await sync_to_async(factories.make_membership)(organization=me.organization)
+    someone = await sync_to_async(factories.make_membership)(
+        organization=me.organization
+    )
     mine = await _subscribe(await ws_context(me), MY_MESSAGES)
     theirs = await _subscribe(await ws_context(someone), MY_MESSAGES)
 
-    message = await models.SystemMessage.objects.acreate(user=me.user, title="Hub down", message="", action="")
-    assert (await mine.next())["myMessages"] == {"create": {"id": str(message.pk), "title": "Hub down"}, "update": None, "delete": None}
+    message = await models.SystemMessage.objects.acreate(
+        user=me.user, title="Hub down", message="", action=""
+    )
+    assert (await mine.next())["myMessages"] == {
+        "create": {"id": str(message.pk), "title": "Hub down"},
+        "update": None,
+        "delete": None,
+    }
 
     message.acknowledged = True
     await message.asave()
@@ -126,7 +140,9 @@ async def test_my_messages_tells_the_owner_and_nobody_else(ws_context):
     await theirs.close()
 
 
-MEMBERSHIP_REQUESTS = "subscription { membershipRequests { create { id status } update { id status } } }"
+MEMBERSHIP_REQUESTS = (
+    "subscription { membershipRequests { create { id status } update { id status } } }"
+)
 
 
 async def test_membership_requests_reach_the_admins_only(ws_context):
@@ -134,18 +150,28 @@ async def test_membership_requests_reach_the_admins_only(ws_context):
         owner = factories.make_user()
         organization = factories.make_organization(owner=owner)
         create_role(organization=organization, identifier="guest")
-        return factories.make_membership(user=owner, organization=organization), factories.make_membership(organization=organization)
+        return factories.make_membership(
+            user=owner, organization=organization
+        ), factories.make_membership(organization=organization)
 
     owner, member = await sync_to_async(setup)()
     admins = await _subscribe(await ws_context(owner), MEMBERSHIP_REQUESTS)
     members = await _subscribe(await ws_context(member), MEMBERSHIP_REQUESTS)
 
     outsider = await sync_to_async(factories.make_user)()
-    request = await models.MembershipRequest.objects.acreate(user=outsider, organization=owner.organization, reason="please")
-    assert (await admins.next())["membershipRequests"]["create"] == {"id": str(request.pk), "status": "pending"}
+    request = await models.MembershipRequest.objects.acreate(
+        user=outsider, organization=owner.organization, reason="please"
+    )
+    assert (await admins.next())["membershipRequests"]["create"] == {
+        "id": str(request.pk),
+        "status": "pending",
+    }
 
     await sync_to_async(request.decline)(owner.user)
-    assert (await admins.next())["membershipRequests"]["update"] == {"id": str(request.pk), "status": "declined"}
+    assert (await admins.next())["membershipRequests"]["update"] == {
+        "id": str(request.pk),
+        "status": "declined",
+    }
 
     await members.nothing()
     await admins.close()
@@ -165,16 +191,23 @@ async def test_hub_health_reports_the_organizations_hubs(ws_context):
 
     membership, watched, other, foreign = await sync_to_async(setup)()
     every = await _subscribe(await ws_context(membership), HUB_HEALTH)
-    one = await _subscribe(await ws_context(membership), HUB_HEALTH, hub=str(watched.pk))
+    one = await _subscribe(
+        await ws_context(membership), HUB_HEALTH, hub=str(watched.pk)
+    )
 
     await sync_to_async(report_hub_health)(foreign, HubHealthReport(healthy=True))
     await sync_to_async(report_hub_health)(other, HubHealthReport(healthy=True))
     await sync_to_async(report_hub_health)(watched, HubHealthReport(healthy=False))
 
     first = (await every.next())["hubHealth"]
-    assert first["id"] == str(other.pk) and first["online"] is True and first["offlineAt"]
+    assert (
+        first["id"] == str(other.pk) and first["online"] is True and first["offlineAt"]
+    )
     assert (await every.next())["hubHealth"]["id"] == str(watched.pk)
-    assert (await one.next())["hubHealth"] == {**(await _hub_row(watched)), "id": str(watched.pk)}
+    assert (await one.next())["hubHealth"] == {
+        **(await _hub_row(watched)),
+        "id": str(watched.pk),
+    }
     await every.nothing()
     await one.nothing()
     await every.close()

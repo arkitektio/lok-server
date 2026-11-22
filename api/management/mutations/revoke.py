@@ -7,14 +7,19 @@ which kills the refresh chains immediately (the refresh grant is DB-backed);
 outstanding JWT access tokens age out within an hour.
 """
 
+import kante
 import strawberry
+from graphql import GraphQLError
 from kante import Info
 
-import kante
 from api.management import types
-from graphql import GraphQLError
-
-from api.management.authz import DENIED, assert_owner_or_admin, get_or_denied, get_user, is_owner_or_admin
+from api.management.authz import (
+    DENIED,
+    assert_owner_or_admin,
+    get_or_denied,
+    get_user,
+    is_owner_or_admin,
+)
 from authapp.models import OAuth2Token
 from fakts import models as fakts_models
 from fakts.services.mandates import revoke_organization_mandates
@@ -29,15 +34,24 @@ class RevokeClientSessionsInput:
     client: strawberry.ID
 
 
-def revoke_client_sessions(info: Info, input: RevokeClientSessionsInput) -> types.ManagementClient:
+def revoke_client_sessions(
+    info: Info, input: RevokeClientSessionsInput
+) -> types.ManagementClient:
     """Reject a client: revoke all tokens of its installation (the same app of the
     same member on the same device) and remove its mesh sidecar. The app
     re-authorizes through a fresh device-code approval. Allowed to the member
     who approved the client, and to the organization's owner/admins."""
-    client = get_or_denied(fakts_models.Client.objects.select_related("organization", "membership", "release"), id=input.client)
+    client = get_or_denied(
+        fakts_models.Client.objects.select_related(
+            "organization", "membership", "release"
+        ),
+        id=input.client,
+    )
 
     user = get_user(info)
-    granted_it = client.membership_id is not None and client.membership.user_id == user.id
+    granted_it = (
+        client.membership_id is not None and client.membership.user_id == user.id
+    )
     if not granted_it and not is_owner_or_admin(user, client.organization):
         raise GraphQLError(DENIED)
 
@@ -53,7 +67,9 @@ class RevokeOrganizationSessionsInput:
     organization: strawberry.ID
 
 
-def revoke_organization_sessions(info: Info, input: RevokeOrganizationSessionsInput) -> int:
+def revoke_organization_sessions(
+    info: Info, input: RevokeOrganizationSessionsInput
+) -> int:
     """Revoke all tokens of every client and hub in an organization (the
     org-level kill switch, e.g. after an incident). Owner/admin only. Returns
     the number of tokens revoked."""
@@ -64,12 +80,18 @@ def revoke_organization_sessions(info: Info, input: RevokeOrganizationSessionsIn
     # Every client in the org — app clients and hub identities alike carry the
     # organization FK on the unified model.
     client_ids = list(
-        fakts_models.Client.objects.filter(organization=organization).values_list("client_id", flat=True)
+        fakts_models.Client.objects.filter(organization=organization).values_list(
+            "client_id", flat=True
+        )
     )
 
-    revoked = OAuth2Token.objects.filter(client_id__in=client_ids, revoked=False).update(revoked=True)
+    revoked = OAuth2Token.objects.filter(
+        client_id__in=client_ids, revoked=False
+    ).update(revoked=True)
     # Every mandate stops working too: the clients logging in with a key would
     # otherwise just run their grant again.
     revoke_organization_mandates(organization)
-    schedule_reap_for_clients(fakts_models.Client.objects.filter(client_id__in=client_ids))
+    schedule_reap_for_clients(
+        fakts_models.Client.objects.filter(client_id__in=client_ids)
+    )
     return revoked

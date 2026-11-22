@@ -32,7 +32,12 @@ from tests.conftest import build_auth_context
 GRANT = "urn:fakts:grant-type:mandate-key"
 AGENT = "live.arkitekt.deployer"
 REQUIREMENT = {"key": "rekuest", "service": "live.arkitekt.rekuest", "optional": True}
-SUBJECT = {"identifier": "com.example.subject", "version": "1.2.0", "scopes": ["read"], "requirements": [REQUIREMENT]}
+SUBJECT = {
+    "identifier": "com.example.subject",
+    "version": "1.2.0",
+    "scopes": ["read"],
+    "requirements": [REQUIREMENT],
+}
 
 
 def _world():
@@ -44,15 +49,35 @@ def _world():
     ui_client = factories.make_client(
         membership=grantor,
         hub=hub,
-        release=factories.make_release(app=factories.make_app(organization=org, identifier="live.arkitekt.orkestrator")),
-        manifest={"identifier": "live.arkitekt.orkestrator", "version": "1.0.0", "scopes": ["read"], "requirements": [REQUIREMENT]},
+        release=factories.make_release(
+            app=factories.make_app(
+                organization=org, identifier="live.arkitekt.orkestrator"
+            )
+        ),
+        manifest={
+            "identifier": "live.arkitekt.orkestrator",
+            "version": "1.0.0",
+            "scopes": ["read"],
+            "requirements": [REQUIREMENT],
+        },
     )
     ui_client.scopes.add(read)
 
     operator = factories.make_membership(organization=org)
-    agent_release = factories.make_release(app=factories.make_app(organization=org, identifier=AGENT))
-    agent_client = factories.make_client(membership=operator, release=agent_release, hub=hub)
-    return SimpleNamespace(grantor=grantor, hub=hub, ui_client=ui_client, operator=operator, agent_client=agent_client, org=org)
+    agent_release = factories.make_release(
+        app=factories.make_app(organization=org, identifier=AGENT)
+    )
+    agent_client = factories.make_client(
+        membership=operator, release=agent_release, hub=hub
+    )
+    return SimpleNamespace(
+        grantor=grantor,
+        hub=hub,
+        ui_client=ui_client,
+        operator=operator,
+        agent_client=agent_client,
+        org=org,
+    )
 
 
 def _ctx(membership, client):
@@ -83,22 +108,36 @@ async def _run(query, ctx, **variables):
 
 
 async def _create(w, **extra):
-    result = await _run(CREATE, _ctx(w.grantor, w.ui_client), input={"agent": AGENT, "manifest": SUBJECT, **extra})
+    result = await _run(
+        CREATE,
+        _ctx(w.grantor, w.ui_client),
+        input={"agent": AGENT, "manifest": SUBJECT, **extra},
+    )
     assert not result.errors, result.errors
     return result.data["createMandate"]
 
 
 async def _child(w, mandate_id, device_id="host-a:pod-1"):
-    return await _run(ISSUE_CHILD, _ctx(w.operator, w.agent_client), input={"mandate": mandate_id, "deviceId": device_id})
+    return await _run(
+        ISSUE_CHILD,
+        _ctx(w.operator, w.agent_client),
+        input={"mandate": mandate_id, "deviceId": device_id},
+    )
 
 
 def _login(http, key, **overrides):
     manifest = {**SUBJECT, "device_id": "host-a:pod-1", **overrides}
-    return http.post(reverse("token"), data={"grant_type": GRANT, "key": key, "manifest": json.dumps(manifest)}, secure=True)
+    return http.post(
+        reverse("token"),
+        data={"grant_type": GRANT, "key": key, "manifest": json.dumps(manifest)},
+        secure=True,
+    )
 
 
 def _claims(access_token):
-    return jwt.decode(access_token, RSAKey.import_key(settings.PUBLIC_KEY), algorithms=["RS256"]).claims
+    return jwt.decode(
+        access_token, RSAKey.import_key(settings.PUBLIC_KEY), algorithms=["RS256"]
+    ).claims
 
 
 def _agent_mandate(w, **kw) -> models.Mandate:
@@ -133,7 +172,11 @@ async def test_create_pins_the_subject_without_a_device():
     w = await sync_to_async(_world)()
     data = await _create(w, attestation="sha256:abc", maxClients=2)
 
-    assert (data["claimant"], data["origin"], data["agentIdentifier"]) == ("AGENT", "CLIENT", AGENT)
+    assert (data["claimant"], data["origin"], data["agentIdentifier"]) == (
+        "AGENT",
+        "CLIENT",
+        AGENT,
+    )
     assert data["subject"] == {
         "identifier": "com.example.subject",
         "version": "1.2.0",
@@ -150,7 +193,11 @@ async def test_create_pins_the_subject_without_a_device():
 @pytest.mark.asyncio
 async def test_create_refuses_unknown_scopes():
     w = await sync_to_async(_world)()
-    result = await _run(CREATE, _ctx(w.grantor, w.ui_client), input={"agent": AGENT, "manifest": {**SUBJECT, "scopes": ["nope"]}})
+    result = await _run(
+        CREATE,
+        _ctx(w.grantor, w.ui_client),
+        input={"agent": AGENT, "manifest": {**SUBJECT, "scopes": ["nope"]}},
+    )
     assert result.errors and "nope" in result.errors[0].message
 
 
@@ -160,14 +207,29 @@ async def test_an_app_cannot_grant_more_than_it_holds():
     w = await sync_to_async(_world)()
     await Scope.objects.aget_or_create(identifier="admin:all", organization=w.org)
 
-    more_scopes = await _run(CREATE, _ctx(w.grantor, w.ui_client), input={"agent": AGENT, "manifest": {**SUBJECT, "scopes": ["read", "admin:all"]}})
+    more_scopes = await _run(
+        CREATE,
+        _ctx(w.grantor, w.ui_client),
+        input={
+            "agent": AGENT,
+            "manifest": {**SUBJECT, "scopes": ["read", "admin:all"]},
+        },
+    )
     assert more_scopes.errors and "admin:all" in more_scopes.errors[0].message
 
     extra = {"key": "mikro", "service": "live.arkitekt.mikro"}
     more_requirements = await _run(
-        CREATE, _ctx(w.grantor, w.ui_client), input={"agent": AGENT, "manifest": {**SUBJECT, "requirements": [REQUIREMENT, extra]}}
+        CREATE,
+        _ctx(w.grantor, w.ui_client),
+        input={
+            "agent": AGENT,
+            "manifest": {**SUBJECT, "requirements": [REQUIREMENT, extra]},
+        },
     )
-    assert more_requirements.errors and "mikro=live.arkitekt.mikro" in more_requirements.errors[0].message
+    assert (
+        more_requirements.errors
+        and "mikro=live.arkitekt.mikro" in more_requirements.errors[0].message
+    )
 
 
 @pytest.mark.django_db(transaction=True)
@@ -185,21 +247,55 @@ async def test_an_app_holding_a_catch_all_may_grant_what_it_covers():
             ("rekuest_read", rekuest, False),
             ("mikro_write", mikro, False),
         ]:
-            scope = Scope.objects.create(identifier=key, organization=w.org, creating_instance=instance, is_all_scope=is_all)
+            scope = Scope.objects.create(
+                identifier=key,
+                organization=w.org,
+                creating_instance=instance,
+                is_all_scope=is_all,
+            )
             scope.used_by.add(instance)
-        lok_all, _ = Scope.objects.get_or_create(identifier="lok_all", organization=w.org, defaults={"is_all_scope": True, "is_builtin": True})
-        Scope.objects.get_or_create(identifier="lok_mandates", organization=w.org, defaults={"is_builtin": True})
-        w.ui_client.scopes.add(Scope.objects.get(identifier="rekuest_all", organization=w.org), lok_all)
+        lok_all, _ = Scope.objects.get_or_create(
+            identifier="lok_all",
+            organization=w.org,
+            defaults={"is_all_scope": True, "is_builtin": True},
+        )
+        Scope.objects.get_or_create(
+            identifier="lok_mandates", organization=w.org, defaults={"is_builtin": True}
+        )
+        w.ui_client.scopes.add(
+            Scope.objects.get(identifier="rekuest_all", organization=w.org), lok_all
+        )
         return w
 
     w = await sync_to_async(setup)()
     ctx = _ctx(w.grantor, w.ui_client)
 
-    covered = await _run(CREATE, ctx, input={"agent": AGENT, "manifest": {**SUBJECT, "scopes": ["rekuest_agent", "rekuest_read", "lok_mandates"]}})
+    covered = await _run(
+        CREATE,
+        ctx,
+        input={
+            "agent": AGENT,
+            "manifest": {
+                **SUBJECT,
+                "scopes": ["rekuest_agent", "rekuest_read", "lok_mandates"],
+            },
+        },
+    )
     assert not covered.errors
-    assert covered.data["createMandate"]["subject"]["scopes"] == ["lok_mandates", "rekuest_agent", "rekuest_read"]
+    assert covered.data["createMandate"]["subject"]["scopes"] == [
+        "lok_mandates",
+        "rekuest_agent",
+        "rekuest_read",
+    ]
 
-    other_service = await _run(CREATE, ctx, input={"agent": AGENT, "manifest": {**SUBJECT, "scopes": ["rekuest_agent", "mikro_write"]}})
+    other_service = await _run(
+        CREATE,
+        ctx,
+        input={
+            "agent": AGENT,
+            "manifest": {**SUBJECT, "scopes": ["rekuest_agent", "mikro_write"]},
+        },
+    )
     assert other_service.errors and "mikro_write" in other_service.errors[0].message
 
 
@@ -228,21 +324,35 @@ def test_a_client_logged_in_with_a_key_cannot_issue_mandates(client):
 async def test_an_app_issues_a_capped_key_that_dies_with_it():
     w = await sync_to_async(_world)()
     result = await _run(
-        ISSUE_KEY, _ctx(w.grantor, w.ui_client), input={"manifest": {**SUBJECT, "deviceId": "box"}, "expiresInDays": 7}
+        ISSUE_KEY,
+        _ctx(w.grantor, w.ui_client),
+        input={"manifest": {**SUBJECT, "deviceId": "box"}, "expiresInDays": 7},
     )
     assert not result.errors, result.errors
     issued = result.data["issueMandateKey"]
     assert issued["key"].startswith(issued["mandate"]["keyPrefix"])
-    assert (issued["mandate"]["claimant"], issued["mandate"]["origin"]) == ("KEY", "CLIENT")
-    assert issued["mandate"]["subject"] == {"identifier": "com.example.subject", "version": "1.2.0", "deviceId": "box"}
+    assert (issued["mandate"]["claimant"], issued["mandate"]["origin"]) == (
+        "KEY",
+        "CLIENT",
+    )
+    assert issued["mandate"]["subject"] == {
+        "identifier": "com.example.subject",
+        "version": "1.2.0",
+        "deviceId": "box",
+    }
 
     resp = await sync_to_async(_login)(HttpClient(), issued["key"], device_id="box")
     assert resp.status_code == 200, resp.json()
-    assert _claims(resp.json()["access_token"])["act"] == {"client_app": "live.arkitekt.orkestrator", "mandate": issued["mandate"]["id"]}
+    assert _claims(resp.json()["access_token"])["act"] == {
+        "client_app": "live.arkitekt.orkestrator",
+        "mandate": issued["mandate"]["id"],
+    }
 
     await sync_to_async(w.ui_client.delete)()
     assert not await models.Mandate.objects.filter(pk=issued["mandate"]["id"]).aexists()
-    assert (await sync_to_async(_login)(HttpClient(), issued["key"], device_id="box")).status_code == 400
+    assert (
+        await sync_to_async(_login)(HttpClient(), issued["key"], device_id="box")
+    ).status_code == 400
 
 
 @pytest.mark.django_db(transaction=True)
@@ -250,7 +360,11 @@ async def test_an_app_issues_a_capped_key_that_dies_with_it():
 @pytest.mark.parametrize("days", [0, 31])
 async def test_an_app_key_must_expire_within_a_month(days):
     w = await sync_to_async(_world)()
-    result = await _run(ISSUE_KEY, _ctx(w.grantor, w.ui_client), input={"manifest": SUBJECT, "expiresInDays": days})
+    result = await _run(
+        ISSUE_KEY,
+        _ctx(w.grantor, w.ui_client),
+        input={"manifest": SUBJECT, "expiresInDays": days},
+    )
     assert result.errors and "expiresInDays" in result.errors[0].message
 
 
@@ -285,17 +399,27 @@ async def test_only_the_named_agent_app_may_issue_children():
     mandate = await _create(w)
 
     # The grantor's own orkestrator client is not the agent.
-    result = await _run(ISSUE_CHILD, _ctx(w.grantor, w.ui_client), input={"mandate": mandate["id"], "deviceId": "x"})
+    result = await _run(
+        ISSUE_CHILD,
+        _ctx(w.grantor, w.ui_client),
+        input={"mandate": mandate["id"], "deviceId": "x"},
+    )
     assert result.errors and "Not found" in result.errors[0].message
 
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
 @pytest.mark.parametrize("allow_mesh", [True, False])
-async def test_a_child_key_gets_a_mesh_key_only_when_its_mandate_allows_it(ionscale_repo, allow_mesh):
+async def test_a_child_key_gets_a_mesh_key_only_when_its_mandate_allows_it(
+    ionscale_repo, allow_mesh
+):
     w = await sync_to_async(_world)()
     await sync_to_async(models.IonscaleLayer.objects.create)(
-        organization=w.org, name="Default", kind="ionscale", identifier=w.org.slug, tailnet_name=w.org.slug
+        organization=w.org,
+        name="Default",
+        kind="ionscale",
+        identifier=w.org.slug,
+        tailnet_name=w.org.slug,
     )
     mandate = await _create(w, allowMesh=allow_mesh)
     assert mandate["allowMesh"] is allow_mesh
@@ -304,7 +428,12 @@ async def test_a_child_key_gets_a_mesh_key_only_when_its_mandate_allows_it(ionsc
     manifest = {**SUBJECT, "device_id": "host-a:pod-1"}
     resp = await sync_to_async(HttpClient().post)(
         reverse("token"),
-        data={"grant_type": GRANT, "key": child["key"], "manifest": json.dumps(manifest), "request_auth_key": "true"},
+        data={
+            "grant_type": GRANT,
+            "key": child["key"],
+            "manifest": json.dumps(manifest),
+            "request_auth_key": "true",
+        },
         secure=True,
     )
 
@@ -328,11 +457,19 @@ async def test_agent_device_pin_is_enforced():
 def test_a_key_backed_agent_may_issue_children():
     """The plugin engine logs in with a hub mandate key and deploys apps as the approver."""
     w = _world()
-    engine_parent, engine_key = factories.make_mandate_key(hub=w.hub, membership=w.operator, pin={"identifier": AGENT})
+    engine_parent, engine_key = factories.make_mandate_key(
+        hub=w.hub, membership=w.operator, pin={"identifier": AGENT}
+    )
     http = HttpClient()
     body = http.post(
         reverse("token"),
-        data={"grant_type": GRANT, "key": engine_key, "manifest": json.dumps({"identifier": AGENT, "version": "1.0.0", "device_id": "engine"})},
+        data={
+            "grant_type": GRANT,
+            "key": engine_key,
+            "manifest": json.dumps(
+                {"identifier": AGENT, "version": "1.0.0", "device_id": "engine"}
+            ),
+        },
         secure=True,
     ).json()
     engine = models.Client.objects.get(client_id=body["client_id"])
@@ -352,18 +489,42 @@ def test_a_key_backed_agent_may_issue_children():
 @pytest.mark.django_db
 def test_a_child_cannot_widen_the_pin_outlive_the_parent_or_name_an_agent():
     w = _world()
-    from django.utils import timezone
     from datetime import timedelta
+
+    from django.utils import timezone
 
     parent = _agent_mandate(w, expires_at=timezone.now() + timedelta(days=3))
     issuer = mandates.AgentIssuer(parent=parent, client=w.agent_client)
 
     with pytest.raises(mandates.MandateExceedsIssuer):
-        mandates.issue_mandate(issuer=issuer, grantor=w.grantor, hub=w.hub, pin=MandatePin(**{**parent.pin.model_dump(), "version": None, "device_id": "d"}), claimant=mandates.KeyClaimant(), expires_at=parent.expires_at)
+        mandates.issue_mandate(
+            issuer=issuer,
+            grantor=w.grantor,
+            hub=w.hub,
+            pin=MandatePin(
+                **{**parent.pin.model_dump(), "version": None, "device_id": "d"}
+            ),
+            claimant=mandates.KeyClaimant(),
+            expires_at=parent.expires_at,
+        )
     with pytest.raises(mandates.MandateError, match="outlive"):
-        mandates.issue_mandate(issuer=issuer, grantor=w.grantor, hub=w.hub, pin=parent.pin.narrowed_to_device("d"), claimant=mandates.KeyClaimant(), expires_at=parent.expires_at + timedelta(days=1))
+        mandates.issue_mandate(
+            issuer=issuer,
+            grantor=w.grantor,
+            hub=w.hub,
+            pin=parent.pin.narrowed_to_device("d"),
+            claimant=mandates.KeyClaimant(),
+            expires_at=parent.expires_at + timedelta(days=1),
+        )
     with pytest.raises(mandates.MandateError, match="keyed mandates only"):
-        mandates.issue_mandate(issuer=issuer, grantor=w.grantor, hub=w.hub, pin=parent.pin.narrowed_to_device("d"), claimant=mandates.AgentClaimant(identifier="x"), expires_at=parent.expires_at)
+        mandates.issue_mandate(
+            issuer=issuer,
+            grantor=w.grantor,
+            hub=w.hub,
+            pin=parent.pin.narrowed_to_device("d"),
+            claimant=mandates.AgentClaimant(identifier="x"),
+            expires_at=parent.expires_at,
+        )
 
 
 @pytest.mark.django_db
@@ -433,7 +594,9 @@ def test_revoking_the_parent_revokes_every_child_and_deletes_their_clients(clien
     mandates.revoke_mandate(parent)
 
     assert not models.Client.objects.filter(client_id=body["client_id"]).exists()
-    assert set(parent.children.values_list("revocation_reason", flat=True)) == {"parent_revoked"}
+    assert set(parent.children.values_list("revocation_reason", flat=True)) == {
+        "parent_revoked"
+    }
     assert _login(client, used).status_code == 400
     assert _login(client, pending, device_id="host-a:pod-2").status_code == 400
     with pytest.raises(mandates.MandateNotLive):
@@ -469,7 +632,9 @@ def test_rejecting_the_agent_kills_every_app_it_deployed(client):
 
     assert _login(client, key).status_code == 400
     parent.refresh_from_db()
-    assert parent.revoked_at is None  # the approval itself stands; a new agent may deploy again
+    assert (
+        parent.revoked_at is None
+    )  # the approval itself stands; a new agent may deploy again
 
 
 @pytest.mark.django_db
@@ -480,7 +645,9 @@ def test_logging_out_the_issuing_app_keeps_what_it_issued(client):
 
     from authapp.models import OAuth2Token
 
-    OAuth2Token.objects.filter(client_id=w.ui_client.client_id).update(revoked=True)  # what /o/revoke/ does
+    OAuth2Token.objects.filter(client_id=w.ui_client.client_id).update(
+        revoked=True
+    )  # what /o/revoke/ does
 
     assert _login(client, key).status_code == 200
 
@@ -534,11 +701,17 @@ async def test_only_grantor_admin_or_issuing_app_may_revoke_and_agent_sees_its_m
 
     # Another member's unrelated app may not revoke it.
     stranger = await sync_to_async(factories.make_membership)(organization=w.org)
-    stranger_client = await sync_to_async(factories.make_client)(membership=stranger, hub=w.hub)
-    denied = await _run(REVOKE, _ctx(stranger, stranger_client), input={"id": mandate["id"]})
+    stranger_client = await sync_to_async(factories.make_client)(
+        membership=stranger, hub=w.hub
+    )
+    denied = await _run(
+        REVOKE, _ctx(stranger, stranger_client), input={"id": mandate["id"]}
+    )
     assert denied.errors
 
-    revoked = await _run(REVOKE, _ctx(w.grantor, w.ui_client), input={"id": mandate["id"]})
+    revoked = await _run(
+        REVOKE, _ctx(w.grantor, w.ui_client), input={"id": mandate["id"]}
+    )
     assert not revoked.errors, revoked.errors
     assert revoked.data["revokeMandate"]["isLive"] is False
     assert revoked.data["revokeMandate"]["revocationReason"] == "REVOKED"
@@ -549,8 +722,12 @@ def test_a_device_issued_a_second_child_key_keeps_its_client(client):
     """Re-keying a device under the standing mandate is not a new installation: same client_id, same agent."""
     w = _world()
     parent = _agent_mandate(w)
-    first = _login(client, _issue_child(w, parent, "host-a:pod-1"), device_id="host-a:pod-1").json()
-    second = _login(client, _issue_child(w, parent, "host-a:pod-1"), device_id="host-a:pod-1").json()
+    first = _login(
+        client, _issue_child(w, parent, "host-a:pod-1"), device_id="host-a:pod-1"
+    ).json()
+    second = _login(
+        client, _issue_child(w, parent, "host-a:pod-1"), device_id="host-a:pod-1"
+    ).json()
 
     assert second["client_id"] == first["client_id"]
     assert models.Client.objects.filter(mandate__parent=parent).count() == 1

@@ -1,12 +1,12 @@
 import strawberry
-from karakter import models
-from typing import Optional
-from strawberry_django.filters import FilterLookup
 import strawberry_django
 from django.db.models import Q
-from fakts import models as fakts_models
+from strawberry_django.filters import FilterLookup
+
 from fakts import enums as fakts_enums
+from fakts import models as fakts_models
 from fakts.scalars import AppIdentifier
+from karakter import models
 
 
 @strawberry_django.filter_type(models.User, description="Filter for User model.")
@@ -14,7 +14,7 @@ class UserFilter:
     """Filter for User model."""
 
     # `User` has no `name` column; filter on `username` instead.
-    username: Optional[FilterLookup[str]] | None
+    username: FilterLookup[str] | None | None
 
     @strawberry_django.filter_field
     def ids(self, value: list[strawberry.ID], prefix: str) -> Q:
@@ -27,7 +27,7 @@ class UserFilter:
 
 @strawberry_django.filter_type(models.Group, description="Filter for Group model.")
 class GroupFilter:
-    name: Optional[FilterLookup[str]] | None
+    name: FilterLookup[str] | None | None
 
     @strawberry_django.filter_field
     def ids(self, value: list[strawberry.ID], prefix: str) -> Q:
@@ -66,9 +66,13 @@ class AppFilter:
 
     @strawberry_django.filter_field
     def search(self, value: str, prefix: str) -> Q:
-        return Q(**{f"{prefix}name__icontains": value}) | Q(**{f"{prefix}identifier__icontains": value})
+        return Q(**{f"{prefix}name__icontains": value}) | Q(
+            **{f"{prefix}identifier__icontains": value}
+        )
 
-    @strawberry_django.filter_field(description="Only the apps with one of these identifiers (exact match).")
+    @strawberry_django.filter_field(
+        description="Only the apps with one of these identifiers (exact match)."
+    )
     def identifiers(self, value: list[AppIdentifier], prefix: str) -> Q:
         return Q(**{f"{prefix}identifier__in": [str(v) for v in value]})
 
@@ -81,34 +85,49 @@ class MandateFilter:
 
     @strawberry_django.filter_field
     def search(self, value: str, prefix: str) -> Q:
-        return Q(**{f"{prefix}label__icontains": value}) | Q(**{f"{prefix}subject_manifest__identifier__icontains": value})
+        return Q(**{f"{prefix}label__icontains": value}) | Q(
+            **{f"{prefix}subject_manifest__identifier__icontains": value}
+        )
 
     @strawberry_django.filter_field
     def live(self, value: bool, prefix: str) -> Q:
         from django.utils import timezone
 
         live = Q(**{f"{prefix}revoked_at__isnull": True}) & (
-            Q(**{f"{prefix}expires_at__isnull": True}) | Q(**{f"{prefix}expires_at__gt": timezone.now()})
+            Q(**{f"{prefix}expires_at__isnull": True})
+            | Q(**{f"{prefix}expires_at__gt": timezone.now()})
         )
         return live if value else ~live
 
-    @strawberry_django.filter_field(description="Only the mandates this claimant may use: KEY (keyed) or AGENT (an agent app issues keys under it).")
+    @strawberry_django.filter_field(
+        description="Only the mandates this claimant may use: KEY (keyed) or AGENT (an agent app issues keys under it)."
+    )
     def claimant(self, value: fakts_enums.MandateClaimant, prefix: str) -> Q:
-        return Q(**{f"{prefix}claimant": fakts_enums.MandateClaimantChoices[value.name]})
+        return Q(
+            **{f"{prefix}claimant": fakts_enums.MandateClaimantChoices[value.name]}
+        )
 
-    @strawberry_django.filter_field(description="Only the mandates issued under a parent agent mandate (true), or only the top-level ones (false).")
+    @strawberry_django.filter_field(
+        description="Only the mandates issued under a parent agent mandate (true), or only the top-level ones (false)."
+    )
     def has_parent(self, value: bool, prefix: str) -> Q:
         return Q(**{f"{prefix}parent__isnull": not value})
 
-    @strawberry_django.filter_field(description="Only the agent mandates this app (by identifier) may issue keys under.")
+    @strawberry_django.filter_field(
+        description="Only the agent mandates this app (by identifier) may issue keys under."
+    )
     def agent_identifier(self, value: AppIdentifier, prefix: str) -> Q:
         return Q(**{f"{prefix}agent_identifier": str(value)})
 
-    @strawberry_django.filter_field(description="Only the mandates admitting this app (by identifier, exact).")
+    @strawberry_django.filter_field(
+        description="Only the mandates admitting this app (by identifier, exact)."
+    )
     def subject_identifier(self, value: AppIdentifier, prefix: str) -> Q:
         return Q(**{f"{prefix}subject_manifest__identifier": str(value)})
 
-    @strawberry_django.filter_field(description="Only the mandates whose clients may (true) or may not (false) ask for a mesh key.")
+    @strawberry_django.filter_field(
+        description="Only the mandates whose clients may (true) or may not (false) ask for a mesh key."
+    )
     def allow_mesh(self, value: bool, prefix: str) -> Q:
         return Q(**{f"{prefix}allow_mesh": value})
 
@@ -134,11 +153,15 @@ class DeviceFilter:
     def search(self, value: str, prefix: str) -> Q:
         return Q(**{f"{prefix}name__icontains": value})
 
-    @strawberry_django.filter_field(description="Only the devices with one of these device ids: the ids the other services know a device by (`Device.deviceId`, a token's `client_device` claim), used as they are, never hashed again.")
+    @strawberry_django.filter_field(
+        description="Only the devices with one of these device ids: the ids the other services know a device by (`Device.deviceId`, a token's `client_device` claim), used as they are, never hashed again."
+    )
     def device_ids(self, value: list[strawberry.ID], prefix: str) -> Q:
         return Q(**{f"{prefix}node_id__in": [str(v) for v in value]})
 
-    @strawberry_django.filter_field(description="Only the devices in this device group.")
+    @strawberry_django.filter_field(
+        description="Only the devices in this device group."
+    )
     def device_group(self, value: strawberry.ID, prefix: str) -> Q:
         return Q(**{f"{prefix}device_groups__id": value})
 
@@ -220,7 +243,9 @@ class ReleaseFilter:
     def apps(self, value: list[strawberry.ID], prefix: str) -> Q:
         return Q(**{f"{prefix}app_id__in": value})
 
-    @strawberry_django.filter_field(description="Releases whose version, name or app name or identifier contain this (any case).")
+    @strawberry_django.filter_field(
+        description="Releases whose version, name or app name or identifier contain this (any case)."
+    )
     def search(self, value: str, prefix: str) -> Q:
         return (
             Q(**{f"{prefix}version__icontains": value})
@@ -310,17 +335,23 @@ class BugReportFilter:
 
     @strawberry_django.filter_field
     def search(self, value: str, prefix: str) -> Q:
-        return Q(**{f"{prefix}title__icontains": value}) | Q(**{f"{prefix}description__icontains": value})
+        return Q(**{f"{prefix}title__icontains": value}) | Q(
+            **{f"{prefix}description__icontains": value}
+        )
 
     @strawberry_django.filter_field(description="Reports filed from this client.")
     def client(self, value: strawberry.ID, prefix: str) -> Q:
         return Q(**{f"{prefix}client__id": value})
 
-    @strawberry_django.filter_field(description="Reports filed from any client of this release.")
+    @strawberry_django.filter_field(
+        description="Reports filed from any client of this release."
+    )
     def release(self, value: strawberry.ID, prefix: str) -> Q:
         return Q(**{f"{prefix}release__id": value})
 
-    @strawberry_django.filter_field(description="Reports filed from any release of this app.")
+    @strawberry_django.filter_field(
+        description="Reports filed from any release of this app."
+    )
     def app(self, value: strawberry.ID, prefix: str) -> Q:
         return Q(**{f"{prefix}release__app__id": value})
 
@@ -328,10 +359,14 @@ class BugReportFilter:
     def reporter(self, value: strawberry.ID, prefix: str) -> Q:
         return Q(**{f"{prefix}reporter__id": value})
 
-    @strawberry_django.filter_field(description="True: only resolved reports. False: only the ones still open.")
+    @strawberry_django.filter_field(
+        description="True: only resolved reports. False: only the ones still open."
+    )
     def resolved(self, value: bool, prefix: str) -> Q:
         return Q(**{f"{prefix}resolved_at__isnull": not value})
 
-    @strawberry_django.filter_field(description="True: only reports already passed on to an issue tracker. False: only those that were not.")
+    @strawberry_django.filter_field(
+        description="True: only reports already passed on to an issue tracker. False: only those that were not."
+    )
     def forwarded(self, value: bool, prefix: str) -> Q:
         return Q(**{f"{prefix}forwarded_at__isnull": not value})

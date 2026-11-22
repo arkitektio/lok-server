@@ -1,4 +1,5 @@
 from django.contrib import admin
+
 from fakts import models
 
 # Register your models here.

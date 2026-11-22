@@ -68,7 +68,11 @@ def _self_attrs(fn):
         return set()
     out = set()
     for node in ast.walk(ast.parse(src)):
-        if isinstance(node, ast.Attribute) and isinstance(node.value, ast.Name) and node.value.id == "self":
+        if (
+            isinstance(node, ast.Attribute)
+            and isinstance(node.value, ast.Name)
+            and node.value.id == "self"
+        ):
             out.add(node.attr)
     return out
 
@@ -100,7 +104,13 @@ def _sweep(schema, label):
                 fn = resolver.wrapped_func
                 for attr in sorted(_self_attrs(fn)):
                     if not _model_has(model, attr):
-                        findings.append((*key, "MISSING-ATTR", f"self.{attr} not on {model.__name__}"))
+                        findings.append(
+                            (
+                                *key,
+                                "MISSING-ATTR",
+                                f"self.{attr} not on {model.__name__}",
+                            )
+                        )
                 mf = _model_field(model, fname)
                 if (
                     mf is not None
@@ -109,18 +119,36 @@ def _sweep(schema, label):
                     and not isinstance(f.type, StrawberryList)
                     and f"return self.{fname}" in textwrap.dedent(inspect.getsource(fn))
                 ):
-                    findings.append((*key, "NULLABILITY", f"{model.__name__}.{fname} null=True, resolver returns it non-null"))
+                    findings.append(
+                        (
+                            *key,
+                            "NULLABILITY",
+                            f"{model.__name__}.{fname} null=True, resolver returns it non-null",
+                        )
+                    )
                 continue
             dj_name = getattr(f, "django_name", None) or fname
             mf = _model_field(model, dj_name)
             if mf is None:
                 if not hasattr(model, dj_name):
-                    findings.append((*key, "BARE-FK", f"{model.__name__} has no '{dj_name}'"))
+                    findings.append(
+                        (*key, "BARE-FK", f"{model.__name__} has no '{dj_name}'")
+                    )
                 continue
-            if getattr(mf, "null", False) and _is_nonnull(f.type) and not isinstance(f.type, StrawberryList):
+            if (
+                getattr(mf, "null", False)
+                and _is_nonnull(f.type)
+                and not isinstance(f.type, StrawberryList)
+            ):
                 if mf.many_to_many or mf.one_to_many:
                     continue
-                findings.append((*key, "NULLABILITY", f"{model.__name__}.{dj_name} null=True but field non-null"))
+                findings.append(
+                    (
+                        *key,
+                        "NULLABILITY",
+                        f"{model.__name__}.{dj_name} null=True but field non-null",
+                    )
+                )
     return findings
 
 
@@ -140,6 +168,11 @@ def test_main_schema_matches_models():
 
 def test_accepted_list_has_no_stale_entries():
     """Keep ACCEPTED honest: every entry must still correspond to a real finding."""
-    live = {(f[0], f[1], f[2]) for f in _sweep(management_schema, "mgmt") + _sweep(main_schema, "main")}
+    live = {
+        (f[0], f[1], f[2])
+        for f in _sweep(management_schema, "mgmt") + _sweep(main_schema, "main")
+    }
     stale = sorted(k for k in ACCEPTED if k not in live)
-    assert not stale, f"stale ACCEPTED entries (finding no longer exists, remove them): {stale}"
+    assert not stale, (
+        f"stale ACCEPTED entries (finding no longer exists, remove them): {stale}"
+    )

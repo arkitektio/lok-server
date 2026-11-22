@@ -13,7 +13,7 @@ sees them: responses use lowerCamelCase keys (requests accept either), and
 import json
 import logging
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Union
+from typing import Any
 
 import httpx
 
@@ -34,7 +34,7 @@ logger = logging.getLogger(__name__)
 _SERVICE_PATH = "/ionscale.v1.IonscaleService/"
 
 
-def _get(data: Dict[str, Any], *keys: str, default: Any = None) -> Any:
+def _get(data: dict[str, Any], *keys: str, default: Any = None) -> Any:
     """Read a field by its camelCase *or* snake_case name (connect emits camel)."""
     for key in keys:
         if key in data:
@@ -47,7 +47,7 @@ def _snake_to_camel(name: str) -> str:
     return head + "".join(part.capitalize() for part in rest)
 
 
-def _lenient(data: Dict[str, Any], snake: str, default: Any = None) -> Any:
+def _lenient(data: dict[str, Any], snake: str, default: Any = None) -> Any:
     return _get(data, _snake_to_camel(snake), snake, default=default)
 
 
@@ -61,7 +61,7 @@ class IonscaleHttpRepository:
         *,
         timeout: float = 10.0,
         verify: bool = True,
-        transport: Optional[httpx.BaseTransport] = None,
+        transport: httpx.BaseTransport | None = None,
     ):
         if not service_token:
             raise ValueError("an ionscale service token is required")
@@ -79,11 +79,11 @@ class IonscaleHttpRepository:
         )
         # tailnet name -> id. The protocol is keyed by name (that is what the
         # layers store), the RPCs by id. Evicted on not_found, rename, delete.
-        self._tailnet_ids: Dict[str, str] = {}
+        self._tailnet_ids: dict[str, str] = {}
 
     # ------------------------------------------------------------------ transport
 
-    def _call(self, method: str, body: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    def _call(self, method: str, body: dict[str, Any] | None = None) -> dict[str, Any]:
         url = _SERVICE_PATH + method
         logger.debug("ionscale %s %s", method, body)
         try:
@@ -98,7 +98,9 @@ class IonscaleHttpRepository:
             try:
                 return response.json()
             except ValueError as exc:
-                raise IonscaleError("internal", f"{method}: malformed response body") from exc
+                raise IonscaleError(
+                    "internal", f"{method}: malformed response body"
+                ) from exc
 
         code, message = self._parse_error(response)
         raise IonscaleError(code, message, http_status=response.status_code)
@@ -128,7 +130,7 @@ class IonscaleHttpRepository:
     # ---------------------------------------------------------------- tailnets
 
     @staticmethod
-    def _to_tailnet(data: Dict[str, Any]) -> Tailnet:
+    def _to_tailnet(data: dict[str, Any]) -> Tailnet:
         dns = _lenient(data, "dns_config") or {}
         return Tailnet(
             id=str(data["id"]),
@@ -151,7 +153,9 @@ class IonscaleHttpRepository:
     def _forget(self, tailnet: str) -> None:
         self._tailnet_ids.pop(tailnet, None)
 
-    def _tailnet_call(self, method: str, tailnet: str, body: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    def _tailnet_call(
+        self, method: str, tailnet: str, body: dict[str, Any] | None = None
+    ) -> dict[str, Any]:
         """Call a per-tailnet RPC, retrying once with a fresh id lookup if the
         cached id turned out stale (tailnet deleted and recreated)."""
         payload = dict(body or {})
@@ -166,15 +170,17 @@ class IonscaleHttpRepository:
             payload["tailnet_id"] = self._tailnet_id(tailnet)
             return self._call(method, payload)
 
-    def list_tailnets(self) -> List[Tailnet]:
+    def list_tailnets(self) -> list[Tailnet]:
         data = self._call("ListTailnets")
-        tailnets = [self._to_tailnet(t) for t in _get(data, "tailnet", default=[]) or []]
+        tailnets = [
+            self._to_tailnet(t) for t in _get(data, "tailnet", default=[]) or []
+        ]
         for t in tailnets:
             self._tailnet_ids[t.name] = t.id
         return tailnets
 
     def create_tailnet(self, tailnet_input: TailnetCreate) -> Tailnet:
-        body: Dict[str, Any] = {"name": tailnet_input.name}
+        body: dict[str, Any] = {"name": tailnet_input.name}
         if tailnet_input.organization:
             body["organization"] = tailnet_input.organization
         data = self._call("CreateTailnet", body)
@@ -182,14 +188,16 @@ class IonscaleHttpRepository:
         self._tailnet_ids[tailnet.name] = tailnet.id
         return tailnet
 
-    def get_tailnet_by_organization(self, organization: str) -> Optional[Tailnet]:
+    def get_tailnet_by_organization(self, organization: str) -> Tailnet | None:
         """The tailnet bound to an organization, or ``None``.
 
         Falls back to ``ListTailnets{organization}`` against an ionscale that
         predates ``GetTailnetByOrganization``.
         """
         try:
-            data = self._call("GetTailnetByOrganization", {"organization": str(organization)})
+            data = self._call(
+                "GetTailnetByOrganization", {"organization": str(organization)}
+            )
         except IonscaleError as exc:
             if exc.code == "not_found":
                 return None
@@ -206,10 +214,12 @@ class IonscaleHttpRepository:
         self._tailnet_ids[tailnet.name] = tailnet.id
         return tailnet
 
-    def update_tailnet(self, tailnet: str, *, name: Optional[str] = None, **flags: bool) -> Tailnet:
+    def update_tailnet(
+        self, tailnet: str, *, name: str | None = None, **flags: bool
+    ) -> Tailnet:
         """Partial update. Only the given booleans (``ssh_enabled``,
         ``machine_authorization_enabled``, ...) are touched; ``name`` renames."""
-        body: Dict[str, Any] = {k: bool(v) for k, v in flags.items() if v is not None}
+        body: dict[str, Any] = {k: bool(v) for k, v in flags.items() if v is not None}
         if name:
             body["name"] = name
         data = self._tailnet_call("UpdateTailnet", tailnet, body)
@@ -228,9 +238,9 @@ class IonscaleHttpRepository:
     # ---------------------------------------------------------------- machines
 
     @staticmethod
-    def _to_machine(data: Dict[str, Any], detail: bool = False) -> Machine:
+    def _to_machine(data: dict[str, Any], detail: bool = False) -> Machine:
         tailnet = _lenient(data, "tailnet") or {}
-        fields: Dict[str, Any] = dict(
+        fields: dict[str, Any] = dict(
             id=str(data["id"]),
             name=data.get("name", ""),
             tailnet=tailnet.get("name") if isinstance(tailnet, dict) else None,
@@ -247,12 +257,14 @@ class IonscaleHttpRepository:
         return MachineDetail(
             **fields,
             os=data.get("os") or None,
-            key_expiry=None if _lenient(data, "key_expiry_disabled") else _lenient(data, "expires_at"),
+            key_expiry=None
+            if _lenient(data, "key_expiry_disabled")
+            else _lenient(data, "expires_at"),
             is_external=None,
             fqdn=None,
         )
 
-    def list_machines(self, tailnet: str) -> List[Machine]:
+    def list_machines(self, tailnet: str) -> list[Machine]:
         data = self._tailnet_call("ListMachines", tailnet)
         return [self._to_machine(m) for m in data.get("machines") or []]
 
@@ -265,7 +277,7 @@ class IonscaleHttpRepository:
 
     # ------------------------------------------------------------------ policy
 
-    def get_policy(self, tailnet: str) -> Dict[str, Any]:
+    def get_policy(self, tailnet: str) -> dict[str, Any]:
         data = self._tailnet_call("GetIAMPolicy", tailnet)
         raw = data.get("policy") or ""
         if not raw.strip():
@@ -273,12 +285,16 @@ class IonscaleHttpRepository:
         try:
             return json.loads(raw)
         except json.JSONDecodeError as exc:
-            raise IonscaleError("internal", f"Could not parse IAM policy: {exc}") from exc
+            raise IonscaleError(
+                "internal", f"Could not parse IAM policy: {exc}"
+            ) from exc
 
-    def update_policy(self, tailnet: str, policy: Union[Dict[str, Any], str, Path]) -> str:
+    def update_policy(self, tailnet: str, policy: dict[str, Any] | str | Path) -> str:
         if isinstance(policy, dict):
             text = json.dumps(policy)
-        elif isinstance(policy, Path) or (isinstance(policy, str) and Path(policy).is_file()):
+        elif isinstance(policy, Path) or (
+            isinstance(policy, str) and Path(policy).is_file()
+        ):
             text = Path(policy).read_text()
         elif isinstance(policy, str):
             text = policy
@@ -291,9 +307,11 @@ class IonscaleHttpRepository:
         """The raw ACL policy text (HuJSON as stored; may carry comments)."""
         return self._tailnet_call("GetACLPolicy", tailnet).get("policy") or ""
 
-    def set_acl_policy(self, tailnet: str, policy: Dict[str, Any]) -> None:
+    def set_acl_policy(self, tailnet: str, policy: dict[str, Any]) -> None:
         """Replace the tailnet's whole ACL policy; ionscale pushes it to every node."""
-        self._tailnet_call("SetACLPolicy", tailnet, {"policy": json.dumps(policy, indent=2)})
+        self._tailnet_call(
+            "SetACLPolicy", tailnet, {"policy": json.dumps(policy, indent=2)}
+        )
 
     # --------------------------------------------------------------------- dns
 
@@ -306,7 +324,8 @@ class IonscaleHttpRepository:
                 "nameservers": list(config.nameservers),
                 "search_domains": list(config.search_domains),
                 "extra_records": [
-                    {"name": r.name, "type": r.type, "value": r.value} for r in config.extra_records
+                    {"name": r.name, "type": r.type, "value": r.value}
+                    for r in config.extra_records
                 ],
             }
         }
@@ -320,10 +339,10 @@ class IonscaleHttpRepository:
         tailnet: str,
         ephemeral: bool = False,
         pre_authorized: bool = True,
-        tags: List[str] = None,
-        expiry_seconds: Optional[int] = None,
+        tags: list[str] = None,
+        expiry_seconds: int | None = None,
     ) -> str:
-        body: Dict[str, Any] = {
+        body: dict[str, Any] = {
             "ephemeral": ephemeral,
             "pre_authorized": pre_authorized,
             "tags": list(tags or []),
@@ -375,7 +394,7 @@ class IonscaleHttpRepository:
 
     # ------------------------------------------------------------------- users
 
-    def list_users(self, tailnet: str) -> List[TailnetUser]:
+    def list_users(self, tailnet: str) -> list[TailnetUser]:
         data = self._tailnet_call("ListUsers", tailnet)
         return [
             TailnetUser(
@@ -387,13 +406,15 @@ class IonscaleHttpRepository:
             for u in data.get("users") or []
         ]
 
-    def revoke_account(self, external_id: str, organization: Optional[str] = None) -> List[str]:
+    def revoke_account(
+        self, external_id: str, organization: str | None = None
+    ) -> list[str]:
         """Cut an identity's access: deletes its users, machines and keys in the
         organization's tailnets (or everywhere when ``organization`` is empty)
         and pushes the change to peers. Idempotent on the server; an ionscale
         that still answers ``not_found`` for unknown accounts is treated the
         same way. Returns the affected tailnet ids."""
-        body: Dict[str, Any] = {"external_id": str(external_id)}
+        body: dict[str, Any] = {"external_id": str(external_id)}
         if organization:
             body["organization"] = str(organization)
         try:

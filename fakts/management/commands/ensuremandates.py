@@ -33,23 +33,36 @@ class Command(BaseCommand):
             with transaction.atomic():
                 self._ensure(spec)
 
-        dropped = models.Mandate.objects.filter(origin=enums.MandateOriginChoices.CONFIG, revoked_at__isnull=True).exclude(
-            config_name__in=[spec.name for spec in specs]
-        )
+        dropped = models.Mandate.objects.filter(
+            origin=enums.MandateOriginChoices.CONFIG, revoked_at__isnull=True
+        ).exclude(config_name__in=[spec.name for spec in specs])
         for mandate in dropped:
-            mandates.revoke_mandate(mandate, enums.MandateRevocationChoices.REMOVED_FROM_CONFIG)
-            self.stdout.write(f"Mandate key '{mandate.config_name}' revoked: no longer in the config")
+            mandates.revoke_mandate(
+                mandate, enums.MandateRevocationChoices.REMOVED_FROM_CONFIG
+            )
+            self.stdout.write(
+                f"Mandate key '{mandate.config_name}' revoked: no longer in the config"
+            )
 
     def _ensure(self, spec: MandateKeySettings) -> None:
         key = spec.key.get_secret_value()
-        membership = karakter_models.Membership.objects.select_related("organization", "user").get(
-            user__username=spec.user, organization__slug=spec.organization
+        membership = karakter_models.Membership.objects.select_related(
+            "organization", "user"
+        ).get(user__username=spec.user, organization__slug=spec.organization)
+        hub = models.Hub.objects.get(
+            organization=membership.organization, identifier=spec.hub
         )
-        hub = models.Hub.objects.get(organization=membership.organization, identifier=spec.hub)
-        pin = MandatePin(identifier=spec.app, scopes=sorted(set(spec.scopes)) if spec.scopes is not None else None)
+        pin = MandatePin(
+            identifier=spec.app,
+            scopes=sorted(set(spec.scopes)) if spec.scopes is not None else None,
+        )
         key_hash = mandates.hash_key(key)
 
-        current = models.Mandate.objects.select_for_update().filter(config_name=spec.name, revoked_at__isnull=True).first()
+        current = (
+            models.Mandate.objects.select_for_update()
+            .filter(config_name=spec.name, revoked_at__isnull=True)
+            .first()
+        )
         if current is not None and current.key_hash == key_hash:
             changed: list[str] = []
             if current.membership_id != membership.pk or current.hub_id != hub.pk:
@@ -62,19 +75,27 @@ class Command(BaseCommand):
             if not _same_pin(current.pin, pin):
                 current.subject_manifest = pin.model_dump(mode="json")
                 changed.append("subject_manifest")
-            for field, value in (("expires_at", spec.expires_at), ("max_clients", spec.max_clients), ("allow_mesh", spec.allow_mesh)):
+            for field, value in (
+                ("expires_at", spec.expires_at),
+                ("max_clients", spec.max_clients),
+                ("allow_mesh", spec.allow_mesh),
+            ):
                 if getattr(current, field) != value:
                     setattr(current, field, value)
                     changed.append(field)
             if changed:
                 current.save(update_fields=changed)
-                self.stdout.write(f"Mandate key '{spec.name}' updated ({', '.join(changed)})")
+                self.stdout.write(
+                    f"Mandate key '{spec.name}' updated ({', '.join(changed)})"
+                )
             return
 
         if current is not None:
             mandates.revoke_mandate(current, enums.MandateRevocationChoices.SUPERSEDED)
         if models.Mandate.objects.filter(key_hash=key_hash).exists():
-            self.stderr.write(f"Mandate key '{spec.name}' was revoked and stays revoked; give the entry a new key")
+            self.stderr.write(
+                f"Mandate key '{spec.name}' was revoked and stays revoked; give the entry a new key"
+            )
             return
         mandates.issue_mandate(
             issuer=mandates.ConfigIssuer(name=spec.name),
@@ -87,4 +108,6 @@ class Command(BaseCommand):
             allow_mesh=spec.allow_mesh,
             label=spec.name,
         )
-        self.stdout.write(f"Mandate key '{spec.name}' issued for {spec.user} in hub {hub.identifier}")
+        self.stdout.write(
+            f"Mandate key '{spec.name}' issued for {spec.user} in hub {hub.identifier}"
+        )

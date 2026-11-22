@@ -35,7 +35,10 @@ def test_signup_fields_derived_from_login_methods():
 def test_email_login_requires_email_signup_field():
     """Email login paired with a signup form that never collects an email fails."""
     with pytest.raises(ValidationError, match="email"):
-        AccountSettings(login_methods=["email"], signup_fields=["username*", "password1*", "password2*"])
+        AccountSettings(
+            login_methods=["email"],
+            signup_fields=["username*", "password1*", "password2*"],
+        )
 
 
 def test_mandatory_verification_requires_smtp_block():
@@ -47,14 +50,18 @@ def test_mandatory_verification_requires_smtp_block():
 def test_social_provider_config_dumps_to_allauth_shape():
     """A typed provider entry round-trips to exactly the dict allauth expects,
     preserving provider-specific extras and dropping unset optionals."""
-    s = Settings(socialaccount_providers={
-        "google": {
-            "APP": {"client_id": "gid", "secret": "gsecret"},
-            "SCOPE": ["profile", "email"],
-            "FETCH_USERINFO": True,  # provider-specific extra
+    s = Settings(
+        socialaccount_providers={
+            "google": {
+                "APP": {"client_id": "gid", "secret": "gsecret"},
+                "SCOPE": ["profile", "email"],
+                "FETCH_USERINFO": True,  # provider-specific extra
+            }
         }
-    })
-    dumped = {p: c.model_dump(exclude_none=True) for p, c in s.socialaccount_providers.items()}
+    )
+    dumped = {
+        p: c.model_dump(exclude_none=True) for p, c in s.socialaccount_providers.items()
+    }
     assert dumped == {
         "google": {
             "APP": {"client_id": "gid", "secret": "gsecret", "key": "", "settings": {}},
@@ -78,11 +85,19 @@ def _saml_app(client_id="acme-university", trusted=True):
     """
     settings = {
         "attribute_mapping": {"uid": ["urn:oasis:names:tc:SAML:attribute:subject-id"]},
-        "idp": {"entity_id": f"https://idp.{client_id}.edu/idp", "sso_url": "https://idp/sso"},
+        "idp": {
+            "entity_id": f"https://idp.{client_id}.edu/idp",
+            "sso_url": "https://idp/sso",
+        },
     }
     if trusted:
         settings["verified_email"] = [f"{client_id}.edu"]
-    return {"client_id": client_id, "provider_id": f"saml:{client_id}", "name": client_id, "settings": settings}
+    return {
+        "client_id": client_id,
+        "provider_id": f"saml:{client_id}",
+        "name": client_id,
+        "settings": settings,
+    }
 
 
 def test_saml_app_validates_without_oauth_credentials():
@@ -101,7 +116,9 @@ def test_saml_app_validates_without_oauth_credentials():
 def test_saml_provider_dumps_to_allauth_shape():
     """The typed SAML entry round-trips to the dict allauth expects."""
     s = Settings(socialaccount_providers={"saml": {"APPS": [_saml_app()]}})
-    dumped = {p: c.model_dump(exclude_none=True) for p, c in s.socialaccount_providers.items()}
+    dumped = {
+        p: c.model_dump(exclude_none=True) for p, c in s.socialaccount_providers.items()
+    }
     assert dumped["saml"]["APPS"] == [
         {
             "client_id": "acme-university",
@@ -117,7 +134,11 @@ def test_saml_provider_dumps_to_allauth_shape():
 def test_saml_app_rejects_unknown_top_level_key():
     """Misplacing a SAML setting at app level (instead of under `settings`) is caught."""
     with pytest.raises(ValidationError):
-        Settings(socialaccount_providers={"saml": {"APPS": [{"client_id": "acme", "idp": {}}]}})
+        Settings(
+            socialaccount_providers={
+                "saml": {"APPS": [{"client_id": "acme", "idp": {}}]}
+            }
+        )
 
 
 def _relaxed(**providers):
@@ -130,13 +151,24 @@ def _relaxed(**providers):
 def test_per_app_domain_list_satisfies_trust_requirement():
     """Domain-scoped per-app trust is the accepted form for a multi-app provider."""
     s = Settings(**_relaxed(saml={"APPS": [_saml_app("acme"), _saml_app("beta")]}))
-    assert s.socialaccount_providers["saml"].APPS[0].settings["verified_email"] == ["acme.edu"]
+    assert s.socialaccount_providers["saml"].APPS[0].settings["verified_email"] == [
+        "acme.edu"
+    ]
 
 
 def test_untrusted_saml_app_is_rejected_when_verification_relaxed():
     """One untrusted app among several is caught, not silently exempted."""
     with pytest.raises(ValidationError, match="not marked trusted"):
-        Settings(**_relaxed(saml={"APPS": [_saml_app("acme", trusted=False), _saml_app("beta", trusted=False)]}))
+        Settings(
+            **_relaxed(
+                saml={
+                    "APPS": [
+                        _saml_app("acme", trusted=False),
+                        _saml_app("beta", trusted=False),
+                    ]
+                }
+            )
+        )
 
 
 def test_multi_app_provider_cannot_declare_trust_with_one_flat_flag():
@@ -146,7 +178,10 @@ def test_multi_app_provider_cannot_declare_trust_with_one_flat_flag():
             **_relaxed(
                 saml={
                     "VERIFIED_EMAIL": True,
-                    "APPS": [_saml_app("acme", trusted=False), _saml_app("beta", trusted=False)],
+                    "APPS": [
+                        _saml_app("acme", trusted=False),
+                        _saml_app("beta", trusted=False),
+                    ],
                 }
             )
         )
@@ -188,8 +223,14 @@ def test_single_app_oauth_provider_may_still_use_a_bare_flag():
     well-known providers declaring trust with one provider-wide VERIFIED_EMAIL."""
     Settings(
         **_relaxed(
-            google={"VERIFIED_EMAIL": True, "APPS": [{"client_id": "gid", "secret": "s"}]},
-            orcid={"VERIFIED_EMAIL": True, "APPS": [{"client_id": "oid", "secret": "s"}]},
+            google={
+                "VERIFIED_EMAIL": True,
+                "APPS": [{"client_id": "gid", "secret": "s"}],
+            },
+            orcid={
+                "VERIFIED_EMAIL": True,
+                "APPS": [{"client_id": "oid", "secret": "s"}],
+            },
         )
     )
 
@@ -200,8 +241,14 @@ def test_single_app_provider_may_still_use_flat_verified_email():
     s = Settings(
         account={"email_verification": "none", "social_email_verification": "none"},
         socialaccount_providers={
-            "google": {"VERIFIED_EMAIL": True, "APPS": [{"client_id": "gid", "secret": "s"}]},
-            "orcid": {"VERIFIED_EMAIL": True, "APPS": [{"client_id": "oid", "secret": "s"}]},
+            "google": {
+                "VERIFIED_EMAIL": True,
+                "APPS": [{"client_id": "gid", "secret": "s"}],
+            },
+            "orcid": {
+                "VERIFIED_EMAIL": True,
+                "APPS": [{"client_id": "oid", "secret": "s"}],
+            },
         },
     )
     assert s.account.social_email_verification == "none"
@@ -238,7 +285,11 @@ def test_allow_insecure_transport_env_override(monkeypatch):
 def _ionscale(**kw):
     from lok_server.configuration import IonscaleSettings
 
-    return IonscaleSettings(server_url="https://mesh.example.org", coord_url="https://mesh.example.org", **kw)
+    return IonscaleSettings(
+        server_url="https://mesh.example.org",
+        coord_url="https://mesh.example.org",
+        **kw,
+    )
 
 
 def test_ionscale_service_token_is_enough():
@@ -258,4 +309,7 @@ def test_ionscale_requires_a_credential():
 
 def test_ionscale_repository_hook_needs_no_credential():
     """Test/fake repositories are wired by dotted path and carry no secret."""
-    assert _ionscale(repository="ionscale.testing.FakeIonscaleRepository").service_token is None
+    assert (
+        _ionscale(repository="ionscale.testing.FakeIonscaleRepository").service_token
+        is None
+    )

@@ -35,7 +35,10 @@ def _signup(client: Client, username: str) -> HttpResponse:
 @USERNAME_ACCOUNTS
 def test_signup_is_open_by_default(client: Client) -> None:
     """Unless told otherwise, anybody can sign up, and the frontend is told so."""
-    assert client.get(f"{BROWSER}/config").json()["data"]["account"]["is_open_for_signup"] is True
+    assert (
+        client.get(f"{BROWSER}/config").json()["data"]["account"]["is_open_for_signup"]
+        is True
+    )
     response = _signup(client, "newcomer")
     assert response.status_code == 200, response.content
     assert get_user_model().objects.filter(username="newcomer").exists()
@@ -46,7 +49,10 @@ def test_signup_is_open_by_default(client: Client) -> None:
 @override_settings(LOK_ALLOW_SIGNUP=False)
 def test_closed_signup_creates_no_account_and_says_so(client: Client) -> None:
     """Closed, a signup is refused and creates nothing, and the frontend is told so."""
-    assert client.get(f"{BROWSER}/config").json()["data"]["account"]["is_open_for_signup"] is False
+    assert (
+        client.get(f"{BROWSER}/config").json()["data"]["account"]["is_open_for_signup"]
+        is False
+    )
     response = _signup(client, "stranger")
     assert response.status_code == 403, response.content
     assert not get_user_model().objects.filter(username="stranger").exists()

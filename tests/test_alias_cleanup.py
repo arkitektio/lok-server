@@ -16,10 +16,10 @@ from lok_server.schema import schema as lok_schema
 from tests import factories
 from tests.conftest import build_auth_context
 
-
 # --------------------------------------------------------------------------- #
 # upsert_instance_alias — the single shared persistence helper.
 # --------------------------------------------------------------------------- #
+
 
 def _staging(**kw) -> base_models.StagingAlias:
     kw.setdefault("id", "alias-x")
@@ -32,12 +32,30 @@ def test_upsert_persists_full_field_set():
     instance = factories.make_service_instance()
     alias, created = aliases.upsert_instance_alias(
         instance,
-        _staging(name="friendly", scope="network", public=True, challenge="ch", kind="absolute", port=8080, path="/p"),
+        _staging(
+            name="friendly",
+            scope="network",
+            public=True,
+            challenge="ch",
+            kind="absolute",
+            port=8080,
+            path="/p",
+        ),
     )
     assert created is True
     alias.refresh_from_db()
-    assert (alias.name, alias.scope, alias.public, alias.challenge) == ("friendly", "network", True, "ch")
-    assert (alias.host, alias.port, alias.path, alias.kind) == ("example.com", 8080, "/p", "absolute")
+    assert (alias.name, alias.scope, alias.public, alias.challenge) == (
+        "friendly",
+        "network",
+        True,
+        "ch",
+    )
+    assert (alias.host, alias.port, alias.path, alias.kind) == (
+        "example.com",
+        8080,
+        "/p",
+        "absolute",
+    )
 
 
 @pytest.mark.django_db
@@ -60,8 +78,12 @@ def test_upsert_null_name_falls_back_to_alias_id():
 def test_upsert_is_idempotent_on_natural_key():
     """Re-upserting the same (host, port, ssl, path, kind) updates rather than duplicates."""
     instance = factories.make_service_instance()
-    a1, created1 = aliases.upsert_instance_alias(instance, _staging(kind="absolute", public=False))
-    a2, created2 = aliases.upsert_instance_alias(instance, _staging(kind="absolute", public=True))
+    a1, created1 = aliases.upsert_instance_alias(
+        instance, _staging(kind="absolute", public=False)
+    )
+    a2, created2 = aliases.upsert_instance_alias(
+        instance, _staging(kind="absolute", public=True)
+    )
 
     assert created1 is True and created2 is False
     assert a1.id == a2.id
@@ -73,7 +95,15 @@ def test_upsert_is_idempotent_on_natural_key():
 @pytest.mark.django_db
 def test_both_persistence_paths_produce_equivalent_rows():
     """hubs path and the helper agree on the stored row for one staging alias."""
-    staging = _staging(name="n", scope="network", public=True, challenge="ht", kind="absolute", port=9, path="/x")
+    staging = _staging(
+        name="n",
+        scope="network",
+        public=True,
+        challenge="ht",
+        kind="absolute",
+        port=9,
+        path="/x",
+    )
 
     org_a = factories.make_organization()
     manifest = base_models.HubManifest(
@@ -81,7 +111,9 @@ def test_both_persistence_paths_produce_equivalent_rows():
         instances=[
             base_models.InstanceRequest(
                 identifier="inst-p",
-                manifest=base_models.ServiceManifest(identifier="com.example.psvc", version="1.0.0"),
+                manifest=base_models.ServiceManifest(
+                    identifier="com.example.psvc", version="1.0.0"
+                ),
                 aliases=[staging],
             )
         ],
@@ -94,8 +126,20 @@ def test_both_persistence_paths_produce_equivalent_rows():
     instance_b = factories.make_service_instance()
     via_helper, _ = aliases.upsert_instance_alias(instance_b, staging)
 
-    fields = ("name", "scope", "public", "challenge", "host", "port", "path", "kind", "ssl")
-    assert {f: getattr(via_path, f) for f in fields} == {f: getattr(via_helper, f) for f in fields}
+    fields = (
+        "name",
+        "scope",
+        "public",
+        "challenge",
+        "host",
+        "port",
+        "path",
+        "kind",
+        "ssl",
+    )
+    assert {f: getattr(via_path, f) for f in fields} == {
+        f: getattr(via_helper, f) for f in fields
+    }
 
 
 # --------------------------------------------------------------------------- #
@@ -113,6 +157,7 @@ ALIASES_WITH_LAYER = """
 @pytest.mark.asyncio
 async def test_aliases_layer_resolves_when_null():
     """`aliases { layer }` must not raise a non-null violation for the (normal) null layer."""
+
     def setup():
         membership = factories.make_membership()
         request_client = factories.make_client(membership=membership)
@@ -120,14 +165,22 @@ async def test_aliases_layer_resolves_when_null():
         # must live in the caller's organization to be listed.
         hub = factories.make_hub(organization=membership.organization)
         instance = factories.make_service_instance(hub=hub)
-        models.InstanceAlias.objects.create(instance=instance, host="example.com", kind="absolute")
-        return build_auth_context(membership.user, membership.organization, request_client)
+        models.InstanceAlias.objects.create(
+            instance=instance, host="example.com", kind="absolute"
+        )
+        return build_auth_context(
+            membership.user, membership.organization, request_client
+        )
 
     context = await sync_to_async(setup)()
     result = await lok_schema.execute(ALIASES_WITH_LAYER, context_value=context)
     assert not result.errors, result.errors
-    all_aliases = [a for inst in result.data["serviceInstances"] for a in inst["aliases"]]
-    assert all_aliases, "expected the created alias to be returned (test would otherwise be vacuous)"
+    all_aliases = [
+        a for inst in result.data["serviceInstances"] for a in inst["aliases"]
+    ]
+    assert all_aliases, (
+        "expected the created alias to be returned (test would otherwise be vacuous)"
+    )
     # every alias resolves layer as null without error
     for alias in all_aliases:
         assert alias["layer"] is None
@@ -164,24 +217,39 @@ def _block(sdl: str, header: str) -> str:
 # UsedAlias.used_at refreshes on re-report (auto_now).
 # --------------------------------------------------------------------------- #
 
+
 @pytest.mark.django_db
 def test_report_client_updates_usage_in_place():
     from fakts.services import clients
 
     client = factories.make_client()
     instance = factories.make_service_instance()
-    alias = models.InstanceAlias.objects.create(instance=instance, host="example.com", kind="absolute")
+    alias = models.InstanceAlias.objects.create(
+        instance=instance, host="example.com", kind="absolute"
+    )
 
-    clients.report_client(client, base_models.ReportRequest(
-        alias_reports={"db": base_models.AliasReport(alias_id=str(alias.id), valid=True)},
-    ))
+    clients.report_client(
+        client,
+        base_models.ReportRequest(
+            alias_reports={
+                "db": base_models.AliasReport(alias_id=str(alias.id), valid=True)
+            },
+        ),
+    )
     usage = models.UsedAlias.objects.get(client=client, key="db")
     first_ts = usage.used_at
     assert usage.valid is True
 
-    clients.report_client(client, base_models.ReportRequest(
-        alias_reports={"db": base_models.AliasReport(alias_id=str(alias.id), valid=False, reason="unreachable")},
-    ))
+    clients.report_client(
+        client,
+        base_models.ReportRequest(
+            alias_reports={
+                "db": base_models.AliasReport(
+                    alias_id=str(alias.id), valid=False, reason="unreachable"
+                )
+            },
+        ),
+    )
     usage.refresh_from_db()
     # same row updated, not duplicated
     assert models.UsedAlias.objects.filter(client=client, key="db").count() == 1

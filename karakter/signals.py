@@ -1,13 +1,16 @@
+import logging
+
+from allauth.account.signals import user_signed_up
 from django.conf import settings
 from django.contrib.auth import get_user_model
-from django.db.models.signals import post_delete, post_save, pre_delete, pre_save
-from django.db.models import Q
-from django.dispatch import receiver
-from allauth.account.signals import user_signed_up
-from .models import Profile, Organization, OrganizationProfile, Membership
 from django.core.mail import send_mail
-import logging
+from django.db.models import Q
+from django.db.models.signals import post_delete, post_save, pre_delete, pre_save
+from django.dispatch import receiver
+
 from karakter import managers
+
+from .models import Membership, Organization, OrganizationProfile, Profile
 
 logger = logging.getLogger(__name__)
 User = get_user_model()
@@ -61,7 +64,7 @@ def notify_user_activation(sender, instance, created, **kwargs):
                 "no-reply@example.com",
                 [instance.email],
             )
-        except Exception as e:
+        except Exception:
             logger.error("Failed to send activation email", exc_info=True)
             # Handle the error as needed, e.g., log it or notify admins
 

@@ -68,7 +68,9 @@ async def _list(context, org):
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
 async def test_admin_can_list_the_orgs_role_requests():
-    org, request, _requester, admin, _bystander = await sync_to_async(_org_with_request)()
+    org, request, _requester, admin, _bystander = await sync_to_async(
+        _org_with_request
+    )()
     context = await sync_to_async(_context_for)(admin)
 
     result = await _list(context, org)
@@ -80,7 +82,9 @@ async def test_admin_can_list_the_orgs_role_requests():
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
 async def test_owner_can_list_the_orgs_role_requests():
-    org, request, _requester, _admin, _bystander = await sync_to_async(_org_with_request)()
+    org, request, _requester, _admin, _bystander = await sync_to_async(
+        _org_with_request
+    )()
     owner_membership = await sync_to_async(factories.make_membership)(
         user=org.owner, organization=org
     )
@@ -95,7 +99,9 @@ async def test_owner_can_list_the_orgs_role_requests():
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
 async def test_plain_member_sees_no_one_elses_role_requests():
-    org, _request, _requester, _admin, bystander = await sync_to_async(_org_with_request)()
+    org, _request, _requester, _admin, bystander = await sync_to_async(
+        _org_with_request
+    )()
     context = await sync_to_async(_context_for)(bystander)
 
     result = await _list(context, org)
@@ -107,7 +113,9 @@ async def test_plain_member_sees_no_one_elses_role_requests():
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
 async def test_requester_still_sees_their_own_request():
-    org, request, requester, _admin, _bystander = await sync_to_async(_org_with_request)()
+    org, request, requester, _admin, _bystander = await sync_to_async(
+        _org_with_request
+    )()
     context = await sync_to_async(_context_for)(requester)
 
     result = await _list(context, org)
@@ -119,7 +127,9 @@ async def test_requester_still_sees_their_own_request():
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
 async def test_admin_can_approve_and_the_role_lands_on_the_membership():
-    org, request, requester, admin, _bystander = await sync_to_async(_org_with_request)()
+    org, request, requester, admin, _bystander = await sync_to_async(
+        _org_with_request
+    )()
     context = await sync_to_async(_context_for)(admin)
 
     result = await management_schema.execute(
@@ -143,7 +153,9 @@ async def test_admin_can_approve_and_the_role_lands_on_the_membership():
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
 async def test_plain_member_cannot_approve():
-    _org, request, _requester, _admin, bystander = await sync_to_async(_org_with_request)()
+    _org, request, _requester, _admin, bystander = await sync_to_async(
+        _org_with_request
+    )()
     context = await sync_to_async(_context_for)(bystander)
 
     result = await management_schema.execute(

@@ -44,10 +44,22 @@ def saml_settings():
 def test_saml_urls_carry_the_script_name_prefix_exactly_once():
     """lok sets `force_script_name: lok`, but bakes it into the URLconf rather than
     Django's FORCE_SCRIPT_NAME. Guards against a doubled `/lok/lok/...`."""
-    assert reverse("saml_acs", kwargs={"organization_slug": "acme-university"}) == "/lok/accounts/saml/acme-university/acs/"
-    assert reverse("saml_metadata", kwargs={"organization_slug": "acme-university"}) == "/lok/accounts/saml/acme-university/metadata/"
-    assert reverse("saml_sls", kwargs={"organization_slug": "acme-university"}) == "/lok/accounts/saml/acme-university/sls/"
-    assert reverse("saml_login", kwargs={"organization_slug": "acme-university"}) == "/lok/accounts/saml/acme-university/login/"
+    assert (
+        reverse("saml_acs", kwargs={"organization_slug": "acme-university"})
+        == "/lok/accounts/saml/acme-university/acs/"
+    )
+    assert (
+        reverse("saml_metadata", kwargs={"organization_slug": "acme-university"})
+        == "/lok/accounts/saml/acme-university/metadata/"
+    )
+    assert (
+        reverse("saml_sls", kwargs={"organization_slug": "acme-university"})
+        == "/lok/accounts/saml/acme-university/sls/"
+    )
+    assert (
+        reverse("saml_login", kwargs={"organization_slug": "acme-university"})
+        == "/lok/accounts/saml/acme-university/login/"
+    )
 
 
 @pytest.mark.django_db
@@ -62,11 +74,17 @@ def test_metadata_advertises_the_right_acs_url(client, saml_settings):
     root = ET.fromstring(response.content)
     acs = root.find(".//md:SPSSODescriptor/md:AssertionConsumerService", NS)
     assert acs is not None
-    assert acs.get("Location") == "http://go.arkitekt.live/lok/accounts/saml/acme-university/acs/"
+    assert (
+        acs.get("Location")
+        == "http://go.arkitekt.live/lok/accounts/saml/acme-university/acs/"
+    )
     assert acs.get("Binding") == "urn:oasis:names:tc:SAML:2.0:bindings:HTTP-POST"
 
     # With no explicit sp.entity_id, allauth falls back to the metadata URL.
-    assert root.get("entityID") == "http://go.arkitekt.live/lok/accounts/saml/acme-university/metadata/"
+    assert (
+        root.get("entityID")
+        == "http://go.arkitekt.live/lok/accounts/saml/acme-university/metadata/"
+    )
 
 
 @pytest.mark.django_db
@@ -74,11 +92,16 @@ def test_metadata_honours_forwarded_https(client, saml_settings):
     """Behind Caddy the request reaches lok over http; the metadata must still
     advertise https, or python3-saml's Destination check fails under `strict`."""
     url = reverse("saml_metadata", kwargs={"organization_slug": "acme-university"})
-    response = client.get(url, HTTP_HOST="go.arkitekt.live", HTTP_X_FORWARDED_PROTO="https")
+    response = client.get(
+        url, HTTP_HOST="go.arkitekt.live", HTTP_X_FORWARDED_PROTO="https"
+    )
 
     root = ET.fromstring(response.content)
     acs = root.find(".//md:SPSSODescriptor/md:AssertionConsumerService", NS)
-    assert acs.get("Location") == "https://go.arkitekt.live/lok/accounts/saml/acme-university/acs/"
+    assert (
+        acs.get("Location")
+        == "https://go.arkitekt.live/lok/accounts/saml/acme-university/acs/"
+    )
 
 
 @pytest.mark.django_db

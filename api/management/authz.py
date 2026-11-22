@@ -123,7 +123,9 @@ def assert_member(info: Info, organization: OrganizationArg) -> Membership:
     user = get_user(info)
     # A full member: a guest of some collaborations (a scoped membership) does
     # not act for the organization.
-    membership = held.memberships.filter(user=user, collaboration_grants__isnull=True).first()
+    membership = held.memberships.filter(
+        user=user, collaboration_grants__isnull=True
+    ).first()
     if membership is None:
         raise GraphQLError(DENIED)
     return membership
@@ -157,7 +159,9 @@ def get_scoped(type_cls: type[T], queryset: QuerySet[Any], info: Info) -> T:
     """
     get_queryset = getattr(type_cls, "get_queryset", None)
     if not callable(get_queryset):
-        raise TypeError(f"{type_cls.__name__} says no get_queryset: a scoped lookup needs the policy of the type it returns")
+        raise TypeError(
+            f"{type_cls.__name__} says no get_queryset: a scoped lookup needs the policy of the type it returns"
+        )
     queryset = cast("QuerySet[Any]", get_queryset(queryset, info))
 
     try:
@@ -170,7 +174,12 @@ def get_scoped(type_cls: type[T], queryset: QuerySet[Any], info: Info) -> T:
     return cast(T, obj)
 
 
-def get_scoped_lookup(type_cls: type[T], manager: Manager[Any] | QuerySet[Any], info: Info, **lookup: object) -> T:
+def get_scoped_lookup(
+    type_cls: type[T],
+    manager: Manager[Any] | QuerySet[Any],
+    info: Info,
+    **lookup: object,
+) -> T:
     """:func:`get_scoped` for a ``manager.filter(**lookup)`` built here.
 
     Django validates lookup values when the filter is *built*, so

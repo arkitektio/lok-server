@@ -9,20 +9,34 @@ with a ``ValidationError`` if they are not supplied via config or environment.
 
 import datetime
 import hashlib
-import warnings
 import os
-from typing import Any, Dict, List, Literal, Optional
-
-from pydantic import BaseModel, ConfigDict, Field, SecretStr, field_validator, model_validator
+import warnings
+from typing import Any, Literal
 
 from arkitekt_service.server import settings as shared
-from arkitekt_service.server.settings import AdminSettings, PostgresSettings, ServiceSettings
+from arkitekt_service.server.settings import (
+    AdminSettings,
+    PostgresSettings,
+    ServiceSettings,
+)
 from authentikate.base_models import AuthentikateSettings
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    SecretStr,
+    field_validator,
+    model_validator,
+)
+
 
 class DjangoSettings(shared.DjangoSettings):
     """Core Django framework settings."""
 
-    secure_proxy_ssl_header: bool = Field(default=True, description="Trust X-Forwarded-Proto to detect HTTPS behind a reverse proxy (SECURE_PROXY_SSL_HEADER). Disable when not behind a TLS-terminating proxy.")
+    secure_proxy_ssl_header: bool = Field(
+        default=True,
+        description="Trust X-Forwarded-Proto to detect HTTPS behind a reverse proxy (SECURE_PROXY_SSL_HEADER). Disable when not behind a TLS-terminating proxy.",
+    )
     allow_insecure_transport: bool = Field(
         default=False,
         description=(
@@ -33,7 +47,7 @@ class DjangoSettings(shared.DjangoSettings):
             "Equivalent to exporting AUTHLIB_INSECURE_TRANSPORT=1."
         ),
     )
-    cors_allowed_origins: List[str] = Field(
+    cors_allowed_origins: list[str] = Field(
         default_factory=list,
         description=(
             "Browser origins (scheme://host[:port]) allowed to call the OAuth/OIDC "
@@ -63,7 +77,7 @@ class DjangoSettings(shared.DjangoSettings):
             "is used. Set to 1 behind a single gateway (Caddy/nginx/ELB)."
         ),
     )
-    secure_cookies: Optional[bool] = Field(
+    secure_cookies: bool | None = Field(
         default=None,
         description=(
             "Mark session and CSRF cookies Secure (HTTPS-only). Defaults to the "
@@ -87,15 +101,25 @@ class DjangoSettings(shared.DjangoSettings):
 class RedisSettings(shared.RedisSettings):
     """Redis connection (channel layer / cache)."""
 
-    channel_prefix: str = Field(default="lok", description="Key prefix for the channels_redis channel layer.")
+    channel_prefix: str = Field(
+        default="lok", description="Key prefix for the channels_redis channel layer."
+    )
 
 
 class LokSettings(BaseModel):
     """Lok identity-provider key material used by this service."""
 
-    public_key: Optional[str] = Field(default=None, description="Lok public key (SSH/PEM) used to verify issued tokens.")
-    key_id: str = Field(default="lok-key-1", description="JWK `kid` advertised in the JWKS and stamped into issued token headers. Must match the kid configured for the lok issuer in consumers' authentikate settings.")
-    static_tokens: Dict[str, Any] = Field(default_factory=dict, description="Pre-shared static tokens (testing only).")
+    public_key: str | None = Field(
+        default=None,
+        description="Lok public key (SSH/PEM) used to verify issued tokens.",
+    )
+    key_id: str = Field(
+        default="lok-key-1",
+        description="JWK `kid` advertised in the JWKS and stamped into issued token headers. Must match the kid configured for the lok issuer in consumers' authentikate settings.",
+    )
+    static_tokens: dict[str, Any] = Field(
+        default_factory=dict, description="Pre-shared static tokens (testing only)."
+    )
 
 
 class EmailSettings(BaseModel):
@@ -105,7 +129,9 @@ class EmailSettings(BaseModel):
     port: int = Field(default=587, description="SMTP server port.")
     use_tls: bool = Field(default=True, description="Use STARTTLS.")
     user: str = Field(default="NOTSET", description="SMTP username.")
-    password: str = Field(description="SMTP password. Secret — must be set when an email block is present.")
+    password: str = Field(
+        description="SMTP password. Secret — must be set when an email block is present."
+    )
     email: str = Field(default="NOTSET", description="Default From address.")
 
 
@@ -113,7 +139,9 @@ class DeploymentSettings(BaseModel):
     """Human-facing deployment identity."""
 
     name: str = Field(default="default", description="Deployment name.")
-    description: str = Field(default="A Basic Arkitekt Deployment", description="Deployment description.")
+    description: str = Field(
+        default="A Basic Arkitekt Deployment", description="Deployment description."
+    )
     configure_url: str = Field(
         default="/configure/{code}",
         description="URL template the fakts well-known advertises as the device-code "
@@ -145,32 +173,41 @@ class IonscaleSettings(BaseModel):
     model_config = ConfigDict(extra="allow")
 
     server_url: str = Field(description="Ionscale server URL.")
-    service_token: Optional[str] = Field(
+    service_token: str | None = Field(
         default=None,
         description="Static service token (`svc_…`) declared under `auth.service_tokens` in the "
         "ionscale config. Secret. Lok talks to ionscale over HTTP with it; preferred over `admin_key`.",
     )
-    admin_key: Optional[str] = Field(
+    admin_key: str | None = Field(
         default=None,
         description="Legacy: ionscale system admin key, used to drive the `ionscale` CLI binary. "
         "Secret. Only needed when `service_token` is not set.",
     )
     coord_url: str = Field(description="Public coordination URL advertised to clients.")
-    verify_tls: bool = Field(default=True, description="Verify ionscale's TLS certificate (HTTP mode).")
-    timeout: float = Field(default=10.0, description="Per-request timeout in seconds (HTTP mode).")
-    magic_dns_suffix: Optional[str] = Field(
+    verify_tls: bool = Field(
+        default=True, description="Verify ionscale's TLS certificate (HTTP mode)."
+    )
+    timeout: float = Field(
+        default=10.0, description="Per-request timeout in seconds (HTTP mode)."
+    )
+    magic_dns_suffix: str | None = Field(
         default=None,
         description="MagicDNS suffix served by ionscale (mirrors its dns.magic_dns_suffix). "
         "Used to derive a machine's MagicDNS name as `<name>.<suffix>`.",
     )
-    repository: Optional[str] = Field(default=None, description="Dotted path to an IonscaleRepo factory (tests).")
-    eager_init: bool = Field(default=False, description="Eagerly initialize the ionscale repo on boot (tests).")
+    repository: str | None = Field(
+        default=None, description="Dotted path to an IonscaleRepo factory (tests)."
+    )
+    eager_init: bool = Field(
+        default=False,
+        description="Eagerly initialize the ionscale repo on boot (tests).",
+    )
     auto_create_mesh: bool = Field(
         default=True,
         description="Automatically provision the mesh for each new organization on creation. "
         "Requires ionscale to be configured; when disabled, meshes are only created on explicit opt-in.",
     )
-    hub_key_files: Dict[str, str] = Field(
+    hub_key_files: dict[str, str] = Field(
         default_factory=dict,
         description="Hubs whose own mesh node this deployment runs, by hub identifier, and the file "
         "`ensureorganizations` writes each one's mesh key to (its tailscale sidecar joins with it). "
@@ -181,7 +218,9 @@ class IonscaleSettings(BaseModel):
     @model_validator(mode="after")
     def _require_a_credential(self) -> "IonscaleSettings":
         if not (self.service_token or self.admin_key or self.repository):
-            raise ValueError("ionscale: set `service_token` (preferred) or the legacy `admin_key`")
+            raise ValueError(
+                "ionscale: set `service_token` (preferred) or the legacy `admin_key`"
+            )
         return self
 
 
@@ -200,18 +239,40 @@ class DatalayerSettings(BaseModel):
 
     access_key: str = Field(description="S3 access key. Secret — must be set.")
     secret_key: str = Field(description="S3 secret key. Secret — must be set.")
-    host: Optional[str] = Field(default=None, description="S3 endpoint host.")
-    port: Optional[int] = Field(default=None, description="S3 endpoint port.")
-    protocol: str = Field(default="http", description="S3 endpoint protocol (http or https).")
+    host: str | None = Field(default=None, description="S3 endpoint host.")
+    port: int | None = Field(default=None, description="S3 endpoint port.")
+    protocol: str = Field(
+        default="http", description="S3 endpoint protocol (http or https)."
+    )
     region: str = Field(default="us-east-1", description="S3 region name.")
-    default_acl: str = Field(default="private", description="Default ACL applied to stored objects (AWS_DEFAULT_ACL).")
-    querystring_expire: int = Field(default=3600, description="Presigned URL lifetime in seconds (AWS_QUERYSTRING_EXPIRE).")
-    file_overwrite: bool = Field(default=False, description="Overwrite existing files on name collision (AWS_S3_FILE_OVERWRITE).")
-    secure: Optional[bool] = Field(default=None, description="Use TLS for S3 (AWS_S3_USE_SSL/SECURE_URLS). When None, derived from protocol == 'https'.")
-    media: DatalayerBucket = Field(description="Bucket for media / general file storage. Required for this service.")
-    zarr: Optional[DatalayerBucket] = Field(default=None, description="Bucket for Zarr arrays.")
-    parquet: Optional[DatalayerBucket] = Field(default=None, description="Bucket for Parquet tables.")
-    bigfile: Optional[DatalayerBucket] = Field(default=None, description="Bucket for large binary files.")
+    default_acl: str = Field(
+        default="private",
+        description="Default ACL applied to stored objects (AWS_DEFAULT_ACL).",
+    )
+    querystring_expire: int = Field(
+        default=3600,
+        description="Presigned URL lifetime in seconds (AWS_QUERYSTRING_EXPIRE).",
+    )
+    file_overwrite: bool = Field(
+        default=False,
+        description="Overwrite existing files on name collision (AWS_S3_FILE_OVERWRITE).",
+    )
+    secure: bool | None = Field(
+        default=None,
+        description="Use TLS for S3 (AWS_S3_USE_SSL/SECURE_URLS). When None, derived from protocol == 'https'.",
+    )
+    media: DatalayerBucket = Field(
+        description="Bucket for media / general file storage. Required for this service."
+    )
+    zarr: DatalayerBucket | None = Field(
+        default=None, description="Bucket for Zarr arrays."
+    )
+    parquet: DatalayerBucket | None = Field(
+        default=None, description="Bucket for Parquet tables."
+    )
+    bigfile: DatalayerBucket | None = Field(
+        default=None, description="Bucket for large binary files."
+    )
 
 
 class HeadlessFrontendUrls(BaseModel):
@@ -252,8 +313,11 @@ class AccountSettings(BaseModel):
         "invite is accepted by an account that exists, so it is unaffected. The headless "
         "config reports it as `account.is_open_for_signup`.",
     )
-    email_verification: str = Field(default="none", description="ACCOUNT_EMAIL_VERIFICATION (none/optional/mandatory).")
-    social_email_verification: Optional[Literal["none", "optional", "mandatory"]] = Field(
+    email_verification: str = Field(
+        default="none",
+        description="ACCOUNT_EMAIL_VERIFICATION (none/optional/mandatory).",
+    )
+    social_email_verification: Literal["none", "optional", "mandatory"] | None = Field(
         default=None,
         description="SOCIALACCOUNT_EMAIL_VERIFICATION — email-verification policy for logins via a "
         "social/OIDC provider, evaluated independently of `email_verification` (which governs "
@@ -263,24 +327,29 @@ class AccountSettings(BaseModel):
         "required for providers such as ORCID that may release no email at all. This is the "
         "supported way to say 'local signups must verify, IdP logins need not'.",
     )
-    social_email_required: Optional[bool] = Field(
+    social_email_required: bool | None = Field(
         default=None,
         description="SOCIALACCOUNT_EMAIL_REQUIRED — whether an email address must be present to "
         "sign up via a social provider. None (default) inherits allauth's derivation from "
         "signup_fields. Set False to admit providers that don't release an email (e.g. ORCID).",
     )
-    login_methods: List[Literal["username", "email", "phone"]] = Field(
+    login_methods: list[Literal["username", "email", "phone"]] = Field(
         default_factory=lambda: ["username"],
         description="ACCOUNT_LOGIN_METHODS — the identifier(s) users may log in with. "
         "Set to ['email'] to enable login via email.",
     )
-    signup_fields: Optional[List[str]] = Field(
+    signup_fields: list[str] | None = Field(
         default=None,
         description="ACCOUNT_SIGNUP_FIELDS, e.g. ['email*', 'password1*', 'password2*'] "
         "('*' marks a required field). When null, derived from login_methods.",
     )
-    login_by_code_enabled: bool = Field(default=True, description="Enable login by emailed code (ACCOUNT_LOGIN_BY_CODE_ENABLED).")
-    mfa_trust_enabled: bool = Field(default=True, description="Allow trusted devices (MFA_TRUST_ENABLED).")
+    login_by_code_enabled: bool = Field(
+        default=True,
+        description="Enable login by emailed code (ACCOUNT_LOGIN_BY_CODE_ENABLED).",
+    )
+    mfa_trust_enabled: bool = Field(
+        default=True, description="Allow trusted devices (MFA_TRUST_ENABLED)."
+    )
     mfa_webauthn_enabled: bool = Field(
         default=True,
         description="Offer WebAuthn security keys/passkeys as an MFA type (adds 'webauthn' to "
@@ -307,7 +376,7 @@ class AccountSettings(BaseModel):
         "headless_frontend_urls.account_confirm_email link unused. Required by "
         "mfa_passkey_signup_enabled.",
     )
-    mfa_webauthn_rp_id: Optional[str] = Field(
+    mfa_webauthn_rp_id: str | None = Field(
         default=None,
         description="WebAuthn Relying Party ID — the domain a passkey is bound to. When null, "
         "allauth derives it per request from the Host header, which scopes each credential to a "
@@ -316,15 +385,21 @@ class AccountSettings(BaseModel):
         "offered on another. Must equal, or be a registrable-domain suffix of, every host the SPA "
         "is served from.",
     )
-    mfa_totp_issuer: Optional[str] = Field(
+    mfa_totp_issuer: str | None = Field(
         default=None,
         description="MFA_TOTP_ISSUER — the label authenticator apps show next to the code. "
         "allauth defaults to an empty string, which leaves the entry unlabelled and unfindable "
         "among a user's other accounts. Defaults to the deployment name when null.",
     )
-    headless_frontend_urls: HeadlessFrontendUrls = Field(default_factory=HeadlessFrontendUrls, description="SPA URLs for allauth-headless flows.")
-    social_provider_apps: List[str] = Field(
-        default_factory=lambda: ["allauth.socialaccount.providers.orcid", "allauth.socialaccount.providers.google"],
+    headless_frontend_urls: HeadlessFrontendUrls = Field(
+        default_factory=HeadlessFrontendUrls,
+        description="SPA URLs for allauth-headless flows.",
+    )
+    social_provider_apps: list[str] = Field(
+        default_factory=lambda: [
+            "allauth.socialaccount.providers.orcid",
+            "allauth.socialaccount.providers.google",
+        ],
         description="allauth social provider apps appended to INSTALLED_APPS.",
     )
 
@@ -337,7 +412,7 @@ class AccountSettings(BaseModel):
         with a signup form that never asks for an email.
         """
         if self.signup_fields is None:
-            fields: List[str] = []
+            fields: list[str] = []
             if "email" in self.login_methods:
                 fields.append("email*")
             if "username" in self.login_methods:
@@ -364,7 +439,10 @@ class AccountSettings(BaseModel):
         is simultaneously declared *not required* (``social_email_required: false``)
         there may be no address to send to — the login would dead-end. Requiring an
         email is a precondition for being able to verify it."""
-        if self.social_email_verification == "mandatory" and self.social_email_required is False:
+        if (
+            self.social_email_verification == "mandatory"
+            and self.social_email_required is False
+        ):
             raise ValueError(
                 "account.social_email_verification is 'mandatory' but "
                 "account.social_email_required is false — verification needs an email "
@@ -395,7 +473,10 @@ class AccountSettings(BaseModel):
                 "account.mfa_passkey_signup_enabled requires account.mfa_webauthn_enabled — "
                 "allauth ignores the passkey-signup flag unless 'webauthn' is a supported MFA type."
             )
-        if self.mfa_passkey_signup_enabled and not self.email_verification_by_code_enabled:
+        if (
+            self.mfa_passkey_signup_enabled
+            and not self.email_verification_by_code_enabled
+        ):
             raise ValueError(
                 "account.mfa_passkey_signup_enabled requires "
                 "account.email_verification_by_code_enabled — allauth refuses to start otherwise "
@@ -413,16 +494,40 @@ class MandateKeySettings(BaseModel):
     long as the entry stays in the config, the user stays in the organization, and
     nobody revokes it; a revoked key is never revived."""
 
-    name: str = Field(description="A stable name for the entry: how the setup job recognises it across runs.")
-    key: SecretStr = Field(min_length=32, max_length=1000, description="The mandate key (at least 32 characters). Hand it to the app as FAKTS_MANDATE_KEY.")
+    name: str = Field(
+        description="A stable name for the entry: how the setup job recognises it across runs."
+    )
+    key: SecretStr = Field(
+        min_length=32,
+        max_length=1000,
+        description="The mandate key (at least 32 characters). Hand it to the app as FAKTS_MANDATE_KEY.",
+    )
     user: str = Field(description="The username the app acts as.")
     organization: str = Field(description="The organization slug.")
-    hub: str = Field(description="The identifier of the hub (in the organization) the app composes against.")
-    app: Optional[str] = Field(default=None, description="Pin the key to this app identifier. Unset: the first app that logs in with it.")
-    scopes: Optional[List[str]] = Field(default=None, description="The most scopes the app may ask for. Unset: the organization's.")
-    expires_at: Optional[datetime.datetime] = Field(default=None, description="When the key stops working. Unset: as long as the entry stays.")
-    max_clients: Optional[int] = Field(default=None, ge=1, description="On how many devices the key may log in. Unset: unlimited.")
-    allow_mesh: bool = Field(default=False, description="Whether a client logging in with the key may ask for a mesh key.")
+    hub: str = Field(
+        description="The identifier of the hub (in the organization) the app composes against."
+    )
+    app: str | None = Field(
+        default=None,
+        description="Pin the key to this app identifier. Unset: the first app that logs in with it.",
+    )
+    scopes: list[str] | None = Field(
+        default=None,
+        description="The most scopes the app may ask for. Unset: the organization's.",
+    )
+    expires_at: datetime.datetime | None = Field(
+        default=None,
+        description="When the key stops working. Unset: as long as the entry stays.",
+    )
+    max_clients: int | None = Field(
+        default=None,
+        ge=1,
+        description="On how many devices the key may log in. Unset: unlimited.",
+    )
+    allow_mesh: bool = Field(
+        default=False,
+        description="Whether a client logging in with the key may ask for a mesh key.",
+    )
 
 
 class OpenIDAppSettings(BaseModel):
@@ -430,9 +535,13 @@ class OpenIDAppSettings(BaseModel):
 
     client_name: str = Field(description="Human-readable client name.")
     client_id: str = Field(description="OAuth2 client_id.")
-    client_secret: str = Field(description="OAuth2 client secret. Override per deployment.")
-    redirect_uris: List[str] = Field(default_factory=list, description="Allowed OAuth2 redirect URIs.")
-    email_template: Optional[str] = Field(
+    client_secret: str = Field(
+        description="OAuth2 client secret. Override per deployment."
+    )
+    redirect_uris: list[str] = Field(
+        default_factory=list, description="Allowed OAuth2 redirect URIs."
+    )
+    email_template: str | None = Field(
         default=None,
         description="Template for the `email` claim, rendered per user from membership variables "
         "(e.g. '{username}@corp.example'). Available variables: username, user_id, email, "
@@ -471,7 +580,7 @@ class OpenIDAppSettings(BaseModel):
 
     @field_validator("email_template")
     @classmethod
-    def _validate_email_template(cls, value: Optional[str]) -> Optional[str]:
+    def _validate_email_template(cls, value: str | None) -> str | None:
         if value is not None:
             # Pure (stdlib-only) validator shared with the runtime renderer.
             from authapp.oidc_claims import validate_email_template
@@ -491,12 +600,25 @@ class SocialAppConfig(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    client_id: str = Field(description="OAuth client id / consumer key issued by the provider.")
-    secret: str = Field(default="", description="OAuth client secret. Secret — set per deployment.")
-    key: str = Field(default="", description="Extra key a few providers require; usually blank.")
-    name: Optional[str] = Field(default=None, description="Human-readable app name (defaults to the provider id).")
-    provider_id: Optional[str] = Field(default=None, description="Sub-provider instance id (OpenID Connect / SAML).")
-    settings: Dict[str, Any] = Field(default_factory=dict, description="Provider-app-specific settings blob.")
+    client_id: str = Field(
+        description="OAuth client id / consumer key issued by the provider."
+    )
+    secret: str = Field(
+        default="", description="OAuth client secret. Secret — set per deployment."
+    )
+    key: str = Field(
+        default="", description="Extra key a few providers require; usually blank."
+    )
+    name: str | None = Field(
+        default=None,
+        description="Human-readable app name (defaults to the provider id).",
+    )
+    provider_id: str | None = Field(
+        default=None, description="Sub-provider instance id (OpenID Connect / SAML)."
+    )
+    settings: dict[str, Any] = Field(
+        default_factory=dict, description="Provider-app-specific settings blob."
+    )
 
 
 class SocialProviderConfig(BaseModel):
@@ -509,13 +631,29 @@ class SocialProviderConfig(BaseModel):
 
     model_config = ConfigDict(extra="allow")
 
-    APP: Optional[SocialAppConfig] = Field(default=None, description="A single OAuth app credential.")
-    APPS: Optional[List[SocialAppConfig]] = Field(default=None, description="Multiple app credentials (rarely needed; use APP for one).")
-    SCOPE: Optional[List[str]] = Field(default=None, description="OAuth scopes to request (e.g. ['profile', 'email']).")
-    AUTH_PARAMS: Optional[Dict[str, Any]] = Field(default=None, description="Extra query params on the authorize request.")
-    OAUTH_PKCE_ENABLED: Optional[bool] = Field(default=None, description="Enable PKCE where the provider supports it (recommended).")
-    VERIFIED_EMAIL: Optional[bool] = Field(default=None, description="Treat emails from this provider as already verified.")
-    EMAIL_AUTHENTICATION: Optional[bool] = Field(default=None, description="Match logins to existing accounts by email.")
+    APP: SocialAppConfig | None = Field(
+        default=None, description="A single OAuth app credential."
+    )
+    APPS: list[SocialAppConfig] | None = Field(
+        default=None,
+        description="Multiple app credentials (rarely needed; use APP for one).",
+    )
+    SCOPE: list[str] | None = Field(
+        default=None, description="OAuth scopes to request (e.g. ['profile', 'email'])."
+    )
+    AUTH_PARAMS: dict[str, Any] | None = Field(
+        default=None, description="Extra query params on the authorize request."
+    )
+    OAUTH_PKCE_ENABLED: bool | None = Field(
+        default=None,
+        description="Enable PKCE where the provider supports it (recommended).",
+    )
+    VERIFIED_EMAIL: bool | None = Field(
+        default=None, description="Treat emails from this provider as already verified."
+    )
+    EMAIL_AUTHENTICATION: bool | None = Field(
+        default=None, description="Match logins to existing accounts by email."
+    )
 
 
 class GithubSettings(BaseModel):
@@ -529,10 +667,20 @@ class GithubSettings(BaseModel):
     """
 
     app_id: int = Field(description="The GitHub App's numeric id.")
-    private_key: SecretStr = Field(description="The App's private key (PEM), or a path to a file holding it.")
-    webhook_secret: SecretStr = Field(description="The secret the App signs its webhook deliveries with (X-Hub-Signature-256).")
-    api_url: str = Field(default="https://api.github.com", description="GitHub REST API base URL (change for GitHub Enterprise).")
-    labels: List[str] = Field(default_factory=lambda: ["bug", "user-reported"], description="Labels put on issues lok opens. Labels the repository lacks are skipped.")
+    private_key: SecretStr = Field(
+        description="The App's private key (PEM), or a path to a file holding it."
+    )
+    webhook_secret: SecretStr = Field(
+        description="The secret the App signs its webhook deliveries with (X-Hub-Signature-256)."
+    )
+    api_url: str = Field(
+        default="https://api.github.com",
+        description="GitHub REST API base URL (change for GitHub Enterprise).",
+    )
+    labels: list[str] = Field(
+        default_factory=lambda: ["bug", "user-reported"],
+        description="Labels put on issues lok opens. Labels the repository lacks are skipped.",
+    )
 
     def private_key_pem(self) -> str:
         value = self.private_key.get_secret_value().strip()
@@ -545,8 +693,12 @@ class GithubSettings(BaseModel):
 class SecurityKeySettings(BaseModel):
     """An OpenPGP public key, published as a direct ``.asc`` download (BSI TR-03183-3 4.3.2)."""
 
-    url: str = Field(description="Absolute URL of the ASCII-armored public key (.asc), served directly, no redirect.")
-    fingerprint: str = Field(description="The key's full fingerprint (spaces are ignored).")
+    url: str = Field(
+        description="Absolute URL of the ASCII-armored public key (.asc), served directly, no redirect."
+    )
+    fingerprint: str = Field(
+        description="The key's full fingerprint (spaces are ignored)."
+    )
 
     @field_validator("fingerprint")
     @classmethod
@@ -567,10 +719,18 @@ class SecurityContactSettings(BaseModel):
 class SecurityAcknowledgement(BaseModel):
     """An entry on the acknowledgements page (hall of fame), published only with the reporter's consent."""
 
-    name: str = Field(description="The name or alias the reporter asked to be listed under.")
-    reference: Optional[str] = Field(default=None, description="An optional URL the reporter asked to be linked.")
-    date: datetime.date = Field(description="When the CVD process for the report was completed.")
-    summary: Optional[str] = Field(default=None, description="A short, public description of what was reported.")
+    name: str = Field(
+        description="The name or alias the reporter asked to be listed under."
+    )
+    reference: str | None = Field(
+        default=None, description="An optional URL the reporter asked to be linked."
+    )
+    date: datetime.date = Field(
+        description="When the CVD process for the report was completed."
+    )
+    summary: str | None = Field(
+        default=None, description="A short, public description of what was reported."
+    )
 
 
 class SecuritySettings(BaseModel):
@@ -582,26 +742,60 @@ class SecuritySettings(BaseModel):
     for the operator to sign offline. Off when unset: the pages answer 404.
     """
 
-    vendor: str = Field(description="The manufacturer the policy belongs to, e.g. 'Arkitekt'.")
-    page_url: str = Field(description="Absolute URL the report page is published at, e.g. https://example.com/security. The policy and acknowledgement pages live below it.")
-    psirt: SecurityContactSettings = Field(description="First contact: the PSIRT mailbox (product vulnerabilities).")
-    csirt: SecurityContactSettings = Field(description="Second contact: the CSIRT mailbox (infrastructure vulnerabilities).")
-    signing_key: SecurityKeySettings = Field(description="The dedicated key security.txt is clearsigned with.")
-    canonical: List[str] = Field(description="Every URL security.txt is served at (its Canonical fields).")
-    expires: datetime.date = Field(description="When the published contact options and security.txt expire. At most a year ahead; review at least quarterly.")
-    policy_updated: datetime.date = Field(description="Last modification of the CVD policy, shown on the policy page. Review at least yearly.")
-    preferred_languages: List[str] = Field(default_factory=lambda: ["en", "de"], description="Languages reports are accepted in. Must include 'en'.")
-    csaf: Optional[str] = Field(default=None, description="URL of a CSAF provider-metadata.json, if the vendor publishes advisories as CSAF.")
-    privacy_policy_url: Optional[str] = Field(default=None, description="Privacy policy pointed to next to the report form's contact field.")
-    national_csirt: str = Field(default="CERT-Bund at the BSI", description="The national CSIRT the vendor coordinates actively exploited vulnerabilities with.")
-    national_csirt_url: str = Field(default="https://www.bsi.bund.de/", description="Link for the national CSIRT.")
-    acknowledgements: List[SecurityAcknowledgement] = Field(default_factory=list, description="The hall of fame, newest first.")
+    vendor: str = Field(
+        description="The manufacturer the policy belongs to, e.g. 'Arkitekt'."
+    )
+    page_url: str = Field(
+        description="Absolute URL the report page is published at, e.g. https://example.com/security. The policy and acknowledgement pages live below it."
+    )
+    psirt: SecurityContactSettings = Field(
+        description="First contact: the PSIRT mailbox (product vulnerabilities)."
+    )
+    csirt: SecurityContactSettings = Field(
+        description="Second contact: the CSIRT mailbox (infrastructure vulnerabilities)."
+    )
+    signing_key: SecurityKeySettings = Field(
+        description="The dedicated key security.txt is clearsigned with."
+    )
+    canonical: list[str] = Field(
+        description="Every URL security.txt is served at (its Canonical fields)."
+    )
+    expires: datetime.date = Field(
+        description="When the published contact options and security.txt expire. At most a year ahead; review at least quarterly."
+    )
+    policy_updated: datetime.date = Field(
+        description="Last modification of the CVD policy, shown on the policy page. Review at least yearly."
+    )
+    preferred_languages: list[str] = Field(
+        default_factory=lambda: ["en", "de"],
+        description="Languages reports are accepted in. Must include 'en'.",
+    )
+    csaf: str | None = Field(
+        default=None,
+        description="URL of a CSAF provider-metadata.json, if the vendor publishes advisories as CSAF.",
+    )
+    privacy_policy_url: str | None = Field(
+        default=None,
+        description="Privacy policy pointed to next to the report form's contact field.",
+    )
+    national_csirt: str = Field(
+        default="CERT-Bund at the BSI",
+        description="The national CSIRT the vendor coordinates actively exploited vulnerabilities with.",
+    )
+    national_csirt_url: str = Field(
+        default="https://www.bsi.bund.de/", description="Link for the national CSIRT."
+    )
+    acknowledgements: list[SecurityAcknowledgement] = Field(
+        default_factory=list, description="The hall of fame, newest first."
+    )
 
     @field_validator("preferred_languages")
     @classmethod
-    def _english_is_offered(cls, value: List[str]) -> List[str]:
+    def _english_is_offered(cls, value: list[str]) -> list[str]:
         if "en" not in value:
-            raise ValueError("BSI TR-03183-3 4.2.6 requires 'en' among the preferred languages")
+            raise ValueError(
+                "BSI TR-03183-3 4.2.6 requires 'en' among the preferred languages"
+            )
         return value
 
     @property
@@ -618,17 +812,42 @@ class Settings(ServiceSettings):
     django: DjangoSettings = Field(description="Core Django settings.")
     postgres: PostgresSettings = Field(description="PostgreSQL connection.")
     redis: RedisSettings = Field(description="Redis connection.")
-    lok: LokSettings = Field(default_factory=LokSettings, description="Lok IdP key material.")
-    authentikate: AuthentikateSettings = Field(description="Token-verification config (authentikate).")
-    datalayer: DatalayerSettings = Field(description="S3 storage connection and buckets.")
-    deployment: DeploymentSettings = Field(default_factory=DeploymentSettings, description="Deployment identity.")
-    account: AccountSettings = Field(default_factory=AccountSettings, description="django-allauth account/MFA behavior.")
-    email: Optional[EmailSettings] = Field(default=None, description="Optional SMTP settings for outbound email.")
-    ionscale: Optional[IonscaleSettings] = Field(default=None, description="Optional ionscale coordinator connection.")
-    github: Optional[GithubSettings] = Field(default=None, description="Optional GitHub App lok forwards bug reports through. Off when unset.")
-    security: Optional[SecuritySettings] = Field(default=None, description="Coordinated vulnerability disclosure: the /security pages, their anonymous report form and the security.txt body. Off when unset.")
-    private_key: str = Field(description="OIDC/OAuth2 RSA private signing key (PEM). Secret — must be set.")
-    oidc_issuer: str = Field(default="http://lok", description="OIDC issuer URL advertised by lok.")
+    lok: LokSettings = Field(
+        default_factory=LokSettings, description="Lok IdP key material."
+    )
+    authentikate: AuthentikateSettings = Field(
+        description="Token-verification config (authentikate)."
+    )
+    datalayer: DatalayerSettings = Field(
+        description="S3 storage connection and buckets."
+    )
+    deployment: DeploymentSettings = Field(
+        default_factory=DeploymentSettings, description="Deployment identity."
+    )
+    account: AccountSettings = Field(
+        default_factory=AccountSettings,
+        description="django-allauth account/MFA behavior.",
+    )
+    email: EmailSettings | None = Field(
+        default=None, description="Optional SMTP settings for outbound email."
+    )
+    ionscale: IonscaleSettings | None = Field(
+        default=None, description="Optional ionscale coordinator connection."
+    )
+    github: GithubSettings | None = Field(
+        default=None,
+        description="Optional GitHub App lok forwards bug reports through. Off when unset.",
+    )
+    security: SecuritySettings | None = Field(
+        default=None,
+        description="Coordinated vulnerability disclosure: the /security pages, their anonymous report form and the security.txt body. Off when unset.",
+    )
+    private_key: str = Field(
+        description="OIDC/OAuth2 RSA private signing key (PEM). Secret — must be set."
+    )
+    oidc_issuer: str = Field(
+        default="http://lok", description="OIDC issuer URL advertised by lok."
+    )
     discovery_follows_request: bool = Field(
         default=False,
         description="Build the endpoints the discovery documents advertise (token, "
@@ -656,18 +875,35 @@ class Settings(ServiceSettings):
         "the SPA's current behavior); 'disabled' = load freely with no prompt. Reported "
         "verbatim on the allauth headless /config endpoint so the SPA gates the widget.",
     )
-    socialaccount_providers: Dict[str, SocialProviderConfig] = Field(
+    socialaccount_providers: dict[str, SocialProviderConfig] = Field(
         default_factory=dict,
         description="django-allauth SOCIALACCOUNT_PROVIDERS, keyed by provider id (e.g. 'google'). "
         "The matching app must also be listed in account.social_provider_apps.",
     )
-    organizations: List[Dict[str, Any]] = Field(default_factory=list, description="Organizations ensured on boot.")
-    users: List[Dict[str, Any]] = Field(default_factory=list, description="Users ensured on boot.")
-    memberships: List[Dict[str, Any]] = Field(default_factory=list, description="User/organization memberships ensured on boot.")
-    mandate_keys: List[MandateKeySettings] = Field(default_factory=list, description="Mandate keys the setup job (ensuremandates) keeps in place.")
-    kommunity_partners: List[Dict[str, Any]] = Field(default_factory=list, description="Pre-authorized kommunity partner apps.")
-    system_messages: List[Dict[str, Any]] = Field(default_factory=list, description="System messages shown to users.")
-    openid_apps: List[OpenIDAppSettings] = Field(default_factory=list, description="OIDC/OAuth2 clients provisioned on boot. Provided per deployment.")
+    organizations: list[dict[str, Any]] = Field(
+        default_factory=list, description="Organizations ensured on boot."
+    )
+    users: list[dict[str, Any]] = Field(
+        default_factory=list, description="Users ensured on boot."
+    )
+    memberships: list[dict[str, Any]] = Field(
+        default_factory=list,
+        description="User/organization memberships ensured on boot.",
+    )
+    mandate_keys: list[MandateKeySettings] = Field(
+        default_factory=list,
+        description="Mandate keys the setup job (ensuremandates) keeps in place.",
+    )
+    kommunity_partners: list[dict[str, Any]] = Field(
+        default_factory=list, description="Pre-authorized kommunity partner apps."
+    )
+    system_messages: list[dict[str, Any]] = Field(
+        default_factory=list, description="System messages shown to users."
+    )
+    openid_apps: list[OpenIDAppSettings] = Field(
+        default_factory=list,
+        description="OIDC/OAuth2 clients provisioned on boot. Provided per deployment.",
+    )
 
     @model_validator(mode="after")
     def _refuse_committed_key_material_in_production(self) -> "Settings":
@@ -707,7 +943,8 @@ class Settings(ServiceSettings):
                 (self.private_key, "private_key"),
                 (self.django.secret_key, "django.secret_key"),
             )
-            if compromised.get(hashlib.sha256(value.strip().encode()).hexdigest()) == name
+            if compromised.get(hashlib.sha256(value.strip().encode()).hexdigest())
+            == name
         ]
 
         # The rest of the committed credentials. These are *warned* about rather
@@ -717,10 +954,16 @@ class Settings(ServiceSettings):
         stale = [
             name
             for value, name, digest in (
-                (self.postgres.password, "postgres.password",
-                 "f1421261b9b60d46855115e9e96b9f976fbbfc093943785537c90d1a3ae13cc1"),
-                (self.django.admin.password, "django.admin.password",
-                 "8c6976e5b5410415bde908bd4dee15dfb167a9c873fc4bb8a81f6f2ab448a918"),
+                (
+                    self.postgres.password,
+                    "postgres.password",
+                    "f1421261b9b60d46855115e9e96b9f976fbbfc093943785537c90d1a3ae13cc1",
+                ),
+                (
+                    self.django.admin.password,
+                    "django.admin.password",
+                    "8c6976e5b5410415bde908bd4dee15dfb167a9c873fc4bb8a81f6f2ab448a918",
+                ),
             )
             if value and hashlib.sha256(value.strip().encode()).hexdigest() == digest
         ]
@@ -830,7 +1073,7 @@ class Settings(ServiceSettings):
         if self.account.social_email_verification != "none":
             return self
 
-        def apps_of(cfg: SocialProviderConfig) -> List[SocialAppConfig]:
+        def apps_of(cfg: SocialProviderConfig) -> list[SocialAppConfig]:
             apps = list(cfg.APPS or [])
             if cfg.APP is not None:
                 apps.append(cfg.APP)
@@ -839,8 +1082,8 @@ class Settings(ServiceSettings):
         def is_domain_list(value: Any) -> bool:
             return isinstance(value, list) and len(value) > 0
 
-        untrusted: List[str] = []
-        needs_domain_list: List[str] = []
+        untrusted: list[str] = []
+        needs_domain_list: list[str] = []
 
         for name, cfg in self.socialaccount_providers.items():
             apps = apps_of(cfg)
@@ -865,7 +1108,7 @@ class Settings(ServiceSettings):
                 "account.social_email_verification is 'none' (social logins skip "
                 "email verification), but these providers are not marked trusted: "
                 f"{', '.join(sorted(untrusted))}. Add `VERIFIED_EMAIL: true` to each "
-                "provider, or `settings.verified_email: [\"<domain>\"]` to each of its "
+                'provider, or `settings.verified_email: ["<domain>"]` to each of its '
                 "apps, so the exemption is an explicit trust decision — or raise "
                 "social_email_verification to 'optional'/'mandatory'."
             )
@@ -878,7 +1121,7 @@ class Settings(ServiceSettings):
                 "`verified_email: true` trusts an identity provider about *any* address "
                 "— including domains it does not own. This is required for SAML at any "
                 "app count, and for any provider configuring several apps. Use e.g. "
-                "`verified_email: [\"acme.edu\", \"student.acme.edu\"]`; matching is exact, "
+                '`verified_email: ["acme.edu", "student.acme.edu"]`; matching is exact, '
                 "so enumerate every subdomain the IdP asserts."
             )
 

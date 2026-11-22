@@ -42,26 +42,45 @@ MANDATE = """
 def _mandates(mine, theirs):
     """A mandate in their organization, one of mine, and one of a colleague's in mine."""
     their_hub = factories.make_hub(organization=theirs.organization)
-    their_mandate, _ = factories.make_mandate_key(hub=their_hub, membership=theirs, pin={"identifier": "com.example.app"})
+    their_mandate, _ = factories.make_mandate_key(
+        hub=their_hub, membership=theirs, pin={"identifier": "com.example.app"}
+    )
     my_hub = factories.make_hub(organization=mine.organization)
-    my_mandate, _ = factories.make_mandate_key(hub=my_hub, membership=mine, pin={"identifier": "com.example.app"})
+    my_mandate, _ = factories.make_mandate_key(
+        hub=my_hub, membership=mine, pin={"identifier": "com.example.app"}
+    )
     # Same tenant, different user: still not mine.
     colleague = factories.make_membership(organization=mine.organization)
-    colleague_mandate, _ = factories.make_mandate_key(hub=my_hub, membership=colleague, pin={"identifier": "com.example.app"})
+    colleague_mandate, _ = factories.make_mandate_key(
+        hub=my_hub, membership=colleague, pin={"identifier": "com.example.app"}
+    )
     return their_mandate, my_mandate, colleague_mandate
 
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
 async def test_a_mandate_is_not_readable_by_another_user():
-    my_context, mine, _my_client, _their_context, theirs, _their_client = await sync_to_async(_two_principals)()
-    their_mandate, my_mandate, colleague_mandate = await sync_to_async(_mandates)(mine, theirs)
+    (
+        my_context,
+        mine,
+        _my_client,
+        _their_context,
+        theirs,
+        _their_client,
+    ) = await sync_to_async(_two_principals)()
+    their_mandate, my_mandate, colleague_mandate = await sync_to_async(_mandates)(
+        mine, theirs
+    )
 
     for foreign in (their_mandate, colleague_mandate):
-        result = await schema.execute(MANDATE, context_value=my_context, variable_values={"id": str(foreign.id)})
+        result = await schema.execute(
+            MANDATE, context_value=my_context, variable_values={"id": str(foreign.id)}
+        )
         _assert_denied(result)
 
-    result = await schema.execute(MANDATE, context_value=my_context, variable_values={"id": str(my_mandate.id)})
+    result = await schema.execute(
+        MANDATE, context_value=my_context, variable_values={"id": str(my_mandate.id)}
+    )
     assert not result.errors, result.errors
     assert result.data["mandate"]["keyPrefix"] == my_mandate.key_prefix
 
@@ -75,14 +94,31 @@ REVOKE_MANDATE = """
 @pytest.mark.asyncio
 async def test_a_mandate_is_only_revocable_by_its_grantor():
     """Another tenant's mandate and a colleague's are 'not found'; only my own goes."""
-    my_context, mine, _my_client, _their_context, theirs, _their_client = await sync_to_async(_two_principals)()
-    their_mandate, my_mandate, colleague_mandate = await sync_to_async(_mandates)(mine, theirs)
+    (
+        my_context,
+        mine,
+        _my_client,
+        _their_context,
+        theirs,
+        _their_client,
+    ) = await sync_to_async(_two_principals)()
+    their_mandate, my_mandate, colleague_mandate = await sync_to_async(_mandates)(
+        mine, theirs
+    )
 
     for foreign in (their_mandate, colleague_mandate):
-        result = await schema.execute(REVOKE_MANDATE, context_value=my_context, variable_values={"id": str(foreign.id)})
+        result = await schema.execute(
+            REVOKE_MANDATE,
+            context_value=my_context,
+            variable_values={"id": str(foreign.id)},
+        )
         _assert_denied(result)
 
-    result = await schema.execute(REVOKE_MANDATE, context_value=my_context, variable_values={"id": str(my_mandate.id)})
+    result = await schema.execute(
+        REVOKE_MANDATE,
+        context_value=my_context,
+        variable_values={"id": str(my_mandate.id)},
+    )
     assert not result.errors, result.errors
     assert result.data["revokeMandate"]["isLive"] is False
 
@@ -99,16 +135,29 @@ async def test_a_mandate_is_only_revocable_by_its_grantor():
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
 async def test_user_by_id_is_denied_across_organizations():
-    my_context, mine, _my_client, _their_context, theirs, _their_client = await sync_to_async(_two_principals)()
+    (
+        my_context,
+        mine,
+        _my_client,
+        _their_context,
+        theirs,
+        _their_client,
+    ) = await sync_to_async(_two_principals)()
 
     query = "query ($id: ID!) { user(id: $id) { id email } }"
 
-    result = await schema.execute(query, context_value=my_context, variable_values={"id": str(theirs.user.id)})
+    result = await schema.execute(
+        query, context_value=my_context, variable_values={"id": str(theirs.user.id)}
+    )
     _assert_denied(result)
 
     # A colleague in my organization is still visible.
-    colleague = await sync_to_async(factories.make_membership)(organization=mine.organization)
-    result = await schema.execute(query, context_value=my_context, variable_values={"id": str(colleague.user.id)})
+    colleague = await sync_to_async(factories.make_membership)(
+        organization=mine.organization
+    )
+    result = await schema.execute(
+        query, context_value=my_context, variable_values={"id": str(colleague.user.id)}
+    )
     assert not result.errors, result.errors
     assert result.data["user"]["id"] == str(colleague.user.id)
 
@@ -116,7 +165,14 @@ async def test_user_by_id_is_denied_across_organizations():
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
 async def test_service_instance_by_id_is_denied_across_organizations():
-    my_context, _mine, _my_client, _their_context, theirs, _their_client = await sync_to_async(_two_principals)()
+    (
+        my_context,
+        _mine,
+        _my_client,
+        _their_context,
+        theirs,
+        _their_client,
+    ) = await sync_to_async(_two_principals)()
 
     def _their_instance():
         hub = factories.make_hub(organization=theirs.organization)
@@ -136,7 +192,9 @@ async def test_service_instance_by_id_is_denied_across_organizations():
             "service": instance.release.service_id,
             "serviceRelease": instance.release_id,
         }[query.split("{ ")[1].split("(")[0]]
-        result = await schema.execute(query, context_value=my_context, variable_values={"id": str(target)})
+        result = await schema.execute(
+            query, context_value=my_context, variable_values={"id": str(target)}
+        )
         _assert_denied(result)
 
 
@@ -150,7 +208,14 @@ NESTED_INSTANCES = """
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
 async def test_nested_service_instance_mappings_do_not_leak_another_tenant():
-    my_context, _mine, _my_client, _their_context, theirs, their_client = await sync_to_async(_two_principals)()
+    (
+        my_context,
+        _mine,
+        _my_client,
+        _their_context,
+        theirs,
+        their_client,
+    ) = await sync_to_async(_two_principals)()
 
     def _their_topology():
         from fakts.models import ServiceInstanceMapping
@@ -159,7 +224,9 @@ async def test_nested_service_instance_mappings_do_not_leak_another_tenant():
         service = factories.make_service(organization=theirs.organization)
         release = factories.make_service_release(service=service)
         instance = factories.make_service_instance(hub=hub, release=release)
-        ServiceInstanceMapping.objects.create(client=their_client, instance=instance, key="svc")
+        ServiceInstanceMapping.objects.create(
+            client=their_client, instance=instance, key="svc"
+        )
         return instance
 
     await sync_to_async(_their_topology)()
@@ -175,18 +242,33 @@ async def test_nested_service_instance_mappings_do_not_leak_another_tenant():
     )()
     result = await schema.execute(NESTED_INSTANCES, context_value=their_context)
     assert not result.errors, result.errors
-    emails = {m["client"]["user"]["email"] for row in result.data["serviceInstances"] for m in row["mappings"]}
+    emails = {
+        m["client"]["user"]["email"]
+        for row in result.data["serviceInstances"]
+        for m in row["mappings"]
+    }
     assert emails == {theirs.user.email}
 
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
 async def test_organization_roots_are_limited_to_the_active_organization():
-    my_context, mine, _my_client, _their_context, theirs, _their_client = await sync_to_async(_two_principals)()
+    (
+        my_context,
+        mine,
+        _my_client,
+        _their_context,
+        theirs,
+        _their_client,
+    ) = await sync_to_async(_two_principals)()
 
-    result = await schema.execute("query { organizations { id } }", context_value=my_context)
+    result = await schema.execute(
+        "query { organizations { id } }", context_value=my_context
+    )
     assert not result.errors, result.errors
-    assert {row["id"] for row in result.data["organizations"]} == {str(mine.organization.id)}
+    assert {row["id"] for row in result.data["organizations"]} == {
+        str(mine.organization.id)
+    }
 
     result = await schema.execute(
         "query ($id: ID!) { organization(id: $id) { id } }",

@@ -1,7 +1,8 @@
-from django.db import models
 import logging
-from django.core.exceptions import ValidationError
 import re
+
+from django.core.exceptions import ValidationError
+from django.db import models
 
 logger = logging.getLogger(__name__)
 
@@ -28,8 +29,6 @@ class IdentifierField(models.CharField):
     def __init__(self, *args, **kwargs):
         kwargs["max_length"] = 1000
         super().__init__(*args, **kwargs)
-
-
 
 
 def validate_s3(value: str) -> None:

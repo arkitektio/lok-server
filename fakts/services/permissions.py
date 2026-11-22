@@ -24,10 +24,15 @@ logger = logging.getLogger(__name__)
 def _scope_is_held(scope: karakter_models.Scope) -> bool:
     if scope.clients.exists():
         return True
-    return models.Mandate.objects.filter(organization=scope.organization, subject_manifest__scopes__contains=[scope.identifier]).exists()
+    return models.Mandate.objects.filter(
+        organization=scope.organization,
+        subject_manifest__scopes__contains=[scope.identifier],
+    ).exists()
 
 
-def register_permissions(instance: models.ServiceInstance, manifest: base_models.ServiceManifest) -> None:
+def register_permissions(
+    instance: models.ServiceInstance, manifest: base_models.ServiceManifest
+) -> None:
     """Make the instance's organization know its scopes and roles as ``manifest`` says them."""
     organization = instance.organization
     roles = manifest.roles or []
@@ -55,21 +60,49 @@ def register_permissions(instance: models.ServiceInstance, manifest: base_models
         scope, _ = karakter_models.Scope.objects.update_or_create(
             organization=organization,
             identifier=declared_scope.key,
-            defaults={"description": declared_scope.description or "", "is_all_scope": declared_scope.is_all_scope},
-            create_defaults={"description": declared_scope.description or "", "is_all_scope": declared_scope.is_all_scope, "creating_instance": instance},
+            defaults={
+                "description": declared_scope.description or "",
+                "is_all_scope": declared_scope.is_all_scope,
+            },
+            create_defaults={
+                "description": declared_scope.description or "",
+                "is_all_scope": declared_scope.is_all_scope,
+                "creating_instance": instance,
+            },
         )
         scope.used_by.add(instance)
 
-    for role in karakter_models.Role.objects.filter(organization=organization, used_by=instance).exclude(identifier__in=[r.key for r in roles]):
+    for role in karakter_models.Role.objects.filter(
+        organization=organization, used_by=instance
+    ).exclude(identifier__in=[r.key for r in roles]):
         role.used_by.remove(instance)
-        if role.creating_instance_id is not None and not role.is_builtin and not role.used_by.exists():
-            logger.info("Removing role %s: no service of %s declares it any more", role.identifier, organization)
+        if (
+            role.creating_instance_id is not None
+            and not role.is_builtin
+            and not role.used_by.exists()
+        ):
+            logger.info(
+                "Removing role %s: no service of %s declares it any more",
+                role.identifier,
+                organization,
+            )
             role.delete()
 
-    for scope in karakter_models.Scope.objects.filter(organization=organization, used_by=instance).exclude(identifier__in=[s.key for s in scopes]):
+    for scope in karakter_models.Scope.objects.filter(
+        organization=organization, used_by=instance
+    ).exclude(identifier__in=[s.key for s in scopes]):
         scope.used_by.remove(instance)
-        if scope.creating_instance_id is not None and not scope.is_builtin and not scope.used_by.exists() and not _scope_is_held(scope):
-            logger.info("Removing scope %s: no service of %s declares it any more", scope.identifier, organization)
+        if (
+            scope.creating_instance_id is not None
+            and not scope.is_builtin
+            and not scope.used_by.exists()
+            and not _scope_is_held(scope)
+        ):
+            logger.info(
+                "Removing scope %s: no service of %s declares it any more",
+                scope.identifier,
+                organization,
+            )
             scope.delete()
 
     sync_organization(organization)

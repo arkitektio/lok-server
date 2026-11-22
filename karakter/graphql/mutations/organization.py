@@ -1,12 +1,13 @@
-from kante.types import Info
+import logging
+
 import strawberry
 from django.db import IntegrityError
 from graphql import GraphQLError
-from karakter import types, models, managers, slugs
-from karakter.authz import resolve_own_media_store
-import logging
+from kante.types import Info
 
 from api.management.authz import assert_owner
+from karakter import managers, models, slugs, types
+from karakter.authz import resolve_own_media_store
 
 logger = logging.getLogger(__name__)
 
@@ -30,7 +31,9 @@ def create_random_slug(name: str) -> str:
     return f"{base_slug}-{random_suffix}"
 
 
-def update_organization(info: Info, input: UpdateOrganizationInput) -> types.Organization:
+def update_organization(
+    info: Info, input: UpdateOrganizationInput
+) -> types.Organization:
     """Update an organization's details including name, description, slug, and avatar.
 
     Requires the caller to own the organization, matching `updateOrganization` on the
@@ -58,13 +61,17 @@ def update_organization(info: Info, input: UpdateOrganizationInput) -> types.Org
         except ValueError as exc:
             raise GraphQLError(str(exc))
         if candidate != organization.slug and slugs.is_slug_taken(candidate):
-            raise GraphQLError(f"The handle '{candidate}' is already taken. Try '{slugs.suggest_slug(candidate)}'.")
+            raise GraphQLError(
+                f"The handle '{candidate}' is already taken. Try '{slugs.suggest_slug(candidate)}'."
+            )
         organization.slug = candidate
 
     if input.avatar is not None:
         # The logo lives on OrganizationProfile (what kontrol reads and writes);
         # Organization.avatar is a deprecated fallback column.
-        profile, _ = models.OrganizationProfile.objects.get_or_create(organization=organization)
+        profile, _ = models.OrganizationProfile.objects.get_or_create(
+            organization=organization
+        )
         profile.avatar = resolve_own_media_store(info, input.avatar, models.MediaStore)
         profile.save(update_fields=["avatar"])
 
@@ -72,8 +79,12 @@ def update_organization(info: Info, input: UpdateOrganizationInput) -> types.Org
         organization.save()
     except IntegrityError:
         # Closes the check->save race on the unique slug column.
-        raise GraphQLError(f"The handle '{organization.slug}' is already taken. Try '{slugs.suggest_slug(organization.slug)}'.")
-    logger.info(f"Updated Organization: {organization.id} with name: {organization.name}")
+        raise GraphQLError(
+            f"The handle '{organization.slug}' is already taken. Try '{slugs.suggest_slug(organization.slug)}'."
+        )
+    logger.info(
+        f"Updated Organization: {organization.id} with name: {organization.name}"
+    )
     return organization
 
 
@@ -83,7 +94,9 @@ class CreateOrganizationInput:
     description: str | None = None
 
 
-def create_organization(info: Info, input: CreateOrganizationInput) -> types.Organization:
+def create_organization(
+    info: Info, input: CreateOrganizationInput
+) -> types.Organization:
     """Create a new organization with the given name, slug, and description."""
     user = info.context.request.user
 
@@ -93,7 +106,9 @@ def create_organization(info: Info, input: CreateOrganizationInput) -> types.Org
         description=input.description,
         owner=user,
     )
-    logger.info(f"Created Organization: {organization.id} with name: {organization.name}")
+    logger.info(
+        f"Created Organization: {organization.id} with name: {organization.name}"
+    )
 
     managers.create_default_roles_for_org(organization)
     managers.add_user_roles(

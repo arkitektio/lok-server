@@ -1,4 +1,5 @@
 from enum import Enum
+
 import strawberry
 from django.db.models import TextChoices
 
@@ -17,7 +18,10 @@ class AliasKindChoices(TextChoices):
 
     ABSOLUTE = "absolute", "ABSOLUTE (Value represent ABSOLUTE)"
     MESH = "mesh", "MESH (Value represent MESH)"
-    DOCKER = "docker", "DOCKER (only reachable from inside the hub's own docker environment)"
+    DOCKER = (
+        "docker",
+        "DOCKER (only reachable from inside the hub's own docker environment)",
+    )
 
 
 class AliasRuleEffectChoices(TextChoices):
@@ -34,16 +38,31 @@ class AliasProbeStatusChoices(TextChoices):
     could be anyone answering at that address.
     """
 
-    VERIFIED = "verified", "The instance answered the nonce with a valid signature of its key"
-    NO_KEY = "no_key", "The instance has no challenge key, so its identity cannot be proven"
+    VERIFIED = (
+        "verified",
+        "The instance answered the nonce with a valid signature of its key",
+    )
+    NO_KEY = (
+        "no_key",
+        "The instance has no challenge key, so its identity cannot be proven",
+    )
     UNSIGNED = "unsigned", "The alias answered 200 without signing the nonce"
-    BAD_SIGNATURE = "bad_signature", "The signature does not verify against the instance's key"
+    BAD_SIGNATURE = (
+        "bad_signature",
+        "The signature does not verify against the instance's key",
+    )
     UNHEALTHY = "unhealthy", "The alias answered with a non-200 status"
-    INVALID_RESPONSE = "invalid_response", "The answer was not a signed challenge response"
+    INVALID_RESPONSE = (
+        "invalid_response",
+        "The answer was not a signed challenge response",
+    )
     UNREACHABLE = "unreachable", "No connection could be made"
     TLS_FAILED = "tls_failed", "The TLS handshake or certificate verification failed"
     TIMEOUT = "timeout", "The alias did not answer in time"
-    NON_PUBLIC_ADDRESS = "non_public_address", "The host does not resolve to a public address"
+    NON_PUBLIC_ADDRESS = (
+        "non_public_address",
+        "The host does not resolve to a public address",
+    )
     NOT_PROBEABLE = "not_probeable", "The alias is not a public https alias with a host"
 
 
@@ -55,7 +74,10 @@ class ClientKindChoices(TextChoices):
     DESKTOP = "desktop", "DESKTOP (Value represent DESKTOP)"
     MOBILE = "mobile", "MOBILE (Value represent MOBILE)"
     HUB = "hub", "HUB (a hub server's identity)"
-    RELYING_PARTY = "relying_party", "RELYING_PARTY (a config-provisioned OIDC relying party)"
+    RELYING_PARTY = (
+        "relying_party",
+        "RELYING_PARTY (a config-provisioned OIDC relying party)",
+    )
 
 
 class ClientKindVanilla(str, Enum):
@@ -107,36 +129,74 @@ class MandateRevocationChoices(TextChoices):
     """Why a mandate stopped working."""
 
     REVOKED = "revoked", "REVOKED (withdrawn by its grantor or an admin)"
-    PARENT_REVOKED = "parent_revoked", "PARENT_REVOKED (the agent mandate it was issued under was withdrawn)"
-    ISSUER_REVOKED = "issuer_revoked", "ISSUER_REVOKED (the app that issued it was rejected or revoked)"
-    REMOVED_FROM_CONFIG = "removed_from_config", "REMOVED_FROM_CONFIG (the deployment config no longer names it)"
-    SUPERSEDED = "superseded", "SUPERSEDED (replaced by a new key, or no longer asked for)"
-    ORGANIZATION_REVOKED = "organization_revoked", "ORGANIZATION_REVOKED (every session of the organization was revoked)"
+    PARENT_REVOKED = (
+        "parent_revoked",
+        "PARENT_REVOKED (the agent mandate it was issued under was withdrawn)",
+    )
+    ISSUER_REVOKED = (
+        "issuer_revoked",
+        "ISSUER_REVOKED (the app that issued it was rejected or revoked)",
+    )
+    REMOVED_FROM_CONFIG = (
+        "removed_from_config",
+        "REMOVED_FROM_CONFIG (the deployment config no longer names it)",
+    )
+    SUPERSEDED = (
+        "superseded",
+        "SUPERSEDED (replaced by a new key, or no longer asked for)",
+    )
+    ORGANIZATION_REVOKED = (
+        "organization_revoked",
+        "ORGANIZATION_REVOKED (every session of the organization was revoked)",
+    )
 
 
 @strawberry.enum(description="Who may use a mandate.")
 class MandateClaimant(str, Enum):
-    KEY = strawberry.enum_value("key", description="Whoever holds the mandate key logs in as the grantor.")
-    AGENT = strawberry.enum_value("agent", description="The agent app it names may issue keyed child mandates under it.")
+    KEY = strawberry.enum_value(
+        "key", description="Whoever holds the mandate key logs in as the grantor."
+    )
+    AGENT = strawberry.enum_value(
+        "agent",
+        description="The agent app it names may issue keyed child mandates under it.",
+    )
 
 
 @strawberry.enum(description="Who issued a mandate. A mandate dies with its issuer.")
 class MandateOrigin(str, Enum):
     MEMBER = strawberry.enum_value("member", description="A member, through kontrol.")
     CLIENT = strawberry.enum_value("client", description="An app, as its own user.")
-    AGENT = strawberry.enum_value("agent", description="An agent, under a parent agent mandate.")
-    HUB = strawberry.enum_value("hub", description="Approving a hub that asks for the client.")
+    AGENT = strawberry.enum_value(
+        "agent", description="An agent, under a parent agent mandate."
+    )
+    HUB = strawberry.enum_value(
+        "hub", description="Approving a hub that asks for the client."
+    )
     CONFIG = strawberry.enum_value("config", description="The deployment config.")
 
 
 @strawberry.enum(description="Why a mandate stopped working.")
 class MandateRevocation(str, Enum):
-    REVOKED = strawberry.enum_value("revoked", description="Withdrawn by its grantor or an admin.")
-    PARENT_REVOKED = strawberry.enum_value("parent_revoked", description="The agent mandate it was issued under was withdrawn.")
-    ISSUER_REVOKED = strawberry.enum_value("issuer_revoked", description="The app that issued it was rejected or revoked.")
-    REMOVED_FROM_CONFIG = strawberry.enum_value("removed_from_config", description="The deployment config no longer names it.")
-    SUPERSEDED = strawberry.enum_value("superseded", description="Replaced by a new key, or no longer asked for.")
-    ORGANIZATION_REVOKED = strawberry.enum_value("organization_revoked", description="Every session of the organization was revoked.")
+    REVOKED = strawberry.enum_value(
+        "revoked", description="Withdrawn by its grantor or an admin."
+    )
+    PARENT_REVOKED = strawberry.enum_value(
+        "parent_revoked",
+        description="The agent mandate it was issued under was withdrawn.",
+    )
+    ISSUER_REVOKED = strawberry.enum_value(
+        "issuer_revoked", description="The app that issued it was rejected or revoked."
+    )
+    REMOVED_FROM_CONFIG = strawberry.enum_value(
+        "removed_from_config", description="The deployment config no longer names it."
+    )
+    SUPERSEDED = strawberry.enum_value(
+        "superseded", description="Replaced by a new key, or no longer asked for."
+    )
+    ORGANIZATION_REVOKED = strawberry.enum_value(
+        "organization_revoked",
+        description="Every session of the organization was revoked.",
+    )
 
 
 @strawberry.enum
@@ -201,10 +261,9 @@ class KommunityKind(str, Enum):
     OPEN = "open"
     RESTRICTED = "restricted"
     PRIVATE = "private"
-    
-    
+
+
 @strawberry.enum
 class PartnerKind(str, Enum):
     PREAUTHORIZED = "preauthorized"
     OAUTH_FLOW = "oauth2"
-    

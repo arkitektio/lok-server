@@ -87,7 +87,9 @@ def normalize_install_url(raw: str | None) -> str | None:
     if "://" not in url:
         url = f"https://{url}"
     if len(url) > MAX_INSTALL_URL_LENGTH:
-        raise ValueError(f"An install link can be at most {MAX_INSTALL_URL_LENGTH} characters long.")
+        raise ValueError(
+            f"An install link can be at most {MAX_INSTALL_URL_LENGTH} characters long."
+        )
     parts = urlsplit(url)
     if parts.scheme != "https" or not parts.hostname or any(c.isspace() for c in url):
         raise ValueError(f"'{raw}' is not a valid install link. Use an https address.")
@@ -110,7 +112,9 @@ def normalize_deeplink_apps(raw: list[dict]) -> list[dict]:
             raise ValueError(f"'{protocol}' is listed more than once.")
         name = (entry.get("name") or "").strip() or protocol.capitalize()
         if len(name) > MAX_NAME_LENGTH:
-            raise ValueError(f"An app name can be at most {MAX_NAME_LENGTH} characters long.")
+            raise ValueError(
+                f"An app name can be at most {MAX_NAME_LENGTH} characters long."
+            )
         apps.append(
             {
                 "protocol": protocol,
@@ -121,5 +125,7 @@ def normalize_deeplink_apps(raw: list[dict]) -> list[dict]:
         )
 
     if len(apps) > MAX_APPS:
-        raise ValueError(f"An organization can allow at most {MAX_APPS} deep link apps.")
+        raise ValueError(
+            f"An organization can allow at most {MAX_APPS} deep link apps."
+        )
     return apps

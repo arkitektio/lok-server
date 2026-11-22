@@ -1,14 +1,14 @@
 from urllib.parse import urlparse
 
-from django.shortcuts import redirect
+from django.conf import settings
 from django.contrib.auth.decorators import login_required
 from django.http import JsonResponse
-from django.conf import settings
+from django.shortcuts import redirect
 
 
 def get_frontend_url():
     """Get the frontend URL from settings or default."""
-    return getattr(settings, 'KONTROL_FRONTEND_URL', '/')
+    return getattr(settings, "KONTROL_FRONTEND_URL", "/")
 
 
 def safe_redirect_target(candidate: str | None) -> str:
@@ -34,7 +34,10 @@ def safe_redirect_target(candidate: str | None) -> str:
         return candidate
 
     frontend = urlparse(fallback)
-    if (parsed.scheme, parsed.netloc) == (frontend.scheme, frontend.netloc) and parsed.netloc:
+    if (parsed.scheme, parsed.netloc) == (
+        frontend.scheme,
+        frontend.netloc,
+    ) and parsed.netloc:
         return candidate
 
     return fallback
@@ -129,12 +132,14 @@ def accept_invite(request, token):
 @login_required
 def leave_org(request, slug):
     """API endpoint to leave an organization."""
-    from karakter.models import Organization, Membership
+    from karakter.models import Membership, Organization
 
     if request.method == "POST":
         try:
             organization = Organization.objects.get(slug=slug)
-            membership = Membership.objects.get(user=request.user, organization=organization)
+            membership = Membership.objects.get(
+                user=request.user, organization=organization
+            )
             membership.delete()
 
             # If the user was active in this org, unset it
@@ -145,6 +150,8 @@ def leave_org(request, slug):
             frontend_url = get_frontend_url()
             return redirect(frontend_url)
         except (Organization.DoesNotExist, Membership.DoesNotExist):
-            return JsonResponse({"error": "Organization or membership not found."}, status=404)
+            return JsonResponse(
+                {"error": "Organization or membership not found."}, status=404
+            )
 
     return redirect("organization_detail", slug=slug)

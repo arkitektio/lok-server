@@ -182,28 +182,46 @@ def assert_is_agent(mandate: models.Mandate, client: models.Client | None) -> No
     app_identifier = client.release.app.identifier if client.release_id else None
     if app_identifier != mandate.agent_identifier:
         raise MandateAgentMismatch("The caller is not the agent of this mandate.")
-    if mandate.agent_device_id is not None and client.node_id != mandate.agent_device_id:
-        raise MandateAgentMismatch("This mandate is pinned to a different agent device.")
-    if mandate.agent_membership_id is not None and client.membership_id != mandate.agent_membership_id:
-        raise MandateAgentMismatch("This mandate is pinned to a different agent operator.")
+    if (
+        mandate.agent_device_id is not None
+        and client.node_id != mandate.agent_device_id
+    ):
+        raise MandateAgentMismatch(
+            "This mandate is pinned to a different agent device."
+        )
+    if (
+        mandate.agent_membership_id is not None
+        and client.membership_id != mandate.agent_membership_id
+    ):
+        raise MandateAgentMismatch(
+            "This mandate is pinned to a different agent operator."
+        )
 
 
 def assert_live(mandate: models.Mandate) -> None:
     if not mandate.is_live():
         raise MandateNotLive("This mandate has been revoked or has expired.")
     if mandate.parent_id is not None and not mandate.parent.is_live():
-        raise MandateNotLive("The mandate this one was issued under has been revoked or has expired.")
+        raise MandateNotLive(
+            "The mandate this one was issued under has been revoked or has expired."
+        )
 
 
-def _assert_known_scopes(organization: karakter_models.Organization, pin: MandatePin) -> None:
+def _assert_known_scopes(
+    organization: karakter_models.Organization, pin: MandatePin
+) -> None:
     if pin.scopes is None:
         return
     known = set(
-        karakter_models.Scope.objects.filter(organization=organization, identifier__in=pin.scopes).values_list("identifier", flat=True)
+        karakter_models.Scope.objects.filter(
+            organization=organization, identifier__in=pin.scopes
+        ).values_list("identifier", flat=True)
     )
     unknown = sorted(set(pin.scopes) - known)
     if unknown:
-        raise UnknownMandateScope(f"Scope(s) {', '.join(unknown)} are not available in organization '{organization.slug}'.")
+        raise UnknownMandateScope(
+            f"Scope(s) {', '.join(unknown)} are not available in organization '{organization.slug}'."
+        )
 
 
 def _covered_scopes(held: list[karakter_models.Scope]) -> set[str]:
@@ -218,7 +236,10 @@ def _covered_scopes(held: list[karakter_models.Scope]) -> set[str]:
             covered |= {lok_scope.key for lok_scope in LOK_SCOPES}
             continue
         covered |= set(
-            karakter_models.Scope.objects.filter(organization_id=catch_all.organization_id, used_by__in=catch_all.used_by.all())
+            karakter_models.Scope.objects.filter(
+                organization_id=catch_all.organization_id,
+                used_by__in=catch_all.used_by.all(),
+            )
             .values_list("identifier", flat=True)
             .distinct()
         )
@@ -231,12 +252,17 @@ def _client_ceiling(client: models.Client) -> MandatePin:
     return MandatePin.model_validate(
         {
             "scopes": sorted(_covered_scopes(list(client.scopes.all()))),
-            "requirements": [{"key": r["key"], "service": r["service"]} for r in manifest_requirements],
+            "requirements": [
+                {"key": r["key"], "service": r["service"]}
+                for r in manifest_requirements
+            ],
         }
     )
 
 
-def _assert_expiry(expires_at: datetime | None, maximum: timedelta | None, *, required: bool) -> None:
+def _assert_expiry(
+    expires_at: datetime | None, maximum: timedelta | None, *, required: bool
+) -> None:
     now = timezone.now()
     if expires_at is None:
         if required:
@@ -268,14 +294,18 @@ def _assert_policy(
             if membership.pk != grantor.pk:
                 raise MandateError("A member grants mandates as themselves.")
             if pin.is_open and not is_org_admin(membership):
-                raise MandateError("Only an owner or admin may issue a mandate for any app; name the app.")
+                raise MandateError(
+                    "Only an owner or admin may issue a mandate for any app; name the app."
+                )
             _assert_expiry(expires_at, None, required=False)
 
         case ClientIssuer(client=client):
             if client.mandate_id is not None:
                 # A mandated app acting as the grantor could otherwise hand the
                 # grant onward to an app the grantor never saw.
-                raise MandateChaining("A client logged in under a mandate cannot issue mandates.")
+                raise MandateChaining(
+                    "A client logged in under a mandate cannot issue mandates."
+                )
             if client.membership_id != grantor.pk:
                 raise MandateError("An app issues mandates as its own user.")
             if client.organization_id != hub.organization_id:
@@ -285,7 +315,9 @@ def _assert_policy(
             try:
                 pin.assert_within(_client_ceiling(client))
             except MandatePinMismatch as e:
-                raise MandateExceedsIssuer(f"{e} An app can only hand out what it holds itself.") from e
+                raise MandateExceedsIssuer(
+                    f"{e} An app can only hand out what it holds itself."
+                ) from e
             if isinstance(claimant, KeyClaimant):
                 _assert_expiry(expires_at, APP_KEY_MAX_TTL, required=True)
             else:
@@ -295,24 +327,36 @@ def _assert_policy(
             if not isinstance(claimant, KeyClaimant):
                 raise MandateError("An agent issues keyed mandates only.")
             if parent.parent_id is not None:
-                raise MandateError("A mandate issued by an agent cannot itself name an agent.")
+                raise MandateError(
+                    "A mandate issued by an agent cannot itself name an agent."
+                )
             assert_is_agent(parent, client)
             assert_live(parent)
             if grantor.pk != parent.membership_id or hub.pk != parent.hub_id:
-                raise MandateError("A child mandate acts as its parent's grantor, in its parent's hub.")
+                raise MandateError(
+                    "A child mandate acts as its parent's grantor, in its parent's hub."
+                )
             if pin.device_id is None:
-                raise MandateError("A device id is required: it tells the instances an agent runs apart.")
+                raise MandateError(
+                    "A device id is required: it tells the instances an agent runs apart."
+                )
             try:
                 pin.assert_within(parent.pin)
             except MandatePinMismatch as e:
                 raise MandateExceedsIssuer(str(e)) from e
-            if parent.expires_at is not None and (expires_at is None or expires_at > parent.expires_at):
-                raise MandateError("A child mandate cannot outlive the mandate it was issued under.")
+            if parent.expires_at is not None and (
+                expires_at is None or expires_at > parent.expires_at
+            ):
+                raise MandateError(
+                    "A child mandate cannot outlive the mandate it was issued under."
+                )
             _assert_expiry(expires_at, None, required=False)
 
         case HubIssuer():
             if not isinstance(claimant, KeyClaimant) or claimant.key is None:
-                raise MandateError("A hub proposes the key of every client it asks for.")
+                raise MandateError(
+                    "A hub proposes the key of every client it asks for."
+                )
 
         case ConfigIssuer():
             if not isinstance(claimant, KeyClaimant) or claimant.key is None:
@@ -342,12 +386,26 @@ def issue_mandate(
     with transaction.atomic():
         if isinstance(issuer, AgentIssuer):
             # Lock the parent so concurrent issues serialize on its budget.
-            parent = models.Mandate.objects.select_for_update().select_related("membership__user").get(pk=issuer.parent.pk)
+            parent = (
+                models.Mandate.objects.select_for_update()
+                .select_related("membership__user")
+                .get(pk=issuer.parent.pk)
+            )
             issuer = AgentIssuer(parent=parent, client=issuer.client)
-            if parent.max_clients is not None and parent.children.live().count() >= parent.max_clients:
+            if (
+                parent.max_clients is not None
+                and parent.children.live().count() >= parent.max_clients
+            ):
                 raise MandateExhausted("This mandate has no slots left.")
 
-        _assert_policy(issuer, grantor=grantor, hub=hub, pin=pin, claimant=claimant, expires_at=expires_at)
+        _assert_policy(
+            issuer,
+            grantor=grantor,
+            hub=hub,
+            pin=pin,
+            claimant=claimant,
+            expires_at=expires_at,
+        )
 
         mandate = models.Mandate(
             membership=grantor,
@@ -368,21 +426,34 @@ def issue_mandate(
                     raise MandateError("A mandate key has at least 32 characters.")
                 key_hash = hash_key(key)
                 if models.Mandate.objects.filter(key_hash=key_hash).exists():
-                    raise MandateKeyReused("This key is, or was, the key of another mandate; propose a new one.")
+                    raise MandateKeyReused(
+                        "This key is, or was, the key of another mandate; propose a new one."
+                    )
                 mandate.claimant = enums.MandateClaimantChoices.KEY
                 mandate.key_hash = key_hash
                 mandate.key_prefix = key[:6]
                 minted = None if proposed is not None else key
-            case AgentClaimant(identifier=identifier, device_id=device_id, membership=agent_membership, attestation=attestation):
-                if agent_membership is not None and agent_membership.organization_id != organization.pk:
-                    raise MandateError("The agent membership does not belong to the grantor's organization.")
+            case AgentClaimant(
+                identifier=identifier,
+                device_id=device_id,
+                membership=agent_membership,
+                attestation=attestation,
+            ):
+                if (
+                    agent_membership is not None
+                    and agent_membership.organization_id != organization.pk
+                ):
+                    raise MandateError(
+                        "The agent membership does not belong to the grantor's organization."
+                    )
                 mandate.claimant = enums.MandateClaimantChoices.AGENT
                 mandate.agent_identifier = identifier
                 mandate.agent_membership = agent_membership
                 mandate.attestation = attestation
                 if device_id:
                     mandate.agent_device, _ = models.Device.objects.get_or_create(
-                        organization=organization, node_id=hash_device_id(device_id, organization)
+                        organization=organization,
+                        node_id=hash_device_id(device_id, organization),
                     )
 
         match issuer:
@@ -426,14 +497,19 @@ def _delete_clients(mandate_ids: list[int]) -> int:
     from fakts.services.mesh import schedule_reap_for_clients
 
     clients = models.Client.objects.filter(mandate_id__in=mandate_ids)
-    OAuth2Token.objects.filter(client_id__in=clients.values("client_id")).update(revoked=True)
+    OAuth2Token.objects.filter(client_id__in=clients.values("client_id")).update(
+        revoked=True
+    )
     schedule_reap_for_clients(clients)
     deleted, _ = clients.delete()
     return deleted
 
 
 @transaction.atomic
-def revoke_mandate(mandate: models.Mandate, reason: enums.MandateRevocationChoices = enums.MandateRevocationChoices.REVOKED) -> int:
+def revoke_mandate(
+    mandate: models.Mandate,
+    reason: enums.MandateRevocationChoices = enums.MandateRevocationChoices.REVOKED,
+) -> int:
     """Withdraw a mandate and every child issued under it; delete their clients.
 
     Locks the mandate, then its children by pk: the same order :func:`issue_mandate`
@@ -442,7 +518,9 @@ def revoke_mandate(mandate: models.Mandate, reason: enums.MandateRevocationChoic
     deleted here) or sees the revocation and is refused.
     """
     root = models.Mandate.objects.select_for_update().get(pk=mandate.pk)
-    children = list(models.Mandate.objects.select_for_update().filter(parent=root).order_by("pk"))
+    children = list(
+        models.Mandate.objects.select_for_update().filter(parent=root).order_by("pk")
+    )
     now = timezone.now()
     if root.revoked_at is None:
         root.revoked_at = now
@@ -454,14 +532,25 @@ def revoke_mandate(mandate: models.Mandate, reason: enums.MandateRevocationChoic
             child.revocation_reason = enums.MandateRevocationChoices.PARENT_REVOKED
             child.save(update_fields=["revoked_at", "revocation_reason"])
     deleted = _delete_clients([root.pk, *(c.pk for c in children)])
-    logger.info("Mandate %s revoked (%s); %s child mandate(s), %s client(s) deleted", root.pk, reason, len(children), deleted)
+    logger.info(
+        "Mandate %s revoked (%s); %s child mandate(s), %s client(s) deleted",
+        root.pk,
+        reason,
+        len(children),
+        deleted,
+    )
     return deleted
 
 
-def revoke_issued_by(clients, reason: enums.MandateRevocationChoices = enums.MandateRevocationChoices.ISSUER_REVOKED) -> int:
+def revoke_issued_by(
+    clients,
+    reason: enums.MandateRevocationChoices = enums.MandateRevocationChoices.ISSUER_REVOKED,
+) -> int:
     """Revoke every live mandate the given clients issued (the issuer was rejected or revoked)."""
     revoked = 0
-    for mandate in models.Mandate.objects.filter(issuing_client__in=clients, revoked_at__isnull=True).order_by("pk"):
+    for mandate in models.Mandate.objects.filter(
+        issuing_client__in=clients, revoked_at__isnull=True
+    ).order_by("pk"):
         revoke_mandate(mandate, reason)
         revoked += 1
     return revoked
@@ -470,13 +559,19 @@ def revoke_issued_by(clients, reason: enums.MandateRevocationChoices = enums.Man
 def revoke_organization_mandates(organization: karakter_models.Organization) -> int:
     """The organization kill switch: every live mandate of it stops working."""
     revoked = 0
-    for mandate in models.Mandate.objects.filter(organization=organization, revoked_at__isnull=True, parent__isnull=True).order_by("pk"):
+    for mandate in models.Mandate.objects.filter(
+        organization=organization, revoked_at__isnull=True, parent__isnull=True
+    ).order_by("pk"):
         revoke_mandate(mandate, enums.MandateRevocationChoices.ORGANIZATION_REVOKED)
         revoked += 1
     return revoked
 
 
-def can_manage(mandate: models.Mandate, membership: karakter_models.Membership | None, client: models.Client | None) -> bool:
+def can_manage(
+    mandate: models.Mandate,
+    membership: karakter_models.Membership | None,
+    client: models.Client | None,
+) -> bool:
     """The grantor, an org admin, the agent of an agent mandate, or the agent that issued a child."""
     if membership is not None and membership.organization_id == mandate.organization_id:
         if membership.pk == mandate.membership_id or is_org_admin(membership):
@@ -511,11 +606,15 @@ def _grant_mesh_key(client: models.Client) -> models.IonscaleAuthKey | None:
                 device=client.node,
             )
     except Exception:
-        logger.warning("Could not mint a mesh key for client %s", client.client_id, exc_info=True)
+        logger.warning(
+            "Could not mint a mesh key for client %s", client.client_id, exc_info=True
+        )
         return None
 
 
-def _predecessor_client(mandate: models.Mandate, node: models.Device, identifier: str) -> models.Client | None:
+def _predecessor_client(
+    mandate: models.Mandate, node: models.Device, identifier: str
+) -> models.Client | None:
     """The client the device ran under an older key of the same grantor, for the same app in the same hub.
 
     A new key for a device takes that client over, so the device keeps its client_id, and
@@ -553,7 +652,12 @@ def authenticate_key(request: MandateKeyGrantRequest) -> KeyGrant:
     It is (re-)bound only when it is new, came from another mandate, or its manifest,
     kind or role changed, so the hourly grant stays cheap.
     """
-    from fakts.services.clients import DeviceAuthRequired, bind_client, create_public_client, hash_manifest
+    from fakts.services.clients import (
+        DeviceAuthRequired,
+        bind_client,
+        create_public_client,
+        hash_manifest,
+    )
 
     manifest = request.manifest
     kind = request.requested_client_kind.value
@@ -562,7 +666,13 @@ def authenticate_key(request: MandateKeyGrantRequest) -> KeyGrant:
     with transaction.atomic():
         mandate = (
             models.Mandate.objects.select_for_update(of=("self",))
-            .select_related("membership__user", "membership__organization", "organization", "hub", "parent__membership__user")
+            .select_related(
+                "membership__user",
+                "membership__organization",
+                "organization",
+                "hub",
+                "parent__membership__user",
+            )
             .filter(key_hash=hash_key(request.key.get_secret_value()))
             .first()
         )
@@ -579,18 +689,34 @@ def authenticate_key(request: MandateKeyGrantRequest) -> KeyGrant:
 
         organization = mandate.organization
         if organization.require_device_auth and not manifest.device_id:
-            raise DeviceAuthRequired("This organization requires device authentication; the client manifest must include a device_id.")
+            raise DeviceAuthRequired(
+                "This organization requires device authentication; the client manifest must include a device_id."
+            )
         node = None
         if manifest.device_id:
-            node, _ = models.Device.objects.get_or_create(organization=organization, node_id=hash_device_id(manifest.device_id, organization))
+            node, _ = models.Device.objects.get_or_create(
+                organization=organization,
+                node_id=hash_device_id(manifest.device_id, organization),
+            )
 
         client = mandate.clients.filter(node=node).first()
         if client is None:
-            if mandate.max_clients is not None and mandate.clients.count() >= mandate.max_clients:
-                raise MandateExhausted("This mandate key has been used on as many devices as it allows.")
-            client = _predecessor_client(mandate, node, manifest.identifier) if node is not None else None
+            if (
+                mandate.max_clients is not None
+                and mandate.clients.count() >= mandate.max_clients
+            ):
+                raise MandateExhausted(
+                    "This mandate key has been used on as many devices as it allows."
+                )
+            client = (
+                _predecessor_client(mandate, node, manifest.identifier)
+                if node is not None
+                else None
+            )
             if client is None:
-                client = create_public_client(kind=kind, role=role, grant_types=MANDATE_KEY_GRANT_TYPE)
+                client = create_public_client(
+                    kind=kind, role=role, grant_types=MANDATE_KEY_GRANT_TYPE
+                )
 
         if (
             client.membership_id is None
@@ -601,11 +727,17 @@ def authenticate_key(request: MandateKeyGrantRequest) -> KeyGrant:
         ):
             client.kind = kind
             client.role = role
-            client = bind_client(client, manifest, mandate.membership, hub=mandate.hub, mandate=mandate)
+            client = bind_client(
+                client, manifest, mandate.membership, hub=mandate.hub, mandate=mandate
+            )
 
         mandate.last_used_at = timezone.now()
         mandate.save(update_fields=["last_used_at", "subject_manifest"])
 
-        mesh_key = _grant_mesh_key(client) if request.request_auth_key and mandate.allow_mesh else None
+        mesh_key = (
+            _grant_mesh_key(client)
+            if request.request_auth_key and mandate.allow_mesh
+            else None
+        )
 
     return KeyGrant(client=client, mesh_key=mesh_key)

@@ -1,6 +1,7 @@
 import strawberry
 from graphql import GraphQLError
 from kante.types import Info
+
 from fakts import models, scalars, types
 from karakter.authz import get_scoped_or_denied
 
@@ -18,7 +19,9 @@ def release(
     app identifier + version (unique per organization).
     """
     if id is not None:
-        return get_scoped_or_denied(models.Release.objects, info, field="app__organization", id=id)
+        return get_scoped_or_denied(
+            models.Release.objects, info, field="app__organization", id=id
+        )
 
     if client_id is not None:
         # `Release` has neither an `identifier` nor a `client_id` column (the old
@@ -40,4 +43,6 @@ def release(
             version=version,
         )
 
-    raise GraphQLError("Either id, clientId, or identifier and version must be provided")
+    raise GraphQLError(
+        "Either id, clientId, or identifier and version must be provided"
+    )

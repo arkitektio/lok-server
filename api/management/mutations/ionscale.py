@@ -1,32 +1,41 @@
-from kante import Info
+import kante
 import strawberry
 from django.db import transaction
-from api.management import types
-import kante
-from fakts import models as fakts_models
-from ionscale.repo import get_ionscale_repo
-from ionscale.manager import ensure_org_mesh, apply_dns_config, replace_org_mesh
-from ionscale.sync import schedule_teardown
-from api.management.authz import DENIED, assert_owner_or_admin, get_or_denied
 from graphql import GraphQLError
+from kante import Info
+
+from api.management import types
+from api.management.authz import DENIED, assert_owner_or_admin, get_or_denied
+from fakts import models as fakts_models
 from ionscale.acl import reserved_tags
+from ionscale.manager import apply_dns_config, ensure_org_mesh, replace_org_mesh
+from ionscale.repo import get_ionscale_repo
+from ionscale.sync import schedule_teardown
 
 
 @kante.input
 class CreateIonscaleLayerInput:
     """Input for enabling the ionscale mesh for an organization"""
 
-    organization_id: strawberry.ID = strawberry.field(description="The ID of the organization to enable the mesh for.")
-    name: str | None = strawberry.field(description="Deprecated — the mesh is a per-organization singleton; ignored.")
+    organization_id: strawberry.ID = strawberry.field(
+        description="The ID of the organization to enable the mesh for."
+    )
+    name: str | None = strawberry.field(
+        description="Deprecated — the mesh is a per-organization singleton; ignored."
+    )
 
 
-def create_ionscale_layer(info: Info, input: CreateIonscaleLayerInput) -> types.ManagementLayer:
+def create_ionscale_layer(
+    info: Info, input: CreateIonscaleLayerInput
+) -> types.ManagementLayer:
     """Enable (opt in to) the organization's ionscale mesh.
 
     The mesh is a per-organization singleton: if one already exists it is
     returned unchanged; otherwise it is provisioned. See `ensure_org_mesh`.
     """
-    organization = get_or_denied(fakts_models.Organization.objects, id=input.organization_id)
+    organization = get_or_denied(
+        fakts_models.Organization.objects, id=input.organization_id
+    )
 
     assert_owner_or_admin(info, organization)
 
@@ -41,14 +50,28 @@ def create_ionscale_layer(info: Info, input: CreateIonscaleLayerInput) -> types.
 @kante.input
 class UpdateIonscaleLayerInput:
     """Input for updating an organization's mesh (ionscale layer)."""
-    id: strawberry.ID = strawberry.field(description="The ID of the Ionscale layer to update.")
-    name: str | None = strawberry.field(default=None, description="The name of the tailnet layer.")
-    description: str | None = strawberry.field(default=None, description="The description of the tailnet layer.")
-    magic_dns: bool | None = strawberry.field(default=None, description="Enable or disable MagicDNS for this mesh.")
-    https_certs: bool | None = strawberry.field(default=None, description="Enable or disable HTTPS certificates for this mesh. Requires MagicDNS.")
+
+    id: strawberry.ID = strawberry.field(
+        description="The ID of the Ionscale layer to update."
+    )
+    name: str | None = strawberry.field(
+        default=None, description="The name of the tailnet layer."
+    )
+    description: str | None = strawberry.field(
+        default=None, description="The description of the tailnet layer."
+    )
+    magic_dns: bool | None = strawberry.field(
+        default=None, description="Enable or disable MagicDNS for this mesh."
+    )
+    https_certs: bool | None = strawberry.field(
+        default=None,
+        description="Enable or disable HTTPS certificates for this mesh. Requires MagicDNS.",
+    )
 
 
-def update_ionscale_layer(info: Info, input: UpdateIonscaleLayerInput) -> types.ManagementLayer:
+def update_ionscale_layer(
+    info: Info, input: UpdateIonscaleLayerInput
+) -> types.ManagementLayer:
     """Update an organization's mesh: naming and/or DNS (MagicDNS/HTTPS).
 
     Only the organization's owner or admins may reconfigure the mesh (it decides
@@ -62,8 +85,12 @@ def update_ionscale_layer(info: Info, input: UpdateIonscaleLayerInput) -> types.
 
     # Validate the DNS combination up front, before anything is mutated.
     if input.magic_dns is not None or input.https_certs is not None:
-        magic_dns = input.magic_dns if input.magic_dns is not None else layer.magic_dns_enabled
-        https_certs = input.https_certs if input.https_certs is not None else layer.https_enabled
+        magic_dns = (
+            input.magic_dns if input.magic_dns is not None else layer.magic_dns_enabled
+        )
+        https_certs = (
+            input.https_certs if input.https_certs is not None else layer.https_enabled
+        )
         # HTTPS certs require MagicDNS (the cert domain *is* the MagicDNS name).
         if https_certs and not magic_dns:
             raise GraphQLError("HTTPS certificates require MagicDNS to be enabled.")
@@ -89,7 +116,6 @@ def update_ionscale_layer(info: Info, input: UpdateIonscaleLayerInput) -> types.
             apply_dns_config(layer, raise_on_error=True)
 
     return layer
-
 
 
 @kante.input
@@ -133,7 +159,9 @@ class ReplaceIonscaleLayerInput:
     )
 
 
-def replace_ionscale_layer(info: Info, input: ReplaceIonscaleLayerInput) -> types.ManagementLayer:
+def replace_ionscale_layer(
+    info: Info, input: ReplaceIonscaleLayerInput
+) -> types.ManagementLayer:
     """Replace the organization's mesh with a fresh tailnet of the same name.
 
     The way out of a mesh that can no longer be administered, such as a tailnet
@@ -147,23 +175,38 @@ def replace_ionscale_layer(info: Info, input: ReplaceIonscaleLayerInput) -> type
     assert_owner_or_admin(info, layer.organization)
 
     if input.confirm != layer.tailnet_name:
-        raise GraphQLError(f"Type the mesh's name ({layer.tailnet_name}) to confirm replacing it.")
+        raise GraphQLError(
+            f"Type the mesh's name ({layer.tailnet_name}) to confirm replacing it."
+        )
 
     try:
         return replace_org_mesh(layer)
     except Exception as exc:
-        raise GraphQLError(f"Could not replace the mesh: {exc}. Retrying the replace is safe.")
+        raise GraphQLError(
+            f"Could not replace the mesh: {exc}. Retrying the replace is safe."
+        )
 
 
 @kante.input
 class CreateIonscaleAuthKeyInput:
     """Input for creating an auth key for an Ionscale layer"""
-    layer_id: strawberry.ID = strawberry.field(description="The ID of the Ionscale layer to create the key for.")
-    ephemeral: bool = strawberry.field(default=True, description="When enabled, machines authenticated by this key will be automatically removed after going offline.")
-    tags: list[str] | None = strawberry.field(default=None, description="Machines authenticated by this key will be automatically tagged with these tags.")
+
+    layer_id: strawberry.ID = strawberry.field(
+        description="The ID of the Ionscale layer to create the key for."
+    )
+    ephemeral: bool = strawberry.field(
+        default=True,
+        description="When enabled, machines authenticated by this key will be automatically removed after going offline.",
+    )
+    tags: list[str] | None = strawberry.field(
+        default=None,
+        description="Machines authenticated by this key will be automatically tagged with these tags.",
+    )
 
 
-def create_ionscale_auth_key(info: Info, input: CreateIonscaleAuthKeyInput) -> types.ManagementIonscaleAuthKey:
+def create_ionscale_auth_key(
+    info: Info, input: CreateIonscaleAuthKeyInput
+) -> types.ManagementIonscaleAuthKey:
     """Mint a pre-authorized auth key for an organization's mesh. The key lets any
     machine join the mesh, so only the organization's owner or admins may mint one."""
     layer = get_or_denied(fakts_models.IonscaleLayer.objects, id=input.layer_id)
@@ -175,7 +218,7 @@ def create_ionscale_auth_key(info: Info, input: CreateIonscaleAuthKeyInput) -> t
         tailnet=layer.tailnet_name,
         ephemeral=input.ephemeral,
         pre_authorized=True,
-        tags=input.tags
+        tags=input.tags,
     )
 
     key = fakts_models.IonscaleAuthKey.objects.create(
@@ -183,9 +226,9 @@ def create_ionscale_auth_key(info: Info, input: CreateIonscaleAuthKeyInput) -> t
         key=key,
         creator=info.context.request.user,
         ephemeral=input.ephemeral,
-        tags=input.tags or []
+        tags=input.tags or [],
     )
-    
+
     return key
 
 
@@ -196,18 +239,25 @@ class DeleteIonscaleAuthKeyInput:
     id: strawberry.ID = strawberry.field(description="The auth key to revoke.")
 
 
-def delete_ionscale_auth_key(info: Info, input: DeleteIonscaleAuthKeyInput) -> strawberry.ID:
+def delete_ionscale_auth_key(
+    info: Info, input: DeleteIonscaleAuthKeyInput
+) -> strawberry.ID:
     """Revoke a mesh auth key: no further machine can join with it. Machines that
     already joined stay (ionscale does not tie a machine to its key); remove them
     with `deleteMachine`. Owner/admin only.
 
     The key of an app or hub sidecar is not revoked here: rejecting the client
     (`revokeClientSessions`) or deleting the hub removes it together with its node."""
-    key = get_or_denied(fakts_models.IonscaleAuthKey.objects.select_related("layer__organization"), id=input.id)
+    key = get_or_denied(
+        fakts_models.IonscaleAuthKey.objects.select_related("layer__organization"),
+        id=input.id,
+    )
 
     assert_owner_or_admin(info, key.layer.organization)
     if reserved_tags(key.tags):
-        raise GraphQLError("This key belongs to an app or hub. Reject the client, or delete the hub, to revoke it.")
+        raise GraphQLError(
+            "This key belongs to an app or hub. Reject the client, or delete the hub, to revoke it."
+        )
 
     try:
         get_ionscale_repo().delete_auth_key(key.layer.tailnet_name, key.key)
@@ -221,7 +271,9 @@ def delete_ionscale_auth_key(info: Info, input: DeleteIonscaleAuthKeyInput) -> s
 class DeleteMachineInput:
     """Input for removing a machine from a mesh."""
 
-    layer_id: strawberry.ID = strawberry.field(description="The mesh the machine is on.")
+    layer_id: strawberry.ID = strawberry.field(
+        description="The mesh the machine is on."
+    )
     machine_id: strawberry.ID = strawberry.field(description="The machine to remove.")
 
 
@@ -238,13 +290,22 @@ def delete_machine(info: Info, input: DeleteMachineInput) -> strawberry.ID:
     repo = get_ionscale_repo()
     try:
         # Looked up in this mesh, so an id from another organization is never deleted.
-        machine = next((m for m in repo.list_machines(layer.tailnet_name) if str(m.id) == str(input.machine_id)), None)
+        machine = next(
+            (
+                m
+                for m in repo.list_machines(layer.tailnet_name)
+                if str(m.id) == str(input.machine_id)
+            ),
+            None,
+        )
     except Exception as exc:
         raise GraphQLError(f"Could not reach the mesh: {exc}")
     if machine is None:
         raise GraphQLError(DENIED)
     if reserved_tags(machine.tags):
-        raise GraphQLError("This machine is the node of an app or hub. Reject the client, or delete the hub, to remove it.")
+        raise GraphQLError(
+            "This machine is the node of an app or hub. Reject the client, or delete the hub, to remove it."
+        )
 
     try:
         repo.delete_machine(machine.id)
@@ -257,7 +318,9 @@ def delete_machine(info: Info, input: DeleteMachineInput) -> strawberry.ID:
 class TailnetLockInput:
     """Input for changing a mesh's tailnet-lock capability."""
 
-    layer_id: strawberry.ID = strawberry.field(description="The ID of the Ionscale layer (mesh) to change.")
+    layer_id: strawberry.ID = strawberry.field(
+        description="The ID of the Ionscale layer (mesh) to change."
+    )
 
 
 def enable_tailnet_lock(info: Info, input: TailnetLockInput) -> types.ManagementLayer:

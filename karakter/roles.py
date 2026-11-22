@@ -25,7 +25,13 @@ from typing import TYPE_CHECKING, Any
 from weakref import WeakKeyDictionary
 
 from django.db.models import Exists, F, OuterRef, Q
-from django.db.models.signals import m2m_changed, post_delete, post_save, pre_delete, pre_save
+from django.db.models.signals import (
+    m2m_changed,
+    post_delete,
+    post_save,
+    pre_delete,
+    pre_save,
+)
 from django.dispatch import receiver
 
 from karakter import models
@@ -52,10 +58,14 @@ def admin_membership_q(user: Principal, memberships: str = "") -> Q:
 def owner_or_admin_q(user: Principal, organization: str) -> Q:
     """Rows whose organization (at the lookup path ``organization``, e.g. ``"created_for"``)
     ``user`` owns or administers. Callers must ``.distinct()``: the admin branch joins memberships."""
-    return Q(**{f"{organization}__owner": user}) | admin_membership_q(user, f"{organization}__memberships")
+    return Q(**{f"{organization}__owner": user}) | admin_membership_q(
+        user, f"{organization}__memberships"
+    )
 
 
-def is_owner_or_admin(user: Principal, organization: models.Organization | None) -> bool:
+def is_owner_or_admin(
+    user: Principal, organization: models.Organization | None
+) -> bool:
     """Whether ``user`` owns ``organization`` or administers it. False for a missing organization."""
     if organization is None:
         return False
@@ -69,14 +79,20 @@ def sync_admin(membership_ids: Iterable[int]) -> None:
     ids = list(membership_ids)
     if not ids:
         return
-    holds = models.Membership.roles.through.objects.filter(membership_id=OuterRef("pk"), role__identifier=ADMIN)
+    holds = models.Membership.roles.through.objects.filter(
+        membership_id=OuterRef("pk"), role__identifier=ADMIN
+    )
     models.Membership.objects.filter(pk__in=ids).update(is_admin=Exists(holds))
 
 
 def sync_all() -> int:
     """Recompute ``is_admin`` of every membership; the number whose flag was wrong."""
-    holds = models.Membership.roles.through.objects.filter(membership_id=OuterRef("pk"), role__identifier=ADMIN)
-    stale = models.Membership.objects.annotate(holds=Exists(holds)).exclude(is_admin=F("holds"))
+    holds = models.Membership.roles.through.objects.filter(
+        membership_id=OuterRef("pk"), role__identifier=ADMIN
+    )
+    stale = models.Membership.objects.annotate(holds=Exists(holds)).exclude(
+        is_admin=F("holds")
+    )
     ids = list(stale.values_list("pk", flat=True))
     sync_admin(ids)
     return len(ids)
@@ -95,7 +111,14 @@ def _memberships_of(role: models.Role) -> list[int]:
 
 
 @receiver(m2m_changed, sender=models.Membership.roles.through)
-def _roles_changed(sender: Any, instance: models.Membership | models.Role, action: str, reverse: bool, pk_set: set[int] | None, **kwargs: Any) -> None:
+def _roles_changed(
+    sender: Any,
+    instance: models.Membership | models.Role,
+    action: str,
+    reverse: bool,
+    pk_set: set[int] | None,
+    **kwargs: Any,
+) -> None:
     if isinstance(instance, models.Role):
         # From the role's side: `role.memberships.add(...)`, `.remove(...)`, `.clear()`.
         if action == "pre_clear":
@@ -108,18 +131,26 @@ def _roles_changed(sender: Any, instance: models.Membership | models.Role, actio
     if action in ("post_add", "post_remove", "post_clear"):
         sync_admin([instance.pk])
         # The instance in hand says it too, for whoever reads it next.
-        instance.is_admin = models.Membership.objects.values_list("is_admin", flat=True).get(pk=instance.pk)
+        instance.is_admin = models.Membership.objects.values_list(
+            "is_admin", flat=True
+        ).get(pk=instance.pk)
 
 
 @receiver(pre_save, sender=models.Role)
 def _role_renaming(sender: Any, instance: models.Role, **kwargs: Any) -> None:
     if instance.pk is not None:
-        _identifier_before[instance] = models.Role.objects.filter(pk=instance.pk).values_list("identifier", flat=True).first()
+        _identifier_before[instance] = (
+            models.Role.objects.filter(pk=instance.pk)
+            .values_list("identifier", flat=True)
+            .first()
+        )
 
 
 @receiver(post_save, sender=models.Role)
 def _role_renamed(sender: Any, instance: models.Role, **kwargs: Any) -> None:
-    if (_identifier_before.pop(instance, None) == ADMIN) != (instance.identifier == ADMIN):
+    if (_identifier_before.pop(instance, None) == ADMIN) != (
+        instance.identifier == ADMIN
+    ):
         sync_admin(_memberships_of(instance))
 
 
@@ -134,4 +165,11 @@ def _role_deleted(sender: Any, instance: models.Role, **kwargs: Any) -> None:
     sync_admin(_held_before.pop(instance, []))
 
 
-__all__ = ["ADMIN", "admin_membership_q", "is_owner_or_admin", "owner_or_admin_q", "sync_admin", "sync_all"]
+__all__ = [
+    "ADMIN",
+    "admin_membership_q",
+    "is_owner_or_admin",
+    "owner_or_admin_q",
+    "sync_admin",
+    "sync_all",
+]

@@ -1,4 +1,5 @@
 from enum import Enum
+
 import strawberry
 from django.db.models import TextChoices
 

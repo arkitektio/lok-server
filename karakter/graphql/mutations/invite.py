@@ -1,16 +1,20 @@
-from kante import Info
-import strawberry
-from graphql import GraphQLError
-from karakter import types, models
-from karakter.authz import get_or_denied, get_user
-from django.utils import timezone
 from datetime import timedelta
-import kante
 
+import kante
+import strawberry
 from django.core.exceptions import ValidationError
+from django.utils import timezone
+from graphql import GraphQLError
+from kante import Info
+
 from api.management.authz import assert_owner
-from api.management.mutations.invite import SharedCollaborationInput, _may_share, collaboration_entries
-from karakter import collaboration_grants
+from api.management.mutations.invite import (
+    SharedCollaborationInput,
+    _may_share,
+    collaboration_entries,
+)
+from karakter import collaboration_grants, models, types
+from karakter.authz import get_or_denied, get_user
 from karakter.invites import InviteError, redeem_invite
 
 
@@ -59,13 +63,19 @@ def create_invite(info: Info, input: CreateInviteInput) -> types.Invite:
     if input.collaborations is not None:
         # A collaboration invite: any member but a guest may grant what they can reach.
         if organization is None or not _may_share(get_user(info), organization):
-            raise GraphQLError("Only members of the organization can grant its collaborations.")
+            raise GraphQLError(
+                "Only members of the organization can grant its collaborations."
+            )
         try:
-            shared_collaborations = collaboration_grants.normalize_collaborations(collaboration_entries(input.collaborations, info), organization)
+            shared_collaborations = collaboration_grants.normalize_collaborations(
+                collaboration_entries(input.collaborations, info), organization
+            )
         except ValidationError as e:
             raise GraphQLError(" ".join(e.messages))
         if input.roles:
-            raise GraphQLError("An invite that grants collaborations grants no roles in the organization.")
+            raise GraphQLError(
+                "An invite that grants collaborations grants no roles in the organization."
+            )
         if input.max_uses is not None and input.max_uses < 1:
             raise GraphQLError("max_uses must be at least 1.")
     else:
@@ -92,14 +102,18 @@ def create_invite(info: Info, input: CreateInviteInput) -> types.Invite:
         # Add specified roles
         for role_identifier in input.roles:
             try:
-                role = models.Role.objects.get(identifier=role_identifier, organization=organization)
+                role = models.Role.objects.get(
+                    identifier=role_identifier, organization=organization
+                )
                 invite.roles.add(role)
             except models.Role.DoesNotExist:
                 pass
     else:
         # Default to guest role if no roles specified
         try:
-            guest_role = models.Role.objects.get(identifier="guest", organization=organization)
+            guest_role = models.Role.objects.get(
+                identifier="guest", organization=organization
+            )
             invite.roles.add(guest_role)
         except models.Role.DoesNotExist:
             # No guest role exists, invite will have no roles
@@ -175,7 +189,9 @@ def cancel_invite(info: Info, input: CancelInviteInput) -> types.Invite:
     """
     # Scoped to the creator in the lookup itself, so "not yours" and "does not
     # exist" read identically and the id cannot be used as an existence oracle.
-    invite = get_or_denied(models.Invite.objects, id=input.id, created_by=get_user(info))
+    invite = get_or_denied(
+        models.Invite.objects, id=input.id, created_by=get_user(info)
+    )
 
     if input.revoke_shared and invite.is_collaboration_invite:
         collaboration_grants.revoke_invite_grants(invite)

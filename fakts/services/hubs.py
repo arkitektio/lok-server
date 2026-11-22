@@ -16,13 +16,13 @@ from django.utils import timezone
 from fakts import base_models, enums, models
 from fakts.base_models import HubManifest
 from fakts.services import aliases, versions
-from fakts.services.permissions import register_permissions
-from fakts.services.instance_keys import validate_challenge_key
 from fakts.services.hub_tls import validate_tls_certificate
+from fakts.services.instance_keys import validate_challenge_key
+from fakts.services.permissions import register_permissions
 from fakts.services.tokens import create_api_token  # noqa: F401  (kept for shim parity)
-from ionscale.repo import get_ionscale_repo
 from ionscale.acl import schedule_acl_apply
 from ionscale.manager import get_org_mesh
+from ionscale.repo import get_ionscale_repo
 from karakter import models as karakter_models
 
 logger = logging.getLogger(__name__)
@@ -101,19 +101,26 @@ def run_partner_pre_authorize_hook(
                 if isinstance(value, str) and value.strip().lower() == "ok":
                     return
 
-            approval_message = response_data.get("message") or response_data.get("error") or response_data.get("detail")
+            approval_message = (
+                response_data.get("message")
+                or response_data.get("error")
+                or response_data.get("detail")
+            )
         elif isinstance(response_data, str) and response_data.strip().lower() == "ok":
             return
         elif isinstance(response_data, str):
             approval_message = response_data.strip() or None
 
     raise PartnerPreAuthorizationError(
-        approval_message or f"Partner approval failed for '{partner.name}'. The approval hook did not return ok."
+        approval_message
+        or f"Partner approval failed for '{partner.name}'. The approval hook did not return ok."
     )
 
 
 @transaction.atomic
-def ensure_hub_mandates(hub: models.Hub, manifest: HubManifest, grantor: karakter_models.Membership) -> list[models.Mandate]:
+def ensure_hub_mandates(
+    hub: models.Hub, manifest: HubManifest, grantor: karakter_models.Membership
+) -> list[models.Mandate]:
     """Give every client the hub's manifest asks for a mandate, granted by ``grantor``.
 
     This is how approving a hub also approves the apps the hub runs itself (a plugin
@@ -135,10 +142,14 @@ def ensure_hub_mandates(hub: models.Hub, manifest: HubManifest, grantor: karakte
     for request in manifest.clients:
         pin = MandatePin.from_manifest(request.manifest, version=False, device=True)
         current = hub.mandates.filter(
-            origin=enums.MandateOriginChoices.HUB, hub_request=request.identifier, revoked_at__isnull=True
+            origin=enums.MandateOriginChoices.HUB,
+            hub_request=request.identifier,
+            revoked_at__isnull=True,
         ).first()
 
-        if current is not None and current.key_hash == mandates.hash_key(request.mandate_key):
+        if current is not None and current.key_hash == mandates.hash_key(
+            request.mandate_key
+        ):
             if current.membership_id != grantor.pk:
                 # Its clients act as the previous grantor: they log in again as the new one.
                 models.Client.objects.filter(mandate=current).delete()
@@ -149,11 +160,17 @@ def ensure_hub_mandates(hub: models.Hub, manifest: HubManifest, grantor: karakte
             issued.append(current)
             continue
 
-        if models.Mandate.objects.filter(key_hash=mandates.hash_key(request.mandate_key)).exists():
+        if models.Mandate.objects.filter(
+            key_hash=mandates.hash_key(request.mandate_key)
+        ).exists():
             # The key was revoked (the app was rejected, the organization revoked every
             # session, ...) and never works again. The rest of the hub is approved; the
             # request stays out of the envelope until the hub proposes a new key.
-            logger.warning("Hub %s re-proposed the revoked key of client request %r; skipping it", hub.pk, request.identifier)
+            logger.warning(
+                "Hub %s re-proposed the revoked key of client request %r; skipping it",
+                hub.pk,
+                request.identifier,
+            )
             continue
         if current is not None:
             mandates.revoke_mandate(current, enums.MandateRevocationChoices.SUPERSEDED)
@@ -169,9 +186,9 @@ def ensure_hub_mandates(hub: models.Hub, manifest: HubManifest, grantor: karakte
             ).mandate
         )
 
-    dropped = hub.mandates.filter(origin=enums.MandateOriginChoices.HUB, revoked_at__isnull=True).exclude(
-        hub_request__in=[request.identifier for request in manifest.clients]
-    )
+    dropped = hub.mandates.filter(
+        origin=enums.MandateOriginChoices.HUB, revoked_at__isnull=True
+    ).exclude(hub_request__in=[request.identifier for request in manifest.clients])
     for mandate in dropped:
         mandates.revoke_mandate(mandate, enums.MandateRevocationChoices.SUPERSEDED)
     return issued
@@ -203,9 +220,17 @@ def create_hub_from_manifest(
     )
     # What it says now replaces what was known: a new certificate is the rotation, none makes
     # it a plain-HTTP hub again.
-    hub.tls_certificate = validate_tls_certificate(manifest.tls_certificate) if manifest.tls_certificate else None
+    hub.tls_certificate = (
+        validate_tls_certificate(manifest.tls_certificate)
+        if manifest.tls_certificate
+        else None
+    )
     hub.save(update_fields=["tls_certificate"])
-    hub.instances.exclude(instance_id__in=[instance_request.name for instance_request in manifest.instances]).delete()
+    hub.instances.exclude(
+        instance_id__in=[
+            instance_request.name for instance_request in manifest.instances
+        ]
+    ).delete()
     if created:
         # Only on create — rotating on every re-configure would break running
         # hub servers. (Existing derivable uuid5 tokens are rotated once by
@@ -218,9 +243,19 @@ def create_hub_from_manifest(
     for instance_request in manifest.instances:
         service_manifest = instance_request.manifest
 
-        service, _ = models.Service.objects.get_or_create(identifier=service_manifest.identifier, organization=organization, defaults={"name": service_manifest.identifier})
+        service, _ = models.Service.objects.get_or_create(
+            identifier=service_manifest.identifier,
+            organization=organization,
+            defaults={"name": service_manifest.identifier},
+        )
 
-        release = versions.release_for(service, service_manifest.version, models.ServiceInstance.objects.filter(hub=hub, instance_id=instance_request.name).first())
+        release = versions.release_for(
+            service,
+            service_manifest.version,
+            models.ServiceInstance.objects.filter(
+                hub=hub, instance_id=instance_request.name
+            ).first(),
+        )
 
         # One service of a name per hub: configured again with another release, it is the same
         # instance.
@@ -237,12 +272,17 @@ def create_hub_from_manifest(
             },
         )
 
-        if service_manifest.challenge_key and instance.public_key != service_manifest.challenge_key:
+        if (
+            service_manifest.challenge_key
+            and instance.public_key != service_manifest.challenge_key
+        ):
             instance.public_key = validate_challenge_key(service_manifest.challenge_key)
             instance.save(update_fields=["public_key"])
 
         counts["instances"] += 1
-        logger.debug("%s instance %s", "Created" if inst_created else "Updated", instance.token)
+        logger.debug(
+            "%s instance %s", "Created" if inst_created else "Updated", instance.token
+        )
 
         register_permissions(instance, service_manifest)
         counts["roles"] += len(service_manifest.roles or [])
@@ -251,10 +291,14 @@ def create_hub_from_manifest(
         for alias in instance_request.aliases:
             alias_obj, alias_created = aliases.upsert_instance_alias(instance, alias)
             counts["aliases"] += 1
-            logger.debug("%s alias %s", "Created" if alias_created else "Updated", alias_obj.name)
+            logger.debug(
+                "%s alias %s", "Created" if alias_created else "Updated", alias_obj.name
+            )
 
     # No one approves a partner-configured hub: its clients act as the organization's owner.
-    owner = karakter_models.Membership.objects.get(user=organization.owner, organization=organization)
+    owner = karakter_models.Membership.objects.get(
+        user=organization.owner, organization=organization
+    )
     counts["clients"] = len(ensure_hub_mandates(hub, manifest, owner))
 
     logger.info(
@@ -277,7 +321,11 @@ def create_hub_from_partner(
     if not manifest:
         raise ValueError(f"Partner '{partner.identifier}' has no preconfigured hub")
 
-    logger.debug("Creating hub from partner '%s' for org '%s'", partner.identifier, organization.slug)
+    logger.debug(
+        "Creating hub from partner '%s' for org '%s'",
+        partner.identifier,
+        organization.slug,
+    )
 
     hub = create_hub_from_manifest(
         manifest=manifest,
@@ -310,19 +358,27 @@ def auto_configure_kommunity_partners(
     """Apply every auto-configure kommunity partner that matches the organization's owner."""
     applied_partners = []
 
-    auto_configure_partners = models.KommunityPartner.objects.filter(auto_configure=True)
+    auto_configure_partners = models.KommunityPartner.objects.filter(
+        auto_configure=True
+    )
     user = organization.owner
 
     for partner in auto_configure_partners:
         if not partner.applies_to_user(organization.owner):
-            logger.debug("Partner '%s' does not apply to user '%s'", partner.identifier, user)
+            logger.debug(
+                "Partner '%s' does not apply to user '%s'", partner.identifier, user
+            )
             continue
 
         if not partner.preconfigured_hub:
             logger.warning(f"Partner '{partner.identifier}' has no preconfigured hub")
             continue
 
-        logger.debug("Applying partner '%s' to organization '%s'", partner.identifier, organization.slug)
+        logger.debug(
+            "Applying partner '%s' to organization '%s'",
+            partner.identifier,
+            organization.slug,
+        )
 
         try:
             create_hub_from_partner(
@@ -342,7 +398,12 @@ def auto_configure_kommunity_partners(
     return applied_partners
 
 
-def create_mesh_auth_key(user: karakter_models.User, organization: karakter_models.Organization, ephemeral: bool = False, tags: list[str] = None) -> models.IonscaleAuthKey:
+def create_mesh_auth_key(
+    user: karakter_models.User,
+    organization: karakter_models.Organization,
+    ephemeral: bool = False,
+    tags: list[str] = None,
+) -> models.IonscaleAuthKey:
     """Mint a single-use pre-authorized key for an organization's mesh.
 
     Organization-scoped counterpart to ``enroll_hub_on_mesh``: used by the mesh
@@ -360,8 +421,12 @@ def create_mesh_auth_key(user: karakter_models.User, organization: karakter_mode
 
     tags = ["tag:mesh-" + str(organization.pk)] if tags is None else tags
 
-    key = get_ionscale_repo().create_auth_key(tailnet=layer.tailnet_name, ephemeral=ephemeral, pre_authorized=True, tags=tags)
-    key = models.IonscaleAuthKey.objects.create(layer=layer, key=key, creator=user, ephemeral=ephemeral, tags=tags)
+    key = get_ionscale_repo().create_auth_key(
+        tailnet=layer.tailnet_name, ephemeral=ephemeral, pre_authorized=True, tags=tags
+    )
+    key = models.IonscaleAuthKey.objects.create(
+        layer=layer, key=key, creator=user, ephemeral=ephemeral, tags=tags
+    )
     return key
 
 
@@ -418,7 +483,9 @@ def enroll_app_on_mesh(
         tags=tags,
         expiry_seconds=APP_MESH_KEY_EXPIRY_SECONDS,
     )
-    key = models.IonscaleAuthKey.objects.create(layer=layer, key=value, creator=user, ephemeral=False, tags=tags)
+    key = models.IonscaleAuthKey.objects.create(
+        layer=layer, key=value, creator=user, ephemeral=False, tags=tags
+    )
 
     previous = enrollment.auth_key
     enrollment.auth_key = key
@@ -429,19 +496,27 @@ def enroll_app_on_mesh(
             repo.delete_auth_key(previous.layer.tailnet_name, previous.key)
             previous.delete()
         except Exception:
-            logger.warning("Could not revoke the previous mesh key of %s", enrollment, exc_info=True)
+            logger.warning(
+                "Could not revoke the previous mesh key of %s",
+                enrollment,
+                exc_info=True,
+            )
 
     if device is not None:
         try:
             _prune_stale_machines(repo, layer.tailnet_name, enrollment.tag)
         except Exception:
-            logger.warning("Could not prune stale mesh nodes of %s", enrollment, exc_info=True)
+            logger.warning(
+                "Could not prune stale mesh nodes of %s", enrollment, exc_info=True
+            )
 
     schedule_acl_apply(organization.pk)
     return key
 
 
-def enroll_hub_on_mesh(user: karakter_models.User, hub: models.Hub) -> models.IonscaleAuthKey | None:
+def enroll_hub_on_mesh(
+    user: karakter_models.User, hub: models.Hub
+) -> models.IonscaleAuthKey | None:
     """Mint a mesh key for a hub, the way ``enroll_app_on_mesh`` does for an app.
 
     The hub row is its own enrollment (one per organization and identifier), so
@@ -462,7 +537,9 @@ def enroll_hub_on_mesh(user: karakter_models.User, hub: models.Hub) -> models.Io
         tags=tags,
         expiry_seconds=APP_MESH_KEY_EXPIRY_SECONDS,
     )
-    key = models.IonscaleAuthKey.objects.create(hub=hub, layer=layer, key=value, creator=user, ephemeral=False, tags=tags)
+    key = models.IonscaleAuthKey.objects.create(
+        hub=hub, layer=layer, key=value, creator=user, ephemeral=False, tags=tags
+    )
 
     previous = hub.auth_key
     hub.auth_key = key
@@ -473,7 +550,9 @@ def enroll_hub_on_mesh(user: karakter_models.User, hub: models.Hub) -> models.Io
             repo.delete_auth_key(previous.layer.tailnet_name, previous.key)
             previous.delete()
         except Exception:
-            logger.warning("Could not revoke the previous mesh key of hub %s", hub, exc_info=True)
+            logger.warning(
+                "Could not revoke the previous mesh key of hub %s", hub, exc_info=True
+            )
 
     try:
         _prune_stale_machines(repo, layer.tailnet_name, hub.mesh_tag)
@@ -484,7 +563,9 @@ def enroll_hub_on_mesh(user: karakter_models.User, hub: models.Hub) -> models.Io
     return key
 
 
-def write_hub_mesh_keys(organization: karakter_models.Organization, written: set[str]) -> list[str]:
+def write_hub_mesh_keys(
+    organization: karakter_models.Organization, written: set[str]
+) -> list[str]:
     """Write the mesh key of every hub ``IONSCALE_HUB_KEY_FILES`` lists that is in ``organization``.
 
     A self-contained deployment runs its hub's sidecar itself, and that hub never
@@ -496,16 +577,27 @@ def write_hub_mesh_keys(organization: karakter_models.Organization, written: set
     deployment is one node, on the mesh of the first organization that has it.
     """
     done = []
-    for identifier, path in (getattr(settings, "IONSCALE_HUB_KEY_FILES", None) or {}).items():
-        hub = models.Hub.objects.filter(organization=organization, identifier=identifier).first()
+    for identifier, path in (
+        getattr(settings, "IONSCALE_HUB_KEY_FILES", None) or {}
+    ).items():
+        hub = models.Hub.objects.filter(
+            organization=organization, identifier=identifier
+        ).first()
         if hub is None:
             continue
         if identifier in written:
-            logger.warning("Hub %r is in several organizations; its node stays on the first one's mesh", identifier)
+            logger.warning(
+                "Hub %r is in several organizations; its node stays on the first one's mesh",
+                identifier,
+            )
             continue
         key = enroll_hub_on_mesh(organization.owner, hub)
         if key is None:
-            logger.warning("Organization %s has no mesh, so hub %r gets no mesh key", organization.slug, identifier)
+            logger.warning(
+                "Organization %s has no mesh, so hub %r gets no mesh key",
+                organization.slug,
+                identifier,
+            )
             continue
         target = Path(path)
         target.parent.mkdir(parents=True, exist_ok=True)
@@ -527,7 +619,9 @@ def _prune_stale_machines(repo, tailnet: str, tag: str) -> None:
     for machine in tagged:
         if machine is newest or machine.connected:
             continue
-        logger.info("Pruning stale mesh node %s (%s) tagged %s", machine.id, machine.name, tag)
+        logger.info(
+            "Pruning stale mesh node %s (%s) tagged %s", machine.id, machine.name, tag
+        )
         repo.delete_machine(machine.id)
 
 
@@ -560,7 +654,10 @@ def renew_mesh_key(client: models.Client) -> models.IonscaleAuthKey:
     """
     from fakts.services.mesh import live_clients
 
-    if client.membership_id is None or not live_clients(models.Client.objects.filter(pk=client.pk)).exists():
+    if (
+        client.membership_id is None
+        or not live_clients(models.Client.objects.filter(pk=client.pk)).exists()
+    ):
         raise MeshKeyRefused("not_live", "The client has no live session")
 
     hub = models.Hub.objects.filter(client=client).first()
@@ -568,7 +665,9 @@ def renew_mesh_key(client: models.Client) -> models.IonscaleAuthKey:
         enrollment = hub if hub.auth_key_id else None
     elif client.release_id is not None and client.node_id is not None:
         enrollment = models.AppMeshEnrollment.objects.filter(
-            membership_id=client.membership_id, app_id=client.release.app_id, device_id=client.node_id
+            membership_id=client.membership_id,
+            app_id=client.release.app_id,
+            device_id=client.node_id,
         ).first()
     else:
         enrollment = None
@@ -578,29 +677,50 @@ def renew_mesh_key(client: models.Client) -> models.IonscaleAuthKey:
         if client.hub_id not in mesh_hub_ids(client.membership):
             enrollment = None
     organization = client.organization
-    layer = get_org_mesh(organization) if enrollment is not None and organization is not None else None
+    layer = (
+        get_org_mesh(organization)
+        if enrollment is not None and organization is not None
+        else None
+    )
     if layer is None:
-        raise MeshKeyRefused("not_enrolled", "No mesh access was granted to this client")
+        raise MeshKeyRefused(
+            "not_enrolled", "No mesh access was granted to this client"
+        )
 
     current = enrollment.auth_key
-    if current is not None and (timezone.now() - current.created_at).total_seconds() < MESH_KEY_RENEWAL_INTERVAL_SECONDS:
-        raise MeshKeyRefused("throttled", "A mesh key was issued to this client a moment ago")
+    if (
+        current is not None
+        and (timezone.now() - current.created_at).total_seconds()
+        < MESH_KEY_RENEWAL_INTERVAL_SECONDS
+    ):
+        raise MeshKeyRefused(
+            "throttled", "A mesh key was issued to this client a moment ago"
+        )
 
     tag = hub.mesh_tag if hub is not None else enrollment.tag
-    if any(tag in m.tags and m.connected for m in get_ionscale_repo().list_machines(layer.tailnet_name)):
+    if any(
+        tag in m.tags and m.connected
+        for m in get_ionscale_repo().list_machines(layer.tailnet_name)
+    ):
         raise MeshKeyRefused("connected", "This client's mesh node is online")
 
     user = client.membership.user
     if hub is not None:
         key = enroll_hub_on_mesh(user, hub)
     else:
-        key = enroll_app_on_mesh(user, organization, client.membership, client.release.app, client.node)
+        key = enroll_app_on_mesh(
+            user, organization, client.membership, client.release.app, client.node
+        )
     if key is None:
-        raise MeshKeyRefused("not_enrolled", "No mesh access was granted to this client")
+        raise MeshKeyRefused(
+            "not_enrolled", "No mesh access was granted to this client"
+        )
     return key
 
 
-def report_hub_health(hub: models.Hub, report: base_models.HubHealthReport) -> models.Hub:
+def report_hub_health(
+    hub: models.Hub, report: base_models.HubHealthReport
+) -> models.Hub:
     """Record a hub's health callback: liveness, version and mesh state on the hub,
     plus a snapshot (only the latest ``settings.HUB_HEALTH_RETENTION`` are kept).
 
@@ -610,15 +730,27 @@ def report_hub_health(hub: models.Hub, report: base_models.HubHealthReport) -> m
     the hub keeps calling in (see ``fakts.services.mesh``).
     """
     instances = list(hub.instances.select_related("release", "service"))
-    own = {str(i.pk) for i in instances} | {i.token for i in instances} | {i.instance_id for i in instances}
+    own = (
+        {str(i.pk) for i in instances}
+        | {i.token for i in instances}
+        | {i.instance_id for i in instances}
+    )
     payload = report.model_dump()
-    payload["instances"] = {key: value for key, value in payload["instances"].items() if key in own}
+    payload["instances"] = {
+        key: value for key, value in payload["instances"].items() if key in own
+    }
 
     # What a service says it runs is its release: the instance moves to it.
     for instance in instances:
         said = report.instances.get(instance.instance_id)
-        if said is not None and said.version and said.version != instance.release.version:
-            instance.release, _ = models.ServiceRelease.objects.get_or_create(service=instance.service, version=said.version)
+        if (
+            said is not None
+            and said.version
+            and said.version != instance.release.version
+        ):
+            instance.release, _ = models.ServiceRelease.objects.get_or_create(
+                service=instance.service, version=said.version
+            )
             instance.save(update_fields=["release"])
 
     hub.last_seen_at = timezone.now()
@@ -627,16 +759,28 @@ def report_hub_health(hub: models.Hub, report: base_models.HubHealthReport) -> m
     fields = ["last_seen_at", "last_healthy", "version"]
     if report.mesh is not None:
         hub.mesh_connected = report.mesh.connected
-        hub.mesh_host = (report.mesh.hostname or report.mesh.ipv4 or "") if report.mesh.connected else ""
+        hub.mesh_host = (
+            (report.mesh.hostname or report.mesh.ipv4 or "")
+            if report.mesh.connected
+            else ""
+        )
         fields += ["mesh_connected", "mesh_host"]
     hub.save(update_fields=fields)
 
-    models.HubHealthSnapshot.objects.create(hub=hub, healthy=report.healthy, payload=payload)
+    models.HubHealthSnapshot.objects.create(
+        hub=hub, healthy=report.healthy, payload=payload
+    )
     retention = getattr(settings, "HUB_HEALTH_RETENTION", 20)
-    keep = list(models.HubHealthSnapshot.objects.filter(hub=hub).values_list("id", flat=True)[:retention])
+    keep = list(
+        models.HubHealthSnapshot.objects.filter(hub=hub).values_list("id", flat=True)[
+            :retention
+        ]
+    )
     models.HubHealthSnapshot.objects.filter(hub=hub).exclude(id__in=keep).delete()
 
     from karakter.channels import HubHealthSignal, hub_health_channel, hub_health_group
 
-    hub_health_channel.broadcast_on_commit(HubHealthSignal(hub_id=hub.pk), [hub_health_group(hub.organization_id)])
+    hub_health_channel.broadcast_on_commit(
+        HubHealthSignal(hub_id=hub.pk), [hub_health_group(hub.organization_id)]
+    )
     return hub

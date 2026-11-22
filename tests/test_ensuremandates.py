@@ -17,7 +17,12 @@ from tests import factories
 
 KEY = "k" * 40
 GRANT = "urn:fakts:grant-type:mandate-key"
-APP = {"identifier": "com.example.configured", "version": "1.0.0", "scopes": [], "requirements": []}
+APP = {
+    "identifier": "com.example.configured",
+    "version": "1.0.0",
+    "scopes": [],
+    "requirements": [],
+}
 
 
 def _spec(hub, **overrides) -> MandateKeySettings:
@@ -41,7 +46,11 @@ def _snapshot():
 
 
 def _login(client, key=KEY, manifest=APP):
-    return client.post(reverse("token"), data={"grant_type": GRANT, "key": key, "manifest": json.dumps(manifest)}, secure=True)
+    return client.post(
+        reverse("token"),
+        data={"grant_type": GRANT, "key": key, "manifest": json.dumps(manifest)},
+        secure=True,
+    )
 
 
 @pytest.fixture
@@ -85,7 +94,10 @@ def test_a_changed_key_supersedes_the_old_one(client, hub):
 
     assert _login(client).status_code == 400
     assert _login(client, key="n" * 40).status_code == 200
-    assert models.Mandate.objects.get(revoked_at__isnull=False).revocation_reason == "superseded"
+    assert (
+        models.Mandate.objects.get(revoked_at__isnull=False).revocation_reason
+        == "superseded"
+    )
 
 
 @pytest.mark.django_db
@@ -96,5 +108,9 @@ def test_changed_settings_are_written_in_place(hub):
     _run(_spec(hub, app="com.example.configured", max_clients=2, allow_mesh=True))
 
     mandate.refresh_from_db()
-    assert (mandate.pin.identifier, mandate.max_clients, mandate.allow_mesh) == ("com.example.configured", 2, True)
+    assert (mandate.pin.identifier, mandate.max_clients, mandate.allow_mesh) == (
+        "com.example.configured",
+        2,
+        True,
+    )
     assert models.Mandate.objects.count() == 1

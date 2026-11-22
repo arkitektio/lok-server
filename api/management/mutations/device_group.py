@@ -1,11 +1,12 @@
-from kante import Info
-import strawberry
-from api.management import types
-from karakter import models
 import kante
+import strawberry
+from graphql import GraphQLError
+from kante import Info
+
+from api.management import types
 from api.management.authz import DENIED, assert_member, get_or_denied
 from fakts import models as fakts_models
-from graphql import GraphQLError
+from karakter import models
 
 
 @kante.input
@@ -16,7 +17,9 @@ class CreateDeviceGroupInput:
     organization: strawberry.ID
 
 
-def create_device_group(info: Info, input: CreateDeviceGroupInput) -> types.ManagementDeviceGroup:
+def create_device_group(
+    info: Info, input: CreateDeviceGroupInput
+) -> types.ManagementDeviceGroup:
     """Create a device group in an organization."""
 
     organization = get_or_denied(models.Organization.objects, id=input.organization)
@@ -56,7 +59,9 @@ class AddDeviceToGroupInput:
     device_group: strawberry.ID
 
 
-def add_device_to_group(info: Info, input: AddDeviceToGroupInput) -> types.ManagementDevice:
+def add_device_to_group(
+    info: Info, input: AddDeviceToGroupInput
+) -> types.ManagementDevice:
     """Add a device to a device group of the same organization."""
 
     dg = get_or_denied(fakts_models.DeviceGroup.objects, id=input.device_group)
@@ -83,7 +88,9 @@ class RemoveDeviceFromGroupInput:
     device_group: strawberry.ID
 
 
-def remove_device_from_group(info: Info, input: RemoveDeviceFromGroupInput) -> types.ManagementDevice:
+def remove_device_from_group(
+    info: Info, input: RemoveDeviceFromGroupInput
+) -> types.ManagementDevice:
     """Remove a device from a device group."""
 
     dg = get_or_denied(fakts_models.DeviceGroup.objects, id=input.device_group)

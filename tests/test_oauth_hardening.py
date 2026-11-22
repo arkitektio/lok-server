@@ -25,7 +25,11 @@ def _granted_session(client):
 def _refresh(client, token, client_id):
     return client.post(
         reverse("token"),
-        data={"grant_type": "refresh_token", "refresh_token": token, "client_id": client_id},
+        data={
+            "grant_type": "refresh_token",
+            "refresh_token": token,
+            "client_id": client_id,
+        },
         secure=True,
     )
 
@@ -41,7 +45,11 @@ def test_revoke_endpoint_kills_the_refresh_chain(client):
 
     resp = client.post(
         reverse("revoke"),
-        data={"token": token["refresh_token"], "token_type_hint": "refresh_token", "client_id": body["client_id"]},
+        data={
+            "token": token["refresh_token"],
+            "token_type_hint": "refresh_token",
+            "client_id": body["client_id"],
+        },
         secure=True,
     )
     assert resp.status_code == 200
@@ -67,26 +75,37 @@ def test_revoke_refuses_another_clients_token(client):
     assert resp.status_code == 400
 
     # And the chain still works.
-    assert _refresh(client, token["refresh_token"], body["client_id"]).status_code == 200
+    assert (
+        _refresh(client, token["refresh_token"], body["client_id"]).status_code == 200
+    )
 
 
 @pytest.mark.django_db
 def test_revoke_client_sessions_mutation(client):
     from types import SimpleNamespace
 
-    from api.management.mutations.revoke import RevokeClientSessionsInput, revoke_client_sessions
+    from api.management.mutations.revoke import (
+        RevokeClientSessionsInput,
+        revoke_client_sessions,
+    )
 
     body, token = _granted_session(client)
     row = OAuth2Token.objects.get(access_token=token["access_token"])
     fakts_client = models.Client.objects.get(client_id=body["client_id"])
 
     # Revoking a client's sessions is owner/admin-only: act as the organization's owner.
-    info = SimpleNamespace(context=SimpleNamespace(request=SimpleNamespace(user=fakts_client.organization.owner)))
+    info = SimpleNamespace(
+        context=SimpleNamespace(
+            request=SimpleNamespace(user=fakts_client.organization.owner)
+        )
+    )
     revoke_client_sessions(info, RevokeClientSessionsInput(client=str(fakts_client.id)))
 
     row.refresh_from_db()
     assert row.revoked
-    assert _refresh(client, token["refresh_token"], body["client_id"]).status_code == 400
+    assert (
+        _refresh(client, token["refresh_token"], body["client_id"]).status_code == 400
+    )
 
 
 # --------------------------------------------------------------------------- #
@@ -113,7 +132,9 @@ def test_chain_older_than_the_absolute_cap_is_dead(client):
         chain_started_at=int(time.time()) - OAuth2Token.REFRESH_CHAIN_MAX_LIFETIME - 60
     )
 
-    assert _refresh(client, token["refresh_token"], body["client_id"]).status_code == 400
+    assert (
+        _refresh(client, token["refresh_token"], body["client_id"]).status_code == 400
+    )
 
 
 # --------------------------------------------------------------------------- #
@@ -135,7 +156,9 @@ def test_report_rejects_wrong_issuer(client):
     from tests.test_fakts_views_errors import _bearer_headers
 
     fakts_client = factories.make_client()
-    resp = _report(client, _bearer_headers(fakts_client, iss="https://not-this-server.example"))
+    resp = _report(
+        client, _bearer_headers(fakts_client, iss="https://not-this-server.example")
+    )
     assert resp.status_code == 401
 
 
@@ -159,14 +182,27 @@ def test_authorization_endpoint_throttles_past_the_limit(client, monkeypatch):
 
     monkeypatch.setattr(fakts_views, "AUTHORIZATION_LIMIT_PER_MINUTE", 2)
 
-    payload = {"manifest": {"identifier": "com.example.throttle", "version": "1", "scopes": [], "requirements": []}}
+    payload = {
+        "manifest": {
+            "identifier": "com.example.throttle",
+            "version": "1",
+            "scopes": [],
+            "requirements": [],
+        }
+    }
     for _ in range(2):
         resp = client.post(
-            reverse("app_authorization"), data=json.dumps(payload), content_type="application/json"
+            reverse("app_authorization"),
+            data=json.dumps(payload),
+            content_type="application/json",
         )
         assert resp.status_code == 200
 
-    third = client.post(reverse("app_authorization"), data=json.dumps(payload), content_type="application/json")
+    third = client.post(
+        reverse("app_authorization"),
+        data=json.dumps(payload),
+        content_type="application/json",
+    )
     assert third.status_code == 429
     assert third.json()["error"] == "slow_down"
 
@@ -184,7 +220,11 @@ def _poll_plain_http(client, device_code, client_id):
 
     return client.post(
         reverse("token"),
-        data={"grant_type": DEVICE_CODE_GRANT, "device_code": device_code, "client_id": client_id},
+        data={
+            "grant_type": DEVICE_CODE_GRANT,
+            "device_code": device_code,
+            "client_id": client_id,
+        },
         secure=False,
     )
 

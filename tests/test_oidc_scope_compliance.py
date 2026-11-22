@@ -26,13 +26,16 @@ from django.utils import timezone
 from authapp.models import AuthorizationCode
 from tests import factories
 
-
 REDIRECT_URI = "https://rp.example/cb"
 VERIFIER = "a-very-long-code-verifier-string-for-pkce-testing-1234567890"
 
 
 def _s256(verifier: str) -> str:
-    return base64.urlsafe_b64encode(hashlib.sha256(verifier.encode()).digest()).rstrip(b"=").decode()
+    return (
+        base64.urlsafe_b64encode(hashlib.sha256(verifier.encode()).digest())
+        .rstrip(b"=")
+        .decode()
+    )
 
 
 def _decode_jwt_payload(token: str) -> dict:
@@ -271,10 +274,14 @@ def test_a_replayed_nonce_is_still_rejected(client):
     rp = factories.make_oauth2_client(membership=membership, redirect_uris=REDIRECT_URI)
     client.force_login(membership.user)
 
-    first = _authorize(client, rp, organization=str(membership.organization_id), nonce="n-replay")
+    first = _authorize(
+        client, rp, organization=str(membership.organization_id), nonce="n-replay"
+    )
     assert "code" in parse_qs(urlparse(first["Location"]).query)
 
-    replay = _authorize(client, rp, organization=str(membership.organization_id), nonce="n-replay")
+    replay = _authorize(
+        client, rp, organization=str(membership.organization_id), nonce="n-replay"
+    )
     qs = parse_qs(urlparse(replay["Location"]).query)
     assert "code" not in qs
     assert qs["error"]
@@ -286,6 +293,7 @@ def test_a_replayed_nonce_is_still_rejected(client):
 @pytest.mark.django_db
 def test_ensureopenid_plumbs_scope_and_require_nonce(settings):
     from django.core.management import call_command
+
     from fakts.models import Client as OAuth2Client
 
     settings.ENSURED_OPENID_APPS = [

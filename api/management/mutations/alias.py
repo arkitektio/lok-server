@@ -1,17 +1,20 @@
-from kante import Info
-import strawberry
-from api.management import types
 import kante
+import strawberry
+from graphql import GraphQLError
+from kante import Info
+
+from api.management import types
 from api.management.authz import assert_owner_or_admin, get_or_denied
 from fakts import enums as fakts_enums
 from fakts import models as fakts_models
-from graphql import GraphQLError
 
 
 def _host_for(kind: str, host: str | None) -> str | None:
     """A mesh alias resolves its own host; every other kind needs one."""
     if kind not in fakts_enums.AliasKindChoices.values:
-        raise GraphQLError(f"Unknown alias kind '{kind}' (one of: {', '.join(fakts_enums.AliasKindChoices.values)}).")
+        raise GraphQLError(
+            f"Unknown alias kind '{kind}' (one of: {', '.join(fakts_enums.AliasKindChoices.values)})."
+        )
     if kind == fakts_enums.AliasKindChoices.MESH.value:
         return None
     if not host:
@@ -145,7 +148,9 @@ class CreateAliasRuleInput:
     role: strawberry.ID | None = None
 
 
-def create_alias_rule(info: Info, input: CreateAliasRuleInput) -> types.ManagementAliasRule:
+def create_alias_rule(
+    info: Info, input: CreateAliasRuleInput
+) -> types.ManagementAliasRule:
     """Disable or re-rank an alias for one client, an app's clients, a user's, or a role's holders'."""
     from karakter import models as karakter_models
 
@@ -154,12 +159,20 @@ def create_alias_rule(info: Info, input: CreateAliasRuleInput) -> types.Manageme
     assert_owner_or_admin(info, organization)
 
     if input.effect not in fakts_enums.AliasRuleEffectChoices.values:
-        raise GraphQLError(f"Unknown effect '{input.effect}' (one of: {', '.join(fakts_enums.AliasRuleEffectChoices.values)}).")
+        raise GraphQLError(
+            f"Unknown effect '{input.effect}' (one of: {', '.join(fakts_enums.AliasRuleEffectChoices.values)})."
+        )
     ranking = input.effect == fakts_enums.AliasRuleEffectChoices.PRIORITY.value
     if ranking != (input.priority is not None):
-        raise GraphQLError("A 'priority' rule needs a priority; a 'disable' rule takes none.")
+        raise GraphQLError(
+            "A 'priority' rule needs a priority; a 'disable' rule takes none."
+        )
 
-    named = [name for name in ("app", "client", "user", "role") if getattr(input, name) is not None]
+    named = [
+        name
+        for name in ("app", "client", "user", "role")
+        if getattr(input, name) is not None
+    ]
     if len(named) != 1:
         raise GraphQLError("A rule names exactly one of app, client, user or role.")
 
@@ -168,11 +181,21 @@ def create_alias_rule(info: Info, input: CreateAliasRuleInput) -> types.Manageme
         subject["app"] = get_or_denied(fakts_models.App.objects, id=input.app)
     elif input.client is not None:
         # Only a client of this organization: a rule cannot reach into another's.
-        subject["client"] = get_or_denied(fakts_models.Client.objects, id=input.client, membership__organization=organization)
+        subject["client"] = get_or_denied(
+            fakts_models.Client.objects,
+            id=input.client,
+            membership__organization=organization,
+        )
     elif input.user is not None:
-        subject["user"] = get_or_denied(karakter_models.User.objects, id=input.user, memberships__organization=organization)
+        subject["user"] = get_or_denied(
+            karakter_models.User.objects,
+            id=input.user,
+            memberships__organization=organization,
+        )
     else:
-        subject["role"] = get_or_denied(karakter_models.Role.objects, id=input.role, organization=organization)
+        subject["role"] = get_or_denied(
+            karakter_models.Role.objects, id=input.role, organization=organization
+        )
 
     return fakts_models.AliasRule.objects.create(
         alias=alias,

@@ -1,14 +1,11 @@
-import os
-
 import pytest
-
-from django.conf import settings as django_settings
-from django.contrib.auth import get_user_model
-from karakter.models import Organization, User, Membership
-from karakter.managers import create_role
-from kante.context import HttpContext, UniversalRequest, TemporalResponse
 from authentikate.base_models import StaticToken
 from authentikate.settings import get_settings
+from django.conf import settings as django_settings
+from kante.context import HttpContext, TemporalResponse, UniversalRequest
+
+from karakter.managers import create_role
+from karakter.models import Membership, Organization, User
 
 # Make the factories importable as `pytest` fixtures-adjacent helpers.
 from tests import factories  # noqa: F401
@@ -40,7 +37,9 @@ def _restore_static_tokens():
     settings_obj.static_tokens.update(original)
 
 
-def build_auth_context(user, organization, oauth2_client, roles=("admin",), scope="openid lok_all") -> HttpContext:
+def build_auth_context(
+    user, organization, oauth2_client, roles=("admin",), scope="openid lok_all"
+) -> HttpContext:
     """Build an authenticated ``HttpContext`` via a static token.
 
     authentikate authenticates by decoding the ``Authorization`` header, so
@@ -146,7 +145,9 @@ def testing_org(db):
 @pytest.fixture
 def authenticated_context(db, testing_org) -> HttpContext:
     user = User.objects.create(username="fart", password="123456789")
-    membership, _ = Membership.objects.get_or_create(user=user, organization=testing_org)
+    membership, _ = Membership.objects.get_or_create(
+        user=user, organization=testing_org
+    )
     # A fakts Client (with its backing OAuth2Client) so the auth extension can
     # resolve ``request.client`` from the token's ``client_id``.
     fakts_client = factories.make_client(membership=membership)

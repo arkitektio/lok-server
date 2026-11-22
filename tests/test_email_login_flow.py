@@ -17,7 +17,9 @@ BROWSER = "/lok/_allauth/browser/v1"
 
 
 def _post(client, path, payload):
-    return client.post(f"{BROWSER}{path}", data=json.dumps(payload), content_type="application/json")
+    return client.post(
+        f"{BROWSER}{path}", data=json.dumps(payload), content_type="application/json"
+    )
 
 
 EMAIL_LOGIN = override_settings(
@@ -47,7 +49,11 @@ def test_email_signup_sends_verification_and_gates_login(client):
     from django.contrib.auth import get_user_model
 
     # 1. Sign up with the exact payload shape the SPA now sends ({email, password}).
-    resp = _post(client, "/auth/signup", {"email": "newuser@example.com", "password": "sup3r-secret-pw"})
+    resp = _post(
+        client,
+        "/auth/signup",
+        {"email": "newuser@example.com", "password": "sup3r-secret-pw"},
+    )
 
     # Account created, email recorded but unverified.
     user = get_user_model().objects.get(email="newuser@example.com")
@@ -71,7 +77,11 @@ def test_verify_then_login_succeeds(client):
     from allauth.account.models import EmailAddress
     from django.contrib.auth import get_user_model
 
-    _post(client, "/auth/signup", {"email": "verify@example.com", "password": "sup3r-secret-pw"})
+    _post(
+        client,
+        "/auth/signup",
+        {"email": "verify@example.com", "password": "sup3r-secret-pw"},
+    )
     user = get_user_model().objects.get(email="verify@example.com")
 
     # Simulate the user clicking the emailed verification link.
@@ -82,7 +92,11 @@ def test_verify_then_login_succeeds(client):
 
     # Fresh session: log in with the email as the identifier.
     client.logout()
-    resp = _post(client, "/auth/login", {"email": "verify@example.com", "password": "sup3r-secret-pw"})
+    resp = _post(
+        client,
+        "/auth/login",
+        {"email": "verify@example.com", "password": "sup3r-secret-pw"},
+    )
     assert resp.status_code == 200, resp.content
     assert resp.json()["meta"]["is_authenticated"] is True
 
@@ -96,10 +110,18 @@ def test_seeded_user_logs_in_by_email_under_mandatory_verification(client, setti
     from django.core.management import call_command
 
     settings.ENSURED_USERS = [
-        {"username": "seeded", "password": "seeded-pw-12345", "email": "seeded@example.com"}
+        {
+            "username": "seeded",
+            "password": "seeded-pw-12345",
+            "email": "seeded@example.com",
+        }
     ]
     call_command("ensureusers")
 
-    resp = _post(client, "/auth/login", {"email": "seeded@example.com", "password": "seeded-pw-12345"})
+    resp = _post(
+        client,
+        "/auth/login",
+        {"email": "seeded@example.com", "password": "seeded-pw-12345"},
+    )
     assert resp.status_code == 200, resp.content
     assert resp.json()["meta"]["is_authenticated"] is True

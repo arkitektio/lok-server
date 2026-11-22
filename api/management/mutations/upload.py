@@ -1,9 +1,9 @@
-from kante.types import Info
 import strawberry
+from kante.types import Info
 
-from fakts import types
 from api.management.authz import get_user
 from api.management.datalayer import get_current_datalayer
+from fakts import types
 from karakter.graphql.mutations.upload import presign_media_upload
 
 
@@ -17,10 +17,18 @@ class RequestMediaUploadInput:
     )
 
 
-def request_media_upload(info: Info, input: RequestMediaUploadInput) -> types.PresignedPostCredentials:
+def request_media_upload(
+    info: Info, input: RequestMediaUploadInput
+) -> types.PresignedPostCredentials:
     """Request upload credentials for a given key.
 
     Shares `presign_media_upload` with the main schema so the key namespacing,
     size cap, content-type allowlist and expiry cannot drift between the two.
     """
-    return presign_media_upload(get_user(info), get_current_datalayer(), input.datalayer, input.key, input.content_type)
+    return presign_media_upload(
+        get_user(info),
+        get_current_datalayer(),
+        input.datalayer,
+        input.key,
+        input.content_type,
+    )

@@ -18,7 +18,9 @@ from tests.conftest import build_auth_context
 
 
 def _owner_context(organization):
-    membership = factories.make_membership(user=organization.owner, organization=organization)
+    membership = factories.make_membership(
+        user=organization.owner, organization=organization
+    )
     request_client = factories.make_client(membership=membership)
     return build_auth_context(organization.owner, organization, request_client)
 
@@ -49,7 +51,7 @@ async def test_create_profile_succeeds_despite_auto_created_row():
     org, context = await sync_to_async(_owner_setup)()
 
     result = await management_schema.execute(
-        "mutation ($user: ID!) { createProfile(input: {user: $user, name: \"Display Name\"}) { id name } }",
+        'mutation ($user: ID!) { createProfile(input: {user: $user, name: "Display Name"}) { id name } }',
         context_value=context,
         variable_values={"user": str(org.owner.id)},
     )
@@ -63,7 +65,7 @@ async def test_create_organization_profile_succeeds_despite_auto_created_row():
     org, context = await sync_to_async(_owner_setup)()
 
     result = await management_schema.execute(
-        "mutation ($org: ID!) { createOrganizationProfile(input: {organization: $org, name: \"Org Display\"}) { id name } }",
+        'mutation ($org: ID!) { createOrganizationProfile(input: {organization: $org, name: "Org Display"}) { id name } }',
         context_value=context,
         variable_values={"org": str(org.id)},
     )
@@ -100,7 +102,9 @@ async def test_change_organization_owner_works():
     )
     assert not result.errors, result.errors
     assert result.data["changeOrganizationOwner"]["amIOwner"] is False
-    owner_id = await sync_to_async(lambda: karakter_models.Organization.objects.get(pk=org.pk).owner_id)()
+    owner_id = await sync_to_async(
+        lambda: karakter_models.Organization.objects.get(pk=org.pk).owner_id
+    )()
     assert owner_id == new_owner.id
 
 
@@ -108,12 +112,18 @@ async def test_change_organization_owner_works():
 @pytest.mark.asyncio
 async def test_accept_hub_device_code_with_an_existing_uid_reauthorizes_that_hub():
     """A known uid re-authorizes the hub in place instead of erroring or duplicating it."""
+
     def _setup():
         org, context = _owner_setup()
         hub = factories.make_hub(organization=org, identifier="dup")
         dc = factories.make_device_code(
             kind="hub",
-            staging_manifest={"uid": str(hub.uid), "identifier": "dup", "instances": [], "clients": []},
+            staging_manifest={
+                "uid": str(hub.uid),
+                "identifier": "dup",
+                "instances": [],
+                "clients": [],
+            },
         )
         return org, context, dc, hub
 
@@ -121,11 +131,22 @@ async def test_accept_hub_device_code_with_an_existing_uid_reauthorizes_that_hub
     result = await management_schema.execute(
         "mutation ($input: AcceptHubDeviceCodeInput!) { acceptHubDeviceCode(input: $input) { id } }",
         context_value=context,
-        variable_values={"input": {"deviceCode": str(dc.id), "code": dc.code, "organization": str(org.id), "allowIonscale": False}},
+        variable_values={
+            "input": {
+                "deviceCode": str(dc.id),
+                "code": dc.code,
+                "organization": str(org.id),
+                "allowIonscale": False,
+            }
+        },
     )
     assert not result.errors, result.errors
     assert result.data["acceptHubDeviceCode"]["id"] == str(hub.id)
-    count = await sync_to_async(lambda: fakts_models.Hub.objects.filter(organization=org, identifier="dup").count())()
+    count = await sync_to_async(
+        lambda: fakts_models.Hub.objects.filter(
+            organization=org, identifier="dup"
+        ).count()
+    )()
     assert count == 1
 
 
@@ -139,7 +160,15 @@ async def test_accept_hub_device_code_with_an_existing_uid_reauthorizes_that_hub
 async def test_malformed_ids_are_denied_not_500():
     _org, context = await sync_to_async(_owner_setup)()
 
-    for field in ("organization", "client", "invite", "hub", "device", "service", "app"):
+    for field in (
+        "organization",
+        "client",
+        "invite",
+        "hub",
+        "device",
+        "service",
+        "app",
+    ):
         result = await management_schema.execute(
             f'query {{ {field}(id: "abc") {{ id }} }}',
             context_value=context,
@@ -224,8 +253,12 @@ async def test_every_search_filter_executes():
 async def test_client_kind_and_role_are_enums():
     def _setup():
         org, context = _owner_setup()
-        membership = karakter_models.Membership.objects.get(user=org.owner, organization=org)
-        hub_client = factories.make_client(membership=membership, kind=ClientKindChoices.HUB.value)
+        membership = karakter_models.Membership.objects.get(
+            user=org.owner, organization=org
+        )
+        hub_client = factories.make_client(
+            membership=membership, kind=ClientKindChoices.HUB.value
+        )
         return hub_client, context
 
     hub_client, context = await sync_to_async(_setup)()
@@ -262,4 +295,6 @@ async def test_release_requirements_are_structured():
         variable_values={"id": str(release.id)},
     )
     assert not result.errors, result.errors
-    assert result.data["release"]["requirements"] == [{"key": "db", "service": "com.example.db", "optional": False}]
+    assert result.data["release"]["requirements"] == [
+        {"key": "db", "service": "com.example.db", "optional": False}
+    ]

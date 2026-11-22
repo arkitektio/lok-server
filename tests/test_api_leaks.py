@@ -12,16 +12,14 @@ because the ORM is not usable from the event loop the async schema executes on.
 
 import pytest
 from asgiref.sync import sync_to_async
+from kante.context import HttpContext, TemporalResponse, UniversalRequest
 
 from api.management.authz import DENIED
 from api.management.schema import schema as management_schema
 from fakts import models as fakts_models
-from fakts.enums import ClientKindChoices
 from karakter import models as karakter_models
-from kante.context import HttpContext, TemporalResponse, UniversalRequest
 from tests import factories
 from tests.conftest import build_auth_context
-
 
 # --------------------------------------------------------------------------- #
 # helpers
@@ -30,7 +28,9 @@ from tests.conftest import build_auth_context
 
 def _owner_context(organization):
     """An authenticated context for the organization's owner (who is also admin)."""
-    membership = factories.make_membership(user=organization.owner, organization=organization)
+    membership = factories.make_membership(
+        user=organization.owner, organization=organization
+    )
     request_client = factories.make_client(membership=membership)
     return build_auth_context(organization.owner, organization, request_client)
 
@@ -44,7 +44,9 @@ def _member_context(organization, user=None):
 
 def _anonymous_context():
     request = UniversalRequest(_extensions={})
-    return HttpContext(request=request, response=TemporalResponse(), headers={}, type="http")
+    return HttpContext(
+        request=request, response=TemporalResponse(), headers={}, type="http"
+    )
 
 
 def _two_org_setup():
@@ -96,15 +98,21 @@ async def test_device_code_by_id_is_tenant_scoped():
 
     query = "query ($id: ID!) { deviceCode(id: $id) { id code } }"
 
-    result = await management_schema.execute(query, context_value=context, variable_values={"id": str(theirs.id)})
+    result = await management_schema.execute(
+        query, context_value=context, variable_values={"id": str(theirs.id)}
+    )
     _assert_denied(result)
 
     # A pending code has no organization yet: it is reachable only through the
     # capability path (`deviceCodeByCode`), never by id.
-    result = await management_schema.execute(query, context_value=context, variable_values={"id": str(pending.id)})
+    result = await management_schema.execute(
+        query, context_value=context, variable_values={"id": str(pending.id)}
+    )
     _assert_denied(result)
 
-    result = await management_schema.execute(query, context_value=context, variable_values={"id": str(mine.id)})
+    result = await management_schema.execute(
+        query, context_value=context, variable_values={"id": str(mine.id)}
+    )
     assert not result.errors, result.errors
     assert result.data["deviceCode"]["id"] == str(mine.id)
 
@@ -139,9 +147,12 @@ async def test_mesh_device_code_by_id_is_tenant_scoped():
 
     def _setup():
         layer = ensure_org_mesh(org_b)
-        key = fakts_models.IonscaleAuthKey.objects.create(layer=layer, key="tskey-secret", creator=victim)
-        from django.utils import timezone
+        key = fakts_models.IonscaleAuthKey.objects.create(
+            layer=layer, key="tskey-secret", creator=victim
+        )
         import datetime
+
+        from django.utils import timezone
 
         accepted = fakts_models.MeshDeviceCode.objects.create(
             code="mesh-accepted",
@@ -160,11 +171,21 @@ async def test_mesh_device_code_by_id_is_tenant_scoped():
     accepted, pending, victim_context = await sync_to_async(_setup)()
     query = "query ($id: ID!) { meshDeviceCode(id: $id) { id code } }"
 
-    _assert_denied(await management_schema.execute(query, context_value=context, variable_values={"id": str(accepted.id)}))
-    _assert_denied(await management_schema.execute(query, context_value=context, variable_values={"id": str(pending.id)}))
+    _assert_denied(
+        await management_schema.execute(
+            query, context_value=context, variable_values={"id": str(accepted.id)}
+        )
+    )
+    _assert_denied(
+        await management_schema.execute(
+            query, context_value=context, variable_values={"id": str(pending.id)}
+        )
+    )
 
     # The tenant that accepted it can still read it by id.
-    result = await management_schema.execute(query, context_value=victim_context, variable_values={"id": str(accepted.id)})
+    result = await management_schema.execute(
+        query, context_value=victim_context, variable_values={"id": str(accepted.id)}
+    )
     assert not result.errors, result.errors
     assert result.data["meshDeviceCode"]["id"] == str(accepted.id)
 
@@ -195,7 +216,9 @@ async def test_accept_device_code_requires_proof_of_possession():
     result = await management_schema.execute(
         ACCEPT_DEVICE_CODE,
         context_value=context,
-        variable_values={"input": {"deviceCode": str(device_code.id), "hub": str(hub.id)}},
+        variable_values={
+            "input": {"deviceCode": str(device_code.id), "hub": str(hub.id)}
+        },
     )
     assert result.errors, "accepting without a code must be rejected"
     assert "code" in result.errors[0].message
@@ -203,16 +226,32 @@ async def test_accept_device_code_requires_proof_of_possession():
     result = await management_schema.execute(
         ACCEPT_DEVICE_CODE,
         context_value=context,
-        variable_values={"input": {"deviceCode": str(device_code.id), "hub": str(hub.id), "code": "wrong-code"}},
+        variable_values={
+            "input": {
+                "deviceCode": str(device_code.id),
+                "hub": str(hub.id),
+                "code": "wrong-code",
+            }
+        },
     )
     _assert_denied(result)
-    still_unbound = await sync_to_async(lambda: fakts_models.DeviceCode.objects.get(pk=device_code.pk).client.membership_id)()
+    still_unbound = await sync_to_async(
+        lambda: (
+            fakts_models.DeviceCode.objects.get(pk=device_code.pk).client.membership_id
+        )
+    )()
     assert still_unbound is None
 
     result = await management_schema.execute(
         ACCEPT_DEVICE_CODE,
         context_value=context,
-        variable_values={"input": {"deviceCode": str(device_code.id), "hub": str(hub.id), "code": device_code.code}},
+        variable_values={
+            "input": {
+                "deviceCode": str(device_code.id),
+                "hub": str(hub.id),
+                "code": device_code.code,
+            }
+        },
     )
     assert not result.errors, result.errors
     assert result.data["acceptDeviceCode"]["id"]
@@ -232,7 +271,13 @@ async def test_accept_device_code_into_another_tenants_hub_is_denied():
     result = await management_schema.execute(
         ACCEPT_DEVICE_CODE,
         context_value=context,
-        variable_values={"input": {"deviceCode": str(device_code.id), "hub": str(hub.id), "code": device_code.code}},
+        variable_values={
+            "input": {
+                "deviceCode": str(device_code.id),
+                "hub": str(hub.id),
+                "code": device_code.code,
+            }
+        },
     )
     _assert_denied(result)
 
@@ -262,7 +307,11 @@ async def test_validate_device_code_cross_tenant_is_denied():
     result = await management_schema.execute(
         VALIDATE_DEVICE_CODE,
         context_value=context,
-        variable_values={"dc": str(device_code.id), "hub": str(their_hub.id), "code": device_code.code},
+        variable_values={
+            "dc": str(device_code.id),
+            "hub": str(their_hub.id),
+            "code": device_code.code,
+        },
     )
     _assert_denied(result)
 
@@ -270,7 +319,11 @@ async def test_validate_device_code_cross_tenant_is_denied():
     result = await management_schema.execute(
         VALIDATE_DEVICE_CODE,
         context_value=context,
-        variable_values={"dc": str(device_code.id), "hub": str(my_hub.id), "code": "nope"},
+        variable_values={
+            "dc": str(device_code.id),
+            "hub": str(my_hub.id),
+            "code": "nope",
+        },
     )
     _assert_denied(result)
 
@@ -278,7 +331,11 @@ async def test_validate_device_code_cross_tenant_is_denied():
     result = await management_schema.execute(
         VALIDATE_DEVICE_CODE,
         context_value=context,
-        variable_values={"dc": str(device_code.id), "hub": str(my_hub.id), "code": device_code.code},
+        variable_values={
+            "dc": str(device_code.id),
+            "hub": str(my_hub.id),
+            "code": device_code.code,
+        },
     )
     assert not result.errors, result.errors
     assert result.data["validateDeviceCode"]["valid"] is True
@@ -301,13 +358,19 @@ async def test_hub_device_code_hub_is_null_for_non_members():
         return dc, hub, _owner_context(org_b)
 
     dc, hub, victim_context = await sync_to_async(_setup)()
-    query = "query ($code: String!) { hubDeviceCodeByCode(code: $code) { id hub { id } } }"
+    query = (
+        "query ($code: String!) { hubDeviceCodeByCode(code: $code) { id hub { id } } }"
+    )
 
-    result = await management_schema.execute(query, context_value=context, variable_values={"code": dc.code})
+    result = await management_schema.execute(
+        query, context_value=context, variable_values={"code": dc.code}
+    )
     assert not result.errors, result.errors
     assert result.data["hubDeviceCodeByCode"]["hub"] is None
 
-    result = await management_schema.execute(query, context_value=victim_context, variable_values={"code": dc.code})
+    result = await management_schema.execute(
+        query, context_value=victim_context, variable_values={"code": dc.code}
+    )
     assert not result.errors, result.errors
     assert result.data["hubDeviceCodeByCode"]["hub"]["id"] == str(hub.id)
 
@@ -335,7 +398,10 @@ async def test_invite_email_is_hidden_from_anonymous_preview_but_visible_to_owne
     def _setup():
         org = factories.make_organization()
         invite = karakter_models.Invite.objects.create(
-            created_by=org.owner, created_for=org, public=True, email="invitee@example.com"
+            created_by=org.owner,
+            created_for=org,
+            public=True,
+            email="invitee@example.com",
         )
         return invite, _owner_context(org)
 
@@ -401,16 +467,28 @@ async def test_issuing_a_key_for_any_app_is_owner_admin_only():
     open_key = "mutation ($hub: ID!) { issueMandateKey(input: {hub: $hub}) { key mandate { id } } }"
     named_key = 'mutation ($hub: ID!) { issueMandateKey(input: {hub: $hub, app: {identifier: "com.example.app"}}) { key } }'
 
-    _assert_denied(await management_schema.execute(open_key, context_value=outsider_context, variable_values={"hub": str(hub.id)}))
+    _assert_denied(
+        await management_schema.execute(
+            open_key,
+            context_value=outsider_context,
+            variable_values={"hub": str(hub.id)},
+        )
+    )
 
-    member_open = await management_schema.execute(open_key, context_value=member_context, variable_values={"hub": str(hub.id)})
+    member_open = await management_schema.execute(
+        open_key, context_value=member_context, variable_values={"hub": str(hub.id)}
+    )
     assert member_open.errors and "owner or admin" in member_open.errors[0].message
 
-    member_named = await management_schema.execute(named_key, context_value=member_context, variable_values={"hub": str(hub.id)})
+    member_named = await management_schema.execute(
+        named_key, context_value=member_context, variable_values={"hub": str(hub.id)}
+    )
     assert not member_named.errors, member_named.errors
     assert member_named.data["issueMandateKey"]["key"]
 
-    result = await management_schema.execute(open_key, context_value=owner_context, variable_values={"hub": str(hub.id)})
+    result = await management_schema.execute(
+        open_key, context_value=owner_context, variable_values={"hub": str(hub.id)}
+    )
     assert not result.errors, result.errors
     # The issuer sees the key once, in the answer.
     assert len(result.data["issueMandateKey"]["key"]) >= 32
@@ -424,7 +502,9 @@ async def test_ionscale_auth_key_secret_only_for_creator_or_owner_admin():
     def _setup():
         org = factories.make_organization()
         layer = ensure_org_mesh(org)
-        key = fakts_models.IonscaleAuthKey.objects.create(layer=layer, key="tskey-very-secret", creator=org.owner)
+        key = fakts_models.IonscaleAuthKey.objects.create(
+            layer=layer, key="tskey-very-secret", creator=org.owner
+        )
         return key, _owner_context(org), _member_context(org)
 
     key, owner_context, member_context = await sync_to_async(_setup)()
@@ -485,13 +565,32 @@ async def test_catalog_lists_exclude_other_tenants():
         theirs_service = factories.make_service(organization=org_b)
         my_hub = factories.make_hub(organization=org_a)
         their_hub = factories.make_hub(organization=org_b)
-        mine_instance = factories.make_service_instance(hub=my_hub, release=factories.make_service_release(service=mine_service))
-        theirs_instance = factories.make_service_instance(hub=their_hub, release=factories.make_service_release(service=theirs_service))
+        mine_instance = factories.make_service_instance(
+            hub=my_hub, release=factories.make_service_release(service=mine_service)
+        )
+        theirs_instance = factories.make_service_instance(
+            hub=their_hub,
+            release=factories.make_service_release(service=theirs_service),
+        )
         mine_app = factories.make_app(organization=org_a)
         theirs_app = factories.make_app(organization=org_b)
-        return mine_service, theirs_service, mine_instance, theirs_instance, mine_app, theirs_app
+        return (
+            mine_service,
+            theirs_service,
+            mine_instance,
+            theirs_instance,
+            mine_app,
+            theirs_app,
+        )
 
-    mine_service, theirs_service, mine_instance, theirs_instance, mine_app, theirs_app = await sync_to_async(_setup)()
+    (
+        mine_service,
+        theirs_service,
+        mine_instance,
+        theirs_instance,
+        mine_app,
+        theirs_app,
+    ) = await sync_to_async(_setup)()
 
     result = await management_schema.execute(
         "{ services { id } serviceInstances { id } apps { id } serviceReleases { id } }",
@@ -501,13 +600,23 @@ async def test_catalog_lists_exclude_other_tenants():
     service_ids = {row["id"] for row in result.data["services"]}
     instance_ids = {row["id"] for row in result.data["serviceInstances"]}
     app_ids = {row["id"] for row in result.data["apps"]}
-    assert str(mine_service.id) in service_ids and str(theirs_service.id) not in service_ids
-    assert str(mine_instance.id) in instance_ids and str(theirs_instance.id) not in instance_ids
+    assert (
+        str(mine_service.id) in service_ids
+        and str(theirs_service.id) not in service_ids
+    )
+    assert (
+        str(mine_instance.id) in instance_ids
+        and str(theirs_instance.id) not in instance_ids
+    )
     assert str(mine_app.id) in app_ids and str(theirs_app.id) not in app_ids
     assert len(result.data["serviceReleases"]) == 1
 
     # And the single-object roots are scoped the same way.
-    for field, obj in (("service", theirs_service), ("serviceInstance", theirs_instance), ("app", theirs_app)):
+    for field, obj in (
+        ("service", theirs_service),
+        ("serviceInstance", theirs_instance),
+        ("app", theirs_app),
+    ):
         result = await management_schema.execute(
             f"query ($id: ID!) {{ {field}(id: $id) {{ id }} }}",
             context_value=context,

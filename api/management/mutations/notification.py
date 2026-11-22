@@ -25,7 +25,9 @@ from karakter import models
 logger = logging.getLogger(__name__)
 
 
-@strawberry.input(description="Turn this organization's notifications on or off for yourself.")
+@strawberry.input(
+    description="Turn this organization's notifications on or off for yourself."
+)
 class SetMembershipNotificationsInput:
     organization: strawberry.ID
     allow: bool
@@ -57,7 +59,9 @@ class NotifyMemberInput:
     title: str | None = None
 
 
-def notify_member(info: Info, input: NotifyMemberInput) -> types.ManagementNotificationResult:
+def notify_member(
+    info: Info, input: NotifyMemberInput
+) -> types.ManagementNotificationResult:
     """Push a notification to a member's registered devices.
 
     Any member of the organization may notify any other member of it — the
@@ -83,7 +87,9 @@ def notify_member(info: Info, input: NotifyMemberInput) -> types.ManagementNotif
     if not message:
         raise GraphQLError("Notification message must not be empty")
 
-    title = (input.title or "").strip() or (organization.name or organization.slug or "Notification")
+    title = (input.title or "").strip() or (
+        organization.name or organization.slug or "Notification"
+    )
 
     try:
         results = membership.notify(title, message)

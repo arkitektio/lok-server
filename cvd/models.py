@@ -33,14 +33,23 @@ class VulnerabilityReport(models.Model):
         REJECTED = "rejected", "Rejected (not a vulnerability)"
         CLOSED = "closed", "Closed"
 
-    reference = models.CharField(max_length=16, unique=True, default=_reference, editable=False)
+    reference = models.CharField(
+        max_length=16, unique=True, default=_reference, editable=False
+    )
     created_at = models.DateTimeField(auto_now_add=True)
 
     kind = models.CharField(max_length=20, choices=Kind.choices, default=Kind.UNSURE)
     title = models.CharField(max_length=200)
-    affected = models.CharField(max_length=500, help_text="Product, version, URL or component the reporter named.")
-    description = models.TextField(help_text="What the vulnerability is and its impact.")
-    reproduction = models.TextField(blank=True, help_text="Steps to reproduce / proof of concept.")
+    affected = models.CharField(
+        max_length=500,
+        help_text="Product, version, URL or component the reporter named.",
+    )
+    description = models.TextField(
+        help_text="What the vulnerability is and its impact."
+    )
+    reproduction = models.TextField(
+        blank=True, help_text="Steps to reproduce / proof of concept."
+    )
     language = models.CharField(max_length=8, default="en")
 
     contact = models.CharField(
@@ -48,8 +57,14 @@ class VulnerabilityReport(models.Model):
         blank=True,
         help_text="Email address, phone number or other contact the reporter chose. Empty: anonymous.",
     )
-    credit_name = models.CharField(max_length=120, blank=True, help_text="Name/alias for the acknowledgements page.")
-    credit_reference = models.CharField(max_length=300, blank=True, help_text="URL the reporter wants linked.")
+    credit_name = models.CharField(
+        max_length=120,
+        blank=True,
+        help_text="Name/alias for the acknowledgements page.",
+    )
+    credit_reference = models.CharField(
+        max_length=300, blank=True, help_text="URL the reporter wants linked."
+    )
     wants_credit = models.BooleanField(default=False)
 
     status = models.CharField(max_length=20, choices=Status.choices, default=Status.NEW)
@@ -58,12 +73,22 @@ class VulnerabilityReport(models.Model):
     # Closing takes two people (TR-03183-3 4.4.7g: a report cannot be closed by a single
     # analyst). The admin binds both to the logged-in user (cvd/admin.py): one analyst
     # proposes a closing status, and only a save by a *different* analyst applies it.
-    close_proposed_status = models.CharField(max_length=20, choices=Status.choices, blank=True)
+    close_proposed_status = models.CharField(
+        max_length=20, choices=Status.choices, blank=True
+    )
     close_proposed_by = models.ForeignKey(
-        settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL, related_name="+"
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="+",
     )
     close_confirmed_by = models.ForeignKey(
-        settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL, related_name="+"
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="+",
     )
 
     CLOSING = (Status.REJECTED, Status.CLOSED)
@@ -79,7 +104,11 @@ class VulnerabilityReport(models.Model):
             return "unchanged"
         if status not in self.CLOSING:
             self.status = status
-            self.close_proposed_status, self.close_proposed_by, self.close_confirmed_by = "", None, None
+            (
+                self.close_proposed_status,
+                self.close_proposed_by,
+                self.close_confirmed_by,
+            ) = "", None, None
             return "applied"
         if (
             self.close_proposed_status == status

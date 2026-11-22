@@ -18,16 +18,16 @@ from fakts.utils import _assert_public_url, download_logo
     "url",
     [
         "http://example.com/logo.png",  # plaintext
-        "file:///etc/passwd",           # non-http scheme
+        "file:///etc/passwd",  # non-http scheme
         "ftp://example.com/logo.png",
         "gopher://example.com/",
-        "https://127.0.0.1/logo.png",   # loopback
+        "https://127.0.0.1/logo.png",  # loopback
         "https://localhost/logo.png",
-        "https://10.0.0.5/logo.png",    # RFC1918
+        "https://10.0.0.5/logo.png",  # RFC1918
         "https://192.168.1.1/logo.png",
         "https://172.16.0.1/logo.png",
         "https://169.254.169.254/latest/meta-data/",  # cloud metadata
-        "https://[::1]/logo.png",       # v6 loopback
+        "https://[::1]/logo.png",  # v6 loopback
         "https://0.0.0.0/logo.png",
     ],
 )
@@ -41,7 +41,15 @@ def test_internal_service_names_are_refused(monkeypatch):
     import socket
 
     def _fake_getaddrinfo(host, port, **kwargs):
-        return [(socket.AF_INET, socket.SOCK_STREAM, socket.IPPROTO_TCP, "", ("172.18.0.4", port))]
+        return [
+            (
+                socket.AF_INET,
+                socket.SOCK_STREAM,
+                socket.IPPROTO_TCP,
+                "",
+                ("172.18.0.4", port),
+            )
+        ]
 
     monkeypatch.setattr(socket, "getaddrinfo", _fake_getaddrinfo)
 
@@ -55,8 +63,20 @@ def test_host_resolving_to_both_public_and_private_is_refused(monkeypatch):
 
     def _fake_getaddrinfo(host, port, **kwargs):
         return [
-            (socket.AF_INET, socket.SOCK_STREAM, socket.IPPROTO_TCP, "", ("93.184.216.34", port)),
-            (socket.AF_INET, socket.SOCK_STREAM, socket.IPPROTO_TCP, "", ("127.0.0.1", port)),
+            (
+                socket.AF_INET,
+                socket.SOCK_STREAM,
+                socket.IPPROTO_TCP,
+                "",
+                ("93.184.216.34", port),
+            ),
+            (
+                socket.AF_INET,
+                socket.SOCK_STREAM,
+                socket.IPPROTO_TCP,
+                "",
+                ("127.0.0.1", port),
+            ),
         ]
 
     monkeypatch.setattr(socket, "getaddrinfo", _fake_getaddrinfo)
@@ -83,7 +103,15 @@ def test_public_https_url_passes_the_guard(monkeypatch):
     import socket
 
     def _fake_getaddrinfo(host, port, **kwargs):
-        return [(socket.AF_INET, socket.SOCK_STREAM, socket.IPPROTO_TCP, "", ("93.184.216.34", port))]
+        return [
+            (
+                socket.AF_INET,
+                socket.SOCK_STREAM,
+                socket.IPPROTO_TCP,
+                "",
+                ("93.184.216.34", port),
+            )
+        ]
 
     monkeypatch.setattr(socket, "getaddrinfo", _fake_getaddrinfo)
 
@@ -99,7 +127,15 @@ def test_timeout_and_no_redirects_are_passed(monkeypatch):
     from fakts.utils import LOGO_CONNECT_TIMEOUT, LOGO_READ_TIMEOUT
 
     def _fake_getaddrinfo(host, port, **kwargs):
-        return [(socket.AF_INET, socket.SOCK_STREAM, socket.IPPROTO_TCP, "", ("93.184.216.34", port))]
+        return [
+            (
+                socket.AF_INET,
+                socket.SOCK_STREAM,
+                socket.IPPROTO_TCP,
+                "",
+                ("93.184.216.34", port),
+            )
+        ]
 
     monkeypatch.setattr(socket, "getaddrinfo", _fake_getaddrinfo)
 

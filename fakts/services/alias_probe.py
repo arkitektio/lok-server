@@ -36,10 +36,10 @@ import secrets
 import tempfile
 import time
 from collections import defaultdict
+from collections.abc import Callable, Iterable
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from datetime import timedelta
-from typing import Callable, Iterable, Optional
 
 import certifi
 import requests
@@ -70,22 +70,22 @@ MIN_RECHECK_SECONDS = 10
 class Fetched:
     """What one request to an alias's challenge URL got back."""
 
-    error: Optional[str] = None
+    error: str | None = None
     """A status (``Status`` value) when no signed-answer candidate came back."""
-    http_status: Optional[int] = None
-    signature: Optional[str] = None
-    latency_ms: Optional[int] = None
+    http_status: int | None = None
+    signature: str | None = None
+    latency_ms: int | None = None
 
 
 @dataclass(frozen=True)
 class ProbeResult:
     alias_id: int
     status: str
-    http_status: Optional[int]
-    latency_ms: Optional[int]
+    http_status: int | None
+    latency_ms: int | None
 
 
-Fetcher = Callable[[str, str, Optional[str]], Fetched]
+Fetcher = Callable[[str, str, str | None], Fetched]
 
 
 def new_nonce() -> str:
@@ -94,13 +94,20 @@ def new_nonce() -> str:
 
 
 def is_probeable(alias: models.InstanceAlias) -> bool:
-    return bool(alias.public and alias.ssl and alias.host and alias.kind == enums.AliasKindChoices.ABSOLUTE.value)
+    return bool(
+        alias.public
+        and alias.ssl
+        and alias.host
+        and alias.kind == enums.AliasKindChoices.ABSOLUTE.value
+    )
 
 
 def probeable_aliases() -> QuerySet:
     """Every alias lok checks itself: public, https, absolute, with a host."""
     return (
-        models.InstanceAlias.objects.filter(public=True, ssl=True, kind=enums.AliasKindChoices.ABSOLUTE.value)
+        models.InstanceAlias.objects.filter(
+            public=True, ssl=True, kind=enums.AliasKindChoices.ABSOLUTE.value
+        )
         .exclude(host__isnull=True)
         .exclude(host="")
         .select_related("instance__hub")
@@ -113,11 +120,17 @@ def challenge_url(alias: models.InstanceAlias) -> str:
     if ":" in host and not host.startswith("["):
         host = f"[{host}]"  # a bare IPv6 address
     netloc = f"{host}:{alias.port}" if alias.port else host
-    segments = [part.strip("/") for part in (alias.path or "", alias.challenge or "") if part and part.strip("/")]
+    segments = [
+        part.strip("/")
+        for part in (alias.path or "", alias.challenge or "")
+        if part and part.strip("/")
+    ]
     return f"https://{netloc}/{'/'.join(segments)}"
 
 
-def fetch_challenge(url: str, nonce: str, ca_bundle: Optional[str] = None, *, guard: bool = True) -> Fetched:
+def fetch_challenge(
+    url: str, nonce: str, ca_bundle: str | None = None, *, guard: bool = True
+) -> Fetched:
     """Ask ``url`` to sign ``nonce``. ``ca_bundle``: a PEM file to trust instead of the system CAs."""
     if guard:
         try:
@@ -138,13 +151,21 @@ def fetch_challenge(url: str, nonce: str, ca_bundle: Optional[str] = None, *, gu
         ) as response:
             latency_ms = int((time.monotonic() - started) * 1000)
             if response.status_code != 200:
-                return Fetched(error=Status.UNHEALTHY.value, http_status=response.status_code, latency_ms=latency_ms)
+                return Fetched(
+                    error=Status.UNHEALTHY.value,
+                    http_status=response.status_code,
+                    latency_ms=latency_ms,
+                )
             body = b""
             for chunk in response.iter_content(chunk_size=1024):
                 body += chunk
                 if len(body) > MAX_BODY_BYTES:
                     # Not a signed answer: most likely the health page passed through unsigned.
-                    return Fetched(error=Status.UNSIGNED.value, http_status=200, latency_ms=latency_ms)
+                    return Fetched(
+                        error=Status.UNSIGNED.value,
+                        http_status=200,
+                        latency_ms=latency_ms,
+                    )
     except requests.exceptions.SSLError:
         return Fetched(error=Status.TLS_FAILED.value)
     except requests.exceptions.Timeout:
@@ -155,10 +176,14 @@ def fetch_challenge(url: str, nonce: str, ca_bundle: Optional[str] = None, *, gu
     try:
         payload = json.loads(body)
     except ValueError:
-        return Fetched(error=Status.UNSIGNED.value, http_status=200, latency_ms=latency_ms)
+        return Fetched(
+            error=Status.UNSIGNED.value, http_status=200, latency_ms=latency_ms
+        )
     signature = payload.get("signature") if isinstance(payload, dict) else None
     if not isinstance(signature, str):
-        return Fetched(error=Status.UNSIGNED.value, http_status=200, latency_ms=latency_ms)
+        return Fetched(
+            error=Status.UNSIGNED.value, http_status=200, latency_ms=latency_ms
+        )
     return Fetched(http_status=200, signature=signature, latency_ms=latency_ms)
 
 
@@ -166,7 +191,9 @@ def verify_signature(public_key: str, nonce: str, signature: str) -> bool:
     """Whether ``signature`` is the instance key's Ed25519 signature of the tagged nonce."""
     try:
         raw_signature = base64.b64decode(signature, validate=True)
-        key = Ed25519PublicKey.from_public_bytes(base64.b64decode(public_key, validate=True))
+        key = Ed25519PublicKey.from_public_bytes(
+            base64.b64decode(public_key, validate=True)
+        )
     except (binascii.Error, ValueError):
         return False
     if len(raw_signature) != 64:
@@ -178,7 +205,7 @@ def verify_signature(public_key: str, nonce: str, signature: str) -> bool:
     return True
 
 
-def judge(fetched: Fetched, nonce: str, public_key: Optional[str]) -> str:
+def judge(fetched: Fetched, nonce: str, public_key: str | None) -> str:
     """The status of one alias row, from its URL's answer and its own instance's key."""
     if fetched.error and fetched.error != Status.UNSIGNED.value:
         return fetched.error
@@ -193,13 +220,17 @@ def judge(fetched: Fetched, nonce: str, public_key: Optional[str]) -> str:
 
 
 def probe_aliases(
-    aliases: Optional[Iterable[models.InstanceAlias]] = None,
+    aliases: Iterable[models.InstanceAlias] | None = None,
     *,
-    fetch: Optional[Fetcher] = None,
-    concurrency: Optional[int] = None,
+    fetch: Fetcher | None = None,
+    concurrency: int | None = None,
 ) -> list[ProbeResult]:
     """Probe ``aliases`` (default: every probeable one) and store each outcome on its row."""
-    rows = [alias for alias in (probeable_aliases() if aliases is None else aliases) if is_probeable(alias)]
+    rows = [
+        alias
+        for alias in (probeable_aliases() if aliases is None else aliases)
+        if is_probeable(alias)
+    ]
     if not rows:
         return []
     fetch = fetch or fetch_challenge
@@ -208,10 +239,12 @@ def probe_aliases(
     # certificate, as its apps trust it — and on the public CAs too, for a hub whose
     # public aliases sit behind a CA-issued proxy. Identity comes from the signature
     # either way; TLS only has to make the transport honest.
-    groups: dict[tuple[str, Optional[str]], list[models.InstanceAlias]] = defaultdict(list)
+    groups: dict[tuple[str, str | None], list[models.InstanceAlias]] = defaultdict(list)
     for alias in rows:
         hub = alias.instance.hub if alias.instance.hub_id else None
-        groups[(challenge_url(alias), (hub.tls_certificate or None) if hub else None)].append(alias)
+        groups[
+            (challenge_url(alias), (hub.tls_certificate or None) if hub else None)
+        ].append(alias)
 
     with tempfile.TemporaryDirectory(prefix="alias-probe-") as tmp:
         bundles: dict[str, str] = {}
@@ -232,14 +265,19 @@ def probe_aliases(
                 logger.exception("Probing %s failed unexpectedly", url)
                 return Fetched(error=Status.UNREACHABLE.value)
 
-        workers = max(1, min(concurrency or getattr(settings, "HUB_PROBE_CONCURRENCY", 8), len(jobs)))
+        workers = max(
+            1,
+            min(
+                concurrency or getattr(settings, "HUB_PROBE_CONCURRENCY", 8), len(jobs)
+            ),
+        )
         with ThreadPoolExecutor(max_workers=workers) as pool:
             answers = list(pool.map(run, jobs))
 
     now = timezone.now()
     results: list[ProbeResult] = []
     updated: list[models.InstanceAlias] = []
-    for ((key, nonce), fetched) in zip(jobs, answers):
+    for (key, nonce), fetched in zip(jobs, answers):
         for alias in groups[key]:
             status = judge(fetched, nonce, alias.instance.public_key)
             alias.probe_status = status
@@ -249,18 +287,29 @@ def probe_aliases(
             if status == Status.VERIFIED.value:
                 alias.last_verified_at = now
             updated.append(alias)
-            results.append(ProbeResult(alias.id, status, fetched.http_status, fetched.latency_ms))
+            results.append(
+                ProbeResult(alias.id, status, fetched.http_status, fetched.latency_ms)
+            )
 
     models.InstanceAlias.objects.bulk_update(
-        updated, ["probe_status", "probed_at", "probe_http_status", "probe_latency_ms", "last_verified_at"]
+        updated,
+        [
+            "probe_status",
+            "probed_at",
+            "probe_http_status",
+            "probe_latency_ms",
+            "last_verified_at",
+        ],
     )
     return results
 
 
-def probe_hub(hub: models.Hub, *, fetch: Optional[Fetcher] = None) -> list[ProbeResult]:
+def probe_hub(hub: models.Hub, *, fetch: Fetcher | None = None) -> list[ProbeResult]:
     """Probe one hub's public aliases now, unless they were probed moments ago."""
     aliases = list(probeable_aliases().filter(instance__hub=hub))
     recent = timezone.now() - timedelta(seconds=MIN_RECHECK_SECONDS)
-    if aliases and all(alias.probed_at and alias.probed_at > recent for alias in aliases):
+    if aliases and all(
+        alias.probed_at and alias.probed_at > recent for alias in aliases
+    ):
         return []
     return probe_aliases(aliases, fetch=fetch)

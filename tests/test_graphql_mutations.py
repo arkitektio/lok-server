@@ -43,7 +43,11 @@ def _setup_with_hub():
     request_client = factories.make_client(
         membership=membership,
         hub=hub,
-        manifest={"identifier": "com.example.caller", "version": "1.0.0", "requirements": [{"key": "rekuest", "service": "live.arkitekt.rekuest"}]},
+        manifest={
+            "identifier": "com.example.caller",
+            "version": "1.0.0",
+            "requirements": [{"key": "rekuest", "service": "live.arkitekt.rekuest"}],
+        },
     )
     request_client.scopes.add(read)
     return membership.user, membership.organization, request_client
@@ -57,7 +61,9 @@ async def test_issue_mandate_key_pins_the_manifest():
     result = await schema.execute(
         ISSUE_MANDATE_KEY,
         context_value=_context(user, organization, request_client),
-        variable_values={"input": {"manifest": PINNED_MANIFEST, "expiresInDays": 3, "maxClients": 1}},
+        variable_values={
+            "input": {"manifest": PINNED_MANIFEST, "expiresInDays": 3, "maxClients": 1}
+        },
     )
 
     assert not result.errors, result.errors
@@ -112,11 +118,19 @@ def test_the_deprecated_node_id_input_is_marked_deprecated_in_the_schema():
     start = sdl.index("input ManifestInput ")
     block = sdl[start : sdl.index("\n}", start)]
     assert "deviceId" in block
-    node_line = next(line for line in block.splitlines() if line.strip().startswith("nodeId"))
+    node_line = next(
+        line for line in block.splitlines() if line.strip().startswith("nodeId")
+    )
     assert "@deprecated" in node_line
 
 
 def test_the_redeem_token_surface_is_gone():
     sdl = schema.as_str()
-    for name in ("createRedeemToken", "deleteRedeemToken", "redeemToken", "provision(", "createDevelopmentalClient"):
+    for name in (
+        "createRedeemToken",
+        "deleteRedeemToken",
+        "redeemToken",
+        "provision(",
+        "createDevelopmentalClient",
+    ):
         assert name not in sdl

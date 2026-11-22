@@ -9,8 +9,8 @@ stored client name.
 import pytest
 from asgiref.sync import sync_to_async
 
-from lok_server.schema import schema
 from fakts import models as fmodels
+from lok_server.schema import schema
 from tests import factories
 from tests.conftest import build_auth_context
 
@@ -50,7 +50,9 @@ def _setup_no_device():
     membership = factories.make_membership(user=user)
     app = factories.make_app(identifier="com.example.tool")
     release = factories.make_release(app=app, version="2.3.0")
-    client = factories.make_client(membership=membership, release=release)  # node stays null
+    client = factories.make_client(
+        membership=membership, release=release
+    )  # node stays null
     return user, membership.organization, client
 
 
