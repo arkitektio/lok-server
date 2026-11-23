@@ -10,8 +10,8 @@ from kante import Info
 from api.management.authz import assert_owner
 from api.management.mutations.invite import (
     SharedCollaborationInput,
-    _may_share,
     collaboration_entries,
+    may_share,
 )
 from karakter import collaboration_grants, models, types
 from karakter.authz import get_or_denied, get_user
@@ -27,7 +27,7 @@ class CreateInviteInput:
     roles: list[str] | None = None  # Role identifiers to assign
     collaborations: list[SharedCollaborationInput] | None = strawberry.field(
         default=None,
-        description="Grant only these collaborations of the organization's service instances, each with the roles that hold "
+        description="Grant only these collaborations of the organization, each with the roles that hold "
         "inside it, instead of making the holder a member.",
     )
     max_uses: int | None = strawberry.field(
@@ -37,7 +37,7 @@ class CreateInviteInput:
     allow_mesh: bool = strawberry.field(
         default=True,
         description="For a collaboration invite: whether the guests' apps may join the organization's mesh. They then reach "
-        "only the hubs the granted collaborations run on, nothing else of the mesh.",
+        "only the organization's hubs, nothing else of the mesh.",
     )
 
 
@@ -62,7 +62,7 @@ def create_invite(info: Info, input: CreateInviteInput) -> types.Invite:
     shared_collaborations = None
     if input.collaborations is not None:
         # A collaboration invite: any member but a guest may grant what they can reach.
-        if organization is None or not _may_share(get_user(info), organization):
+        if organization is None or not may_share(get_user(info), organization):
             raise GraphQLError(
                 "Only members of the organization can grant its collaborations."
             )

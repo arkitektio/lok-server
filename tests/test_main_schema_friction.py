@@ -230,7 +230,7 @@ def _sample(gql_type: GraphQLInputType) -> _Sample:
         # representative one — the others differ only in operator.
         if "contains" in fields:
             return {"contains": "x"}
-        # Every required field (an input like `{ instance, collaboration }`),
+        # Every required field (an input like `{ collaboration, roles }`),
         # or else the first one.
         required = {
             name: _sample(field.type)

@@ -12,6 +12,11 @@ from .bug_report import (
     resolve_bug_report,
     unresolve_bug_report,
 )
+from .collaboration import (
+    create_collaboration,
+    delete_collaboration,
+    update_collaboration,
+)
 from .collaboration_grant import revoke_collaboration_grant
 from .device import create_device, delete_device, update_device
 from .device_code import (
@@ -96,6 +101,9 @@ from .role_set import (
 from .upload import request_media_upload
 
 __all__ = [
+    "create_collaboration",
+    "delete_collaboration",
+    "update_collaboration",
     "accept_device_code",
     "accept_hub_device_code",
     "accept_invite",

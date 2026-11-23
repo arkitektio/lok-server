@@ -55,6 +55,10 @@ class Query:
     instance_aliases: list[types.ManagementInstanceAlias] = kante.django_field()
     social_accounts: list[types.ManagementSocialAccount] = kante.django_field()
     memberships: list[types.ManagementMembership] = kante.django_field()
+    collaborations: list[types.ManagementCollaboration] = kante.django_field()
+    collaboration_grants: list[types.ManagementCollaborationGrant] = (
+        kante.django_field()
+    )
     role_requests: list[types.ManagementRoleRequest] = kante.django_field()
     scopes: list[types.ManagementScope] = kante.django_field()
     roles: list[types.ManagementRole] = kante.django_field()
@@ -179,14 +183,11 @@ class Query:
         caller is a member of, or, for a guest, run one of their live
         collaborations — the same bar as ``acceptDeviceCode``.
         """
-        from karakter.collaboration_grants import live_grants
+        from karakter.collaboration_grants import granted_hub_ids
 
         hub_obj = get_or_denied(fakts_models.Hub.objects, id=hub)
         membership = assert_member_or_guest(info, hub_obj.organization)
-        if (
-            membership.is_scoped
-            and not live_grants(membership).filter(instance__hub=hub_obj).exists()
-        ):
+        if membership.is_scoped and hub_obj.pk not in granted_hub_ids(membership):
             raise GraphQLError(DENIED)
         device_code_obj = resolve_device_code_with_proof(
             fakts_models.DeviceCode, device_code_id=device_code, code=code, kind="app"
@@ -300,6 +301,17 @@ class Query:
         if not is_owner_or_admin(info.context.request.user, invite.created_for):
             raise GraphQLError(DENIED)
         return invite
+
+    @kante.django_field()
+    def collaboration(
+        self, info: Info, id: strawberry.ID
+    ) -> types.ManagementCollaboration:
+        return get_scoped_lookup(
+            types.ManagementCollaboration,
+            karakter_models.Collaboration.objects,
+            info,
+            id=id,
+        )
 
     @kante.django_field()
     def release(self, info: Info, id: strawberry.ID) -> types.ManagementRelease:
@@ -538,6 +550,17 @@ class Mutation:
     )
     cancel_invite = strawberry_django.mutation(
         resolver=mutations.cancel_invite,
+    )
+    create_collaboration = strawberry_django.mutation(
+        resolver=mutations.create_collaboration,
+        description="Make a collaboration of the organization: one key its services put objects in, and invites grant.",
+    )
+    update_collaboration = strawberry_django.mutation(
+        resolver=mutations.update_collaboration,
+    )
+    delete_collaboration = strawberry_django.mutation(
+        resolver=mutations.delete_collaboration,
+        description="Delete a collaboration, and every grant of it.",
     )
     revoke_collaboration_grant = strawberry_django.mutation(
         resolver=mutations.revoke_collaboration_grant,

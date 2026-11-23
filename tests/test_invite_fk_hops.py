@@ -28,21 +28,18 @@ query {
 def _setup(caller_is_owner: bool) -> tuple[HttpContext, str]:
     organization = factories.make_organization()
     factories.make_membership(user=organization.owner, organization=organization)
-    instance = factories.make_service_instance(
-        hub=factories.make_hub(organization=organization)
+    collaboration = models.Collaboration.objects.create(
+        organization=organization, name="Plates"
     )
     invite = models.Invite.objects.create(
         created_by=organization.owner,
         created_for=organization,
-        shared_collaborations=[
-            {"instance": instance.pk, "collaboration": "12", "roles": []}
-        ],
+        shared_collaborations=[{"collaboration": str(collaboration.key), "roles": []}],
     )
     guest = factories.make_membership(organization=organization, created_through=invite)
     models.CollaborationGrant.objects.create(
         membership=guest,
-        instance=instance,
-        collaboration_id="12",
+        collaboration=collaboration,
         granted_by=organization.owner,
         granted_through=invite,
     )

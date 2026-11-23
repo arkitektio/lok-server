@@ -265,7 +265,7 @@ async def test_member_invites_apart_from_collaboration_links() -> None:
             created_by=user,
             created_for=world["org"],
             shared_collaborations=[
-                {"instance": "1", "collaboration": "2", "roles": []}
+                {"collaboration": "0b4e5c4a-1d2f-4a6b-9c8d-7e6f5a4b3c2d", "roles": []}
             ],
         )
         return member, link

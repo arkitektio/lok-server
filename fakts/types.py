@@ -145,14 +145,10 @@ def _granted_hubs(
     user: karakter_models.User,
     membership: karakter_models.Membership,
 ) -> QuerySet[models.Hub]:
-    """A guest sees the hubs their live collaborations run on, as on the management schema."""
-    from karakter.collaboration_grants import live_grants
+    """A guest sees the organization's hubs while a collaboration of theirs is live, as on the management schema."""
+    from karakter.collaboration_grants import granted_hub_ids
 
-    return queryset.filter(
-        pk__in=live_grants(membership)
-        .filter(instance__hub__isnull=False)
-        .values("instance__hub_id")
-    )
+    return queryset.filter(pk__in=granted_hub_ids(membership))
 
 
 @strawberry.type(

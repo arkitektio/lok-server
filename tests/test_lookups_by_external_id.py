@@ -227,6 +227,9 @@ async def test_app_and_device_search_ignores_case_and_matches_identifiers() -> N
 
 
 INVITES = "query ($filters: InviteFilter) { invites(filters: $filters) { id } }"
+# Two collaborations' keys, as invites store them.
+PLATES = "0b4e5c4a-1d2f-4a6b-9c8d-7e6f5a4b3c2d"
+NOTES = "9f12e3d4-5c6b-4a7f-8e9d-0c1b2a3f4e5d"
 
 
 @pytest.mark.django_db(transaction=True)
@@ -258,22 +261,20 @@ async def test_invites_filter_by_granted_collaboration_and_validity() -> None:
                 **kw,
             )
 
-        microscope = invite(
-            [{"instance": "7", "collaboration": "12", "roles": ["editor"]}]
-        )
+        microscope = invite([{"collaboration": PLATES, "roles": ["editor"]}])
         both = invite(
             [
-                {"instance": "7", "collaboration": "3", "roles": []},
-                {"instance": "7", "collaboration": "12", "roles": []},
+                {"collaboration": NOTES, "roles": []},
+                {"collaboration": PLATES, "roles": []},
             ]
         )
-        elsewhere = invite([{"instance": "8", "collaboration": "12", "roles": []}])
+        elsewhere = invite([{"collaboration": NOTES, "roles": []}])
         expired = invite(
-            [{"instance": "7", "collaboration": "12", "roles": []}],
+            [{"collaboration": PLATES, "roles": []}],
             expires_at=timezone.now() - datetime.timedelta(days=1),
         )
         accepted = invite(
-            [{"instance": "7", "collaboration": "12", "roles": []}],
+            [{"collaboration": PLATES, "roles": []}],
             status=models.Invite.Status.ACCEPTED,
         )
         membership_invite = invite(None)
@@ -300,7 +301,7 @@ async def test_invites_filter_by_granted_collaboration_and_validity() -> None:
     granting = await _data(
         context,
         INVITES,
-        filters={"collaboration": {"instance": "7", "collaboration": "12"}},
+        filters={"collaboration": PLATES},
     )
     assert {i["id"] for i in granting["invites"]} == {
         str(x.pk) for x in [microscope, both, expired, accepted]
@@ -310,7 +311,7 @@ async def test_invites_filter_by_granted_collaboration_and_validity() -> None:
         context,
         INVITES,
         filters={
-            "collaboration": {"instance": "7", "collaboration": "12"},
+            "collaboration": PLATES,
             "valid": True,
         },
     )

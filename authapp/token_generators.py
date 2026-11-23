@@ -182,14 +182,13 @@ class MyJWTBearerTokenGenerator(JWTBearerTokenGenerator):
         scope_claims: dict[str, Any] = {"org": str(membership.organization_id)}
         if membership.is_scoped:
             # A guest (karakter.collaboration_grants): no roles in the organization,
-            # and the collaborations granted to them in this token's instances, each
-            # with the roles that hold there. Services narrow to those (authentikate).
+            # and the keys of the collaborations granted to them, each with the roles
+            # that hold there -- the same on every service. Services narrow to what
+            # they put in those (authentikate).
             from karakter.collaboration_grants import live_collaborations
 
             scope_claims["roles"] = []
-            scope_claims["collabs"] = live_collaborations(
-                membership, self._instance_pks(client)
-            )
+            scope_claims["collabs"] = live_collaborations(membership)
         else:
             scope_claims["roles"] = [role.identifier for role in membership.roles.all()]
 
@@ -237,13 +236,6 @@ class MyJWTBearerTokenGenerator(JWTBearerTokenGenerator):
             :2
         ]
         return hubs[0] if len(hubs) == 1 else None
-
-    def _instance_pks(self, client: "Client") -> list[int]:
-        """The ServiceInstance pks a token for ``client`` is composed for: a guest's collaborations are listed for these."""
-        fakts_client = self._get_app_client(client)
-        if fakts_client is None:
-            return []
-        return sorted(set(fakts_client.mappings.values_list("instance_id", flat=True)))
 
     def _instance_audiences(self, client: "Client") -> list[str]:
         """The names of the services a token for ``client`` is composed for, sorted: its ``aud``.

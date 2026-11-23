@@ -767,12 +767,12 @@ class Invite(models.Model):
 
     # A collaboration invite grants these collaborations
     # (``karakter.collaboration_grants`` entries,
-    # ``{"instance": "7", "collaboration": "12", "roles": ["editor"]}``) instead of
+    # ``{"collaboration": "<key>", "roles": ["editor"]}``) instead of
     # making its holder a member. Null for an ordinary invite.
     shared_collaborations = models.JSONField(
         null=True,
         blank=True,
-        help_text="The collaborations this invite grants, as `{instance, collaboration, roles}` entries. "
+        help_text="The collaborations this invite grants, as `{collaboration, roles}` entries (the collaboration's key). "
         "Null for an invite that grants full membership.",
     )
     max_uses = models.PositiveIntegerField(
@@ -788,7 +788,7 @@ class Invite(models.Model):
         default=True,
         db_default=True,
         help_text="For a collaboration invite: whether its guests' apps may join the organization's mesh, "
-        "reaching only the hubs their collaborations run on. Copied onto every grant it makes.",
+        "reaching only the organization's hubs. Copied onto every grant it makes.",
     )
 
     @property
@@ -823,28 +823,57 @@ class Invite(models.Model):
         self.save(update_fields=["status"])
 
 
-class CollaborationGrant(models.Model):
-    """One collaboration of a service instance granted to a scoped membership (a guest).
+class Collaboration(models.Model):
+    """What a guest of an organization is let in to: one key across all of its services.
 
-    A collaboration lives in a service (``collaboration_id`` is its id there) and
-    holds that service's objects; lok knows nothing of what is in it. ``roles``
-    are role identifiers of the organization that hold only inside the
-    collaboration (none: the guest may only view it). lok neither checks that the
-    collaboration exists nor what the roles allow: it lists the grants in the
-    guest's tokens (``collabs``), and the service enforces them.
+    lok names it and grants it; what is in it, each service of the organization
+    holds itself (``arkitekt_service.collaborations``), under a row with the same
+    ``key``, made the first time something is put in there. lok never learns what
+    is in it: a guest's token lists the keys (``collabs``), and each service shows
+    what it put in them.
+    """
+
+    key = models.UUIDField(
+        unique=True,
+        default=uuid.uuid4,
+        editable=False,
+        help_text="The collaboration's key across the hub: what tokens list, and every service names it by",
+    )
+    organization = models.ForeignKey(
+        Organization, on_delete=models.CASCADE, related_name="collaborations"
+    )
+    name = models.CharField(max_length=200)
+    description = models.TextField(null=True, blank=True)
+    created_by = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="collaborations_created",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self) -> str:
+        return self.name
+
+
+class CollaborationGrant(models.Model):
+    """One collaboration of an organization granted to a scoped membership (a guest).
+
+    ``roles`` are role identifiers of the organization that hold only inside the
+    collaboration (none: the guest may only view it). lok does not know what the
+    roles allow there: it lists the grants in the guest's tokens (``collabs``),
+    and every service enforces them on what it put in the collaboration.
     """
 
     membership = models.ForeignKey(
         Membership, on_delete=models.CASCADE, related_name="collaboration_grants"
     )
-    instance = models.ForeignKey(
-        "fakts.ServiceInstance",
+    collaboration = models.ForeignKey(
+        Collaboration,
         on_delete=models.CASCADE,
-        related_name="collaboration_grants",
-        help_text="The service instance the collaboration lives in",
-    )
-    collaboration_id = models.CharField(
-        max_length=200, help_text="The collaboration's id in its service"
+        related_name="grants",
+        help_text="The collaboration granted",
     )
     roles = models.JSONField(
         default=list,
@@ -870,15 +899,15 @@ class CollaborationGrant(models.Model):
     mesh = models.BooleanField(
         default=False,
         db_default=False,
-        help_text="Whether the guest's apps may join the organization's mesh to reach the hub this collaboration's "
-        "instance runs on. Set from the invite it was granted through.",
+        help_text="Whether the guest's apps may join the organization's mesh to reach its hubs. "
+        "Set from the invite it was granted through.",
     )
 
     class Meta:
         constraints = [
             models.UniqueConstraint(
-                fields=["membership", "instance", "collaboration_id"],
-                name="one_grant_per_collaboration_and_membership",
+                fields=["membership", "collaboration"],
+                name="one_grant_per_collab_member",
             ),
         ]
 
@@ -886,7 +915,7 @@ class CollaborationGrant(models.Model):
         return self.expires_at is None or self.expires_at > timezone.now()
 
     def __str__(self) -> str:
-        return f"{self.instance_id}/{self.collaboration_id}"
+        return f"{self.collaboration_id} to {self.membership_id}"
 
 
 # Registers the receivers. A star on purpose: it also rebinds names this module

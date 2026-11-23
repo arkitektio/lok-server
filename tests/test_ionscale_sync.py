@@ -423,13 +423,14 @@ def test_scoped_members_cannot_log_devices_in_until_they_are_full_members(
     hub = Hub.objects.create(
         organization=organization, name="hub", identifier="scoped-hub", creator=owner
     )
-    instance = factories.make_service_instance(hub=hub)
+    factories.make_service_instance(hub=hub)
+    collaboration = karakter_models.Collaboration.objects.create(
+        organization=organization, name="Plates"
+    )
     invite = karakter_models.Invite.objects.create(
         created_by=owner,
         created_for=organization,
-        shared_collaborations=[
-            {"instance": str(instance.pk), "collaboration": "1", "roles": []}
-        ],
+        shared_collaborations=[{"collaboration": str(collaboration.key), "roles": []}],
     )
     visitor = User.objects.create(username="scoped-visitor")
 

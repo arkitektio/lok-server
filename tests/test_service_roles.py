@@ -5,7 +5,7 @@ import pytest
 from pytest_django.fixtures import DjangoCaptureOnCommitCallbacks
 
 from fakts import base_models
-from fakts.models import Hub, ServiceInstance
+from fakts.models import Hub
 from fakts.services import hubs
 from karakter import models
 from karakter.roles import ADMIN
@@ -166,19 +166,12 @@ def test_a_new_member_gets_the_default_role_and_a_guest_none(
         guest = factories.make_membership(organization=organization)
         models.CollaborationGrant.objects.create(
             membership=guest,
-            instance=_instance(organization),
-            collaboration_id="12",
+            collaboration=models.Collaboration.objects.create(
+                organization=organization, name="Plates"
+            ),
             granted_by=organization.owner,
         )
     assert _roles(guest) == set()
-
-
-def _instance(organization: models.Organization) -> ServiceInstance:
-    from fakts import models as fakts_models
-
-    return fakts_models.ServiceInstance.objects.get(
-        organization=organization, instance_id="mikro"
-    )
 
 
 @pytest.mark.django_db

@@ -2,7 +2,7 @@
 
 The hub names its services itself (``mikro``), so the claims are keyed by those names, and a
 claim's ``id`` is the same name: the ``aud`` a token composed for it carries (with the hub's own
-uid as ``hub``), and the key a guest's ``collabs`` lists its collaborations under.
+uid as ``hub``).
 """
 
 import pytest
@@ -103,9 +103,3 @@ def test_a_new_release_is_the_same_instance(
         instance.release.version == "2.0.0"
         and instance.service.identifier == "live.arkitekt.mikro"
     )
-
-
-FAKTS_BEFORE = [
-    ("fakts", "0005_device_code_polling_client_id"),
-    ("karakter", "0005_collaboration_grants"),
-]

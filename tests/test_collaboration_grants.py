@@ -1,15 +1,16 @@
 """Granting collaborations through an invite: guests, with roles that hold only inside them.
 
 A collaboration invite makes whoever accepts it a guest of the organization: a scoped
-membership with no roles that reaches only the granted collaborations of its service
-instances (``karakter.collaboration_grants``). These tests pin the rules that keep such a
-membership from ever acting as a full one (no roles, nothing of the organization
-in the management API, never left as a role-less full member when its grants go)
-and what a guest's token says: the collaborations of the instances it is minted for, each
-with roles that never exceed what the granter holds now.
+membership with no roles that reaches only the granted collaborations
+(``karakter.collaboration_grants``), each one key across the organization's services.
+These tests pin the rules that keep such a membership from ever acting as a full one
+(no roles, nothing of the organization in the management API, never left as a
+role-less full member when its grants go) and what a guest's token says: the keys of
+their collaborations, each with roles that never exceed what the granter holds now.
 """
 
 import json
+import uuid
 from collections.abc import Awaitable, Sequence
 from datetime import timedelta
 from types import SimpleNamespace
@@ -47,7 +48,7 @@ from tests.conftest import build_auth_context
 
 CREATE_INVITE = """
     mutation ($input: CreateInviteInput!) {
-        createInvite(input: $input) { id token collaborations { instance collaboration roles } maxUses uses }
+        createInvite(input: $input) { id token collaborations { collaboration name roles } maxUses uses }
     }
 """
 
@@ -56,7 +57,7 @@ ORGANIZATION = """
         organization(id: $id) {
             id name deeplinkApps { protocol }
             users { id }
-            memberships { id user { id } isScoped collaborationGrants { instanceId collaborationId roles } }
+            memberships { id user { id } isScoped collaborationGrants { collaboration { key name } roles } }
         }
     }
 """
@@ -96,16 +97,20 @@ def _org_with_member(
     return organization, _member(organization, roles), instance
 
 
+def _collaboration(
+    organization: models.Organization, name: str = "Plates"
+) -> models.Collaboration:
+    return models.Collaboration.objects.create(organization=organization, name=name)
+
+
 def _entry(
-    instance: fakts_models.ServiceInstance,
-    collaboration: str = "12",
-    roles: Sequence[str] = (),
+    collaboration: models.Collaboration, roles: Sequence[str] = ()
 ) -> dict[str, str | list[str]]:
-    return {
-        "instance": str(instance.pk),
-        "collaboration": collaboration,
-        "roles": list(roles),
-    }
+    return {"collaboration": str(collaboration.key), "roles": list(roles)}
+
+
+def _key(collaboration: models.Collaboration) -> str:
+    return str(collaboration.key)
 
 
 def _collaboration_invite(
@@ -148,20 +153,21 @@ def _claims(
 # invite entries
 # --------------------------------------------------------------------------- #
 
+A = "0b4e5c4a-1d2f-4a6b-9c8d-7e6f5a4b3c2d"
+B = "9f12e3d4-5c6b-4a7f-8e9d-0c1b2a3f4e5d"
+
 
 def test_entries_normalize_and_the_same_collaboration_twice_holds_both_roles() -> None:
     entries = collaboration_grants.normalize_collaborations(
         [
-            {"instance": 7, "collaboration": "12", "roles": ["viewer"]},
-            {"instance": "7", "collaboration": "12", "roles": ["editor", "viewer"]},
-            {"instance": "7", "collaboration": "9"},
-            {"instance": "8", "collaboration": "12", "roles": []},
+            {"collaboration": B, "roles": ["viewer"]},
+            {"collaboration": f"  {B.upper()} ", "roles": ["editor", "viewer"]},
+            {"collaboration": A},
         ]
     )
     assert entries == [
-        {"instance": "7", "collaboration": "12", "roles": ["editor", "viewer"]},
-        {"instance": "7", "collaboration": "9", "roles": []},
-        {"instance": "8", "collaboration": "12", "roles": []},
+        {"collaboration": B, "roles": ["editor", "viewer"]},
+        {"collaboration": A, "roles": []},
     ]
 
 
@@ -169,15 +175,15 @@ def test_entries_normalize_and_the_same_collaboration_twice_holds_both_roles() -
     "bad",
     [
         "7/12",
+        {"roles": ["editor"]},
         {"collaboration": "12"},
-        {"instance": "x", "collaboration": "12"},
-        {"instance": True, "collaboration": "12"},
-        {"instance": "7"},
-        {"instance": "7", "collaboration": "a b"},
-        {"instance": "7", "collaboration": "x" * 201},
-        {"instance": "7", "collaboration": "12", "roles": "editor"},
-        {"instance": "7", "collaboration": "12", "roles": [""]},
-        {"instance": "7", "collaboration": "12", "roles": [3]},
+        {"collaboration": 12},
+        {"collaboration": True},
+        # the old shape: a collaboration of a service instance
+        {"instance": "7", "collaboration": "12"},
+        {"collaboration": A, "roles": "editor"},
+        {"collaboration": A, "roles": [""]},
+        {"collaboration": A, "roles": [3]},
     ],
 )
 def test_malformed_entries_are_refused(bad: dict[str, object]) -> None:
@@ -189,44 +195,45 @@ def test_an_invite_grants_at_least_one_and_at_most_fifty_collaborations() -> Non
     with pytest.raises(ValidationError):
         collaboration_grants.normalize_collaborations([])
     many = [
-        {"instance": "7", "collaboration": str(i)}
-        for i in range(collaboration_grants.MAX_COLLABORATIONS_PER_INVITE + 1)
+        {"collaboration": str(uuid.uuid4())}
+        for _ in range(collaboration_grants.MAX_COLLABORATIONS_PER_INVITE + 1)
     ]
     with pytest.raises(ValidationError, match="at most"):
         collaboration_grants.normalize_collaborations(many)
 
 
 @pytest.mark.django_db
-def test_only_the_organizations_own_instances_and_roles_can_be_granted() -> None:
-    organization, _, instance = _org_with_member()
-    foreign = factories.make_service_instance()  # on another organization's hub
+def test_only_the_organizations_own_collaborations_and_roles_can_be_granted() -> None:
+    organization, _, _ = _org_with_member()
+    collaboration = _collaboration(organization)
+    foreign = _collaboration(factories.make_organization())
 
     with pytest.raises(
-        ValidationError, match="Not a service instance of this organization"
+        ValidationError, match="Not a collaboration of this organization"
     ):
         collaboration_grants.normalize_collaborations(
-            [{"instance": "999999999", "collaboration": "1"}], organization
+            [{"collaboration": str(uuid.uuid4())}], organization
         )
     with pytest.raises(
-        ValidationError, match="Not a service instance of this organization"
+        ValidationError, match="Not a collaboration of this organization"
     ):
         collaboration_grants.normalize_collaborations([_entry(foreign)], organization)
     with pytest.raises(
         ValidationError, match="Not a role of this organization: wizard"
     ):
         collaboration_grants.normalize_collaborations(
-            [_entry(instance, roles=["editor", "wizard"])], organization
+            [_entry(collaboration, roles=["editor", "wizard"])], organization
         )
     # A role of another organization is no role here either.
-    _role(foreign.hub.organization, "curator")
+    _role(foreign.organization, "curator")
     with pytest.raises(ValidationError, match="curator"):
         collaboration_grants.normalize_collaborations(
-            [_entry(instance, roles=["curator"])], organization
+            [_entry(collaboration, roles=["curator"])], organization
         )
 
     assert collaboration_grants.normalize_collaborations(
-        [_entry(instance, roles=["editor"])], organization
-    ) == [_entry(instance, roles=["editor"])]
+        [_entry(collaboration, roles=["editor"])], organization
+    ) == [_entry(collaboration, roles=["editor"])]
 
 
 # --------------------------------------------------------------------------- #
@@ -236,11 +243,12 @@ def test_only_the_organizations_own_instances_and_roles_can_be_granted() -> None
 
 @pytest.mark.django_db
 def test_accepting_a_collaboration_invite_makes_a_guest_without_roles() -> None:
-    organization, member, instance = _org_with_member()
+    organization, member, _ = _org_with_member()
+    plates, notes = _collaboration(organization), _collaboration(organization, "Notes")
     invite = _collaboration_invite(
         organization,
         member.user,
-        [_entry(instance, "12", ["editor"]), _entry(instance, "9")],
+        [_entry(plates, ["editor"]), _entry(notes)],
     )
     visitor = factories.make_user()
 
@@ -250,17 +258,20 @@ def test_accepting_a_collaboration_invite_makes_a_guest_without_roles() -> None:
     assert not membership.roles.exists()
     grants = sorted(
         membership.collaboration_grants.values_list(
-            "instance_id",
-            "collaboration_id",
+            "collaboration__key",
             "roles",
             "granted_by_id",
             "granted_through_id",
-        )
+        ),
+        key=str,
     )
-    assert grants == [
-        (instance.pk, "12", ["editor"], member.user_id, invite.pk),
-        (instance.pk, "9", [], member.user_id, invite.pk),
-    ]
+    assert grants == sorted(
+        [
+            (plates.key, ["editor"], member.user_id, invite.pk),
+            (notes.key, [], member.user_id, invite.pk),
+        ],
+        key=str,
+    )
     invite.refresh_from_db()
     assert invite.uses == 1
     assert invite.status == models.Invite.Status.PENDING  # open for the next person
@@ -268,9 +279,9 @@ def test_accepting_a_collaboration_invite_makes_a_guest_without_roles() -> None:
 
 @pytest.mark.django_db
 def test_a_collaboration_invite_closes_after_max_uses() -> None:
-    organization, member, instance = _org_with_member()
+    organization, member, _ = _org_with_member()
     invite = _collaboration_invite(
-        organization, member.user, [_entry(instance)], max_uses=2
+        organization, member.user, [_entry(_collaboration(organization))], max_uses=2
     )
 
     redeem_invite(invite, factories.make_user())
@@ -286,9 +297,9 @@ def test_a_collaboration_invite_closes_after_max_uses() -> None:
 def test_a_full_member_accepting_a_collaboration_invite_gets_nothing_and_spends_nothing() -> (
     None
 ):
-    organization, member, instance = _org_with_member()
+    organization, member, _ = _org_with_member()
     invite = _collaboration_invite(
-        organization, member.user, [_entry(instance)], max_uses=1
+        organization, member.user, [_entry(_collaboration(organization))], max_uses=1
     )
     colleague = _member(organization, ("guest",))
 
@@ -303,45 +314,45 @@ def test_a_full_member_accepting_a_collaboration_invite_gets_nothing_and_spends_
 
 @pytest.mark.django_db
 def test_granting_a_collaboration_again_takes_the_union_of_its_roles() -> None:
-    organization, karl, instance = _org_with_member()
+    organization, karl, _ = _org_with_member()
     anna = _member(organization)
+    plates, notes = _collaboration(organization), _collaboration(organization, "Notes")
     visitor = factories.make_user()
     redeem_invite(
-        _collaboration_invite(
-            organization, karl.user, [_entry(instance, "12", ["viewer"])]
-        ),
+        _collaboration_invite(organization, karl.user, [_entry(plates, ["viewer"])]),
         visitor,
     )
     second = _collaboration_invite(
         organization,
         anna.user,
-        [_entry(instance, "12", ["editor"]), _entry(instance, "9")],
+        [_entry(plates, ["editor"]), _entry(notes)],
     )
 
     membership = redeem_invite(second, visitor)
 
-    grants = {g.collaboration_id: g for g in membership.collaboration_grants.all()}
-    assert grants["12"].roles == ["editor", "viewer"]
+    grants = {g.collaboration: g for g in membership.collaboration_grants.all()}
+    assert grants[plates].roles == ["editor", "viewer"]
     # The grant that grew takes its new granter and invite.
-    assert (grants["12"].granted_by_id, grants["12"].granted_through_id) == (
+    assert (grants[plates].granted_by_id, grants[plates].granted_through_id) == (
         anna.user_id,
         second.pk,
     )
-    assert grants["9"].roles == []
+    assert grants[notes].roles == []
 
 
 @pytest.mark.django_db
 def test_re_accepting_what_one_already_has_spends_nothing() -> None:
-    organization, member, instance = _org_with_member()
+    organization, member, _ = _org_with_member()
+    plates = _collaboration(organization)
     visitor = factories.make_user()
     redeem_invite(
         _collaboration_invite(
-            organization, member.user, [_entry(instance, "12", ["editor", "viewer"])]
+            organization, member.user, [_entry(plates, ["editor", "viewer"])]
         ),
         visitor,
     )
     invite = _collaboration_invite(
-        organization, member.user, [_entry(instance, "12", ["viewer"])], max_uses=1
+        organization, member.user, [_entry(plates, ["viewer"])], max_uses=1
     )
 
     membership = redeem_invite(invite, visitor)  # fewer roles never narrow a grant
@@ -352,15 +363,16 @@ def test_re_accepting_what_one_already_has_spends_nothing() -> None:
 
 
 @pytest.mark.django_db
-def test_an_instance_gone_since_the_invite_was_made_grants_nothing_and_makes_no_member() -> (
+def test_a_collaboration_gone_since_the_invite_was_made_grants_nothing_and_makes_no_member() -> (
     None
 ):
-    organization, member, instance = _org_with_member()
-    invite = _collaboration_invite(organization, member.user, [_entry(instance)])
-    instance.delete()
+    organization, member, _ = _org_with_member()
+    plates = _collaboration(organization)
+    invite = _collaboration_invite(organization, member.user, [_entry(plates)])
+    plates.delete()
     visitor = factories.make_user()
 
-    with pytest.raises(InviteError, match="Not a service instance"):
+    with pytest.raises(InviteError, match="Not a collaboration"):
         redeem_invite(invite, visitor)
 
     assert not models.Membership.objects.filter(
@@ -370,10 +382,13 @@ def test_an_instance_gone_since_the_invite_was_made_grants_nothing_and_makes_no_
 
 @pytest.mark.django_db
 def test_an_ordinary_invite_makes_a_guest_a_full_member() -> None:
-    organization, member, instance = _org_with_member()
+    organization, member, _ = _org_with_member()
     visitor = factories.make_user()
     scoped = redeem_invite(
-        _collaboration_invite(organization, member.user, [_entry(instance)]), visitor
+        _collaboration_invite(
+            organization, member.user, [_entry(_collaboration(organization))]
+        ),
+        visitor,
     )
     full_invite = models.Invite.objects.create(
         created_by=organization.owner, created_for=organization
@@ -388,8 +403,10 @@ def test_an_ordinary_invite_makes_a_guest_a_full_member() -> None:
 
 @pytest.mark.django_db
 def test_declining_a_collaboration_invite_does_not_close_it_for_others() -> None:
-    organization, member, instance = _org_with_member()
-    invite = _collaboration_invite(organization, member.user, [_entry(instance)])
+    organization, member, _ = _org_with_member()
+    invite = _collaboration_invite(
+        organization, member.user, [_entry(_collaboration(organization))]
+    )
     invite.decline(factories.make_user())
     invite.refresh_from_db()
     assert invite.status == models.Invite.Status.PENDING
@@ -402,9 +419,11 @@ def test_declining_a_collaboration_invite_does_not_close_it_for_others() -> None
 
 @pytest.mark.django_db
 def test_a_guest_cannot_be_given_roles_without_being_upgraded() -> None:
-    organization, member, instance = _org_with_member()
+    organization, member, _ = _org_with_member()
     membership = redeem_invite(
-        _collaboration_invite(organization, member.user, [_entry(instance)]),
+        _collaboration_invite(
+            organization, member.user, [_entry(_collaboration(organization))]
+        ),
         factories.make_user(),
     )
     role = _role(organization, "admin")
@@ -421,10 +440,15 @@ def test_a_guest_cannot_be_given_roles_without_being_upgraded() -> None:
 
 @pytest.mark.django_db
 def test_taking_back_the_last_grant_removes_the_membership() -> None:
-    organization, member, instance = _org_with_member()
+    organization, member, _ = _org_with_member()
     membership = redeem_invite(
         _collaboration_invite(
-            organization, member.user, [_entry(instance, "1"), _entry(instance, "2")]
+            organization,
+            member.user,
+            [
+                _entry(_collaboration(organization)),
+                _entry(_collaboration(organization, "Notes")),
+            ],
         ),
         factories.make_user(),
     )
@@ -438,8 +462,10 @@ def test_taking_back_the_last_grant_removes_the_membership() -> None:
 
 @pytest.mark.django_db
 def test_revoking_an_invite_takes_back_everything_it_granted() -> None:
-    organization, member, instance = _org_with_member()
-    invite = _collaboration_invite(organization, member.user, [_entry(instance)])
+    organization, member, _ = _org_with_member()
+    invite = _collaboration_invite(
+        organization, member.user, [_entry(_collaboration(organization))]
+    )
     a = redeem_invite(invite, factories.make_user())
     b = redeem_invite(invite, factories.make_user())
 
@@ -453,19 +479,13 @@ def test_revoking_an_invite_takes_back_everything_it_granted() -> None:
 
 
 @pytest.mark.django_db
-def test_a_guests_token_lists_the_collaborations_of_its_own_instances_only() -> None:
+def test_a_guests_token_lists_their_collaborations_by_key_on_every_service() -> None:
     organization, member, mikro = _org_with_member()
     other = factories.make_service_instance(hub=mikro.hub)
-    unmapped = factories.make_service_instance(hub=mikro.hub)
+    plates, notes = _collaboration(organization), _collaboration(organization, "Notes")
+    _collaboration(organization, "Not granted")
     invite = _collaboration_invite(
-        organization,
-        member.user,
-        [
-            _entry(mikro, "12", ["editor"]),
-            _entry(mikro, "9"),
-            _entry(other, "3", ["viewer"]),
-            _entry(unmapped, "4", ["editor"]),
-        ],
+        organization, member.user, [_entry(plates, ["editor"]), _entry(notes)]
     )
     membership = redeem_invite(invite, factories.make_user())
     client = _client(membership, mikro, other)
@@ -475,15 +495,17 @@ def test_a_guests_token_lists_the_collaborations_of_its_own_instances_only() -> 
     )
 
     assert claims["org"] == str(organization.pk)
-    # The services are named as their hub names them, and the token says which hub.
     assert claims["hub"] == str(mikro.hub.uid)
     assert claims["roles"] == []
     assert "objects" not in claims
-    assert claims["collabs"] == {
-        mikro.instance_id: {"12": ["editor"], "9": []},
-        other.instance_id: {"3": ["viewer"]},
-    }
+    # One key across the organization's services: no service level in between.
+    assert claims["collabs"] == {_key(plates): ["editor"], _key(notes): []}
     assert list(claims["collabs"]) == sorted(claims["collabs"])
+    # Whatever services the token is minted for, the same keys.
+    assert _claims(membership)["collabs"] == claims["collabs"]
+    assert _claims(membership, other)["collabs"] == claims["collabs"]
+    assert collaboration_grants.live_collaborations(membership) == claims["collabs"]
+    # The audiences are still the services the token is minted for.
     assert _generator().get_audiences(client, membership, None) == [
         "lok",
         *sorted([mikro.instance_id, other.instance_id]),
@@ -495,73 +517,49 @@ def test_a_guests_token_lists_the_collaborations_of_its_own_instances_only() -> 
 
 
 @pytest.mark.django_db
-def test_a_token_minted_for_no_instance_lists_no_collaborations() -> None:
-    organization, member, instance = _org_with_member()
-    membership = redeem_invite(
-        _collaboration_invite(
-            organization, member.user, [_entry(instance, roles=["editor"])]
-        ),
-        factories.make_user(),
-    )
-
-    assert _claims(membership)["collabs"] == {}  # grants nothing; never "everything"
-    assert collaboration_grants.live_collaborations(membership, []) == {}
-
-
-@pytest.mark.django_db
 def test_a_guests_roles_are_cut_to_what_the_granter_holds_now() -> None:
     organization, karl, instance = _org_with_member()
+    plates = _collaboration(organization)
     membership = redeem_invite(
         _collaboration_invite(
-            organization, karl.user, [_entry(instance, "12", ["editor", "viewer"])]
+            organization, karl.user, [_entry(plates, ["editor", "viewer"])]
         ),
         factories.make_user(),
     )
     assert _claims(membership, instance)["collabs"] == {
-        instance.instance_id: {"12": ["editor", "viewer"]}
+        _key(plates): ["editor", "viewer"]
     }
 
     karl.roles.remove(_role(organization, "editor"))
-    assert _claims(membership, instance)["collabs"] == {
-        instance.instance_id: {"12": ["viewer"]}
-    }
+    assert _claims(membership, instance)["collabs"] == {_key(plates): ["viewer"]}
 
     karl.roles.set([_role(organization, "user")])
     # Still a full member: the collaboration stays, view only.
-    assert _claims(membership, instance)["collabs"] == {
-        instance.instance_id: {"12": []}
-    }
+    assert _claims(membership, instance)["collabs"] == {_key(plates): []}
 
     # And a role given back to the granter comes back to the guest.
     karl.roles.add(_role(organization, "editor"))
-    assert _claims(membership, instance)["collabs"] == {
-        instance.instance_id: {"12": ["editor"]}
-    }
+    assert _claims(membership, instance)["collabs"] == {_key(plates): ["editor"]}
 
 
 @pytest.mark.django_db
 def test_a_granter_who_left_takes_their_grants_along() -> None:
     organization, karl, instance = _org_with_member()
     anna = _member(organization)
+    plates, notes = _collaboration(organization), _collaboration(organization, "Notes")
     visitor = factories.make_user()
     redeem_invite(
-        _collaboration_invite(
-            organization, karl.user, [_entry(instance, "1", ["editor"])]
-        ),
+        _collaboration_invite(organization, karl.user, [_entry(plates, ["editor"])]),
         visitor,
     )
     membership = redeem_invite(
-        _collaboration_invite(
-            organization, anna.user, [_entry(instance, "2", ["viewer"])]
-        ),
+        _collaboration_invite(organization, anna.user, [_entry(notes, ["viewer"])]),
         visitor,
     )
 
     karl.delete()
 
-    assert _claims(membership, instance)["collabs"] == {
-        instance.instance_id: {"2": ["viewer"]}
-    }
+    assert _claims(membership, instance)["collabs"] == {_key(notes): ["viewer"]}
     anna.delete()
     assert _claims(membership, instance)["collabs"] == {}  # still a guest, of nothing
 
@@ -571,7 +569,7 @@ def test_a_granter_who_is_only_a_guest_or_inactive_grants_nothing() -> None:
     organization, karl, instance = _org_with_member()
     membership = redeem_invite(
         _collaboration_invite(
-            organization, karl.user, [_entry(instance, "1", ["editor"])]
+            organization, karl.user, [_entry(_collaboration(organization), ["editor"])]
         ),
         factories.make_user(),
     )
@@ -584,7 +582,9 @@ def test_a_granter_who_is_only_a_guest_or_inactive_grants_nothing() -> None:
     karl.user.save(update_fields=["is_active"])
     # Karl's own membership turns into a guest's: he no longer acts for the organization.
     karl.roles.clear()
-    collaboration_grants.grant_collaborations(karl, [_entry(instance, "99")])
+    collaboration_grants.grant_collaborations(
+        karl, [_entry(_collaboration(organization, "Karl's"))]
+    )
     assert _claims(membership, instance)["collabs"] == {}
 
 
@@ -592,7 +592,9 @@ def test_a_granter_who_is_only_a_guest_or_inactive_grants_nothing() -> None:
 def test_a_grant_whose_granter_is_gone_grants_nothing() -> None:
     organization, karl, instance = _org_with_member()
     membership = redeem_invite(
-        _collaboration_invite(organization, karl.user, [_entry(instance)]),
+        _collaboration_invite(
+            organization, karl.user, [_entry(_collaboration(organization))]
+        ),
         factories.make_user(),
     )
     membership.collaboration_grants.update(granted_by=None)
@@ -603,20 +605,17 @@ def test_a_grant_whose_granter_is_gone_grants_nothing() -> None:
 @pytest.mark.django_db
 def test_expired_grants_leave_the_token_but_it_stays_scoped() -> None:
     organization, member, instance = _org_with_member()
+    plates, notes = _collaboration(organization), _collaboration(organization, "Notes")
     membership = redeem_invite(
         _collaboration_invite(
-            organization,
-            member.user,
-            [_entry(instance, "1"), _entry(instance, "2", ["editor"])],
+            organization, member.user, [_entry(plates), _entry(notes, ["editor"])]
         ),
         factories.make_user(),
     )
-    membership.collaboration_grants.filter(collaboration_id="1").update(
+    membership.collaboration_grants.filter(collaboration=plates).update(
         expires_at=timezone.now() - timedelta(minutes=1)
     )
-    assert _claims(membership, instance)["collabs"] == {
-        instance.instance_id: {"2": ["editor"]}
-    }
+    assert _claims(membership, instance)["collabs"] == {_key(notes): ["editor"]}
 
     membership.collaboration_grants.update(
         expires_at=timezone.now() - timedelta(minutes=1)
@@ -644,12 +643,12 @@ def test_a_full_members_token_is_unchanged() -> None:
 def _api_setup() -> tuple[
     models.Organization,
     models.Membership,
-    fakts_models.ServiceInstance,
+    models.Collaboration,
     HttpContext,
     HttpContext,
     models.User,
 ]:
-    organization, member, instance = _org_with_member()
+    organization, member, _ = _org_with_member()
     member_context = build_auth_context(
         member.user,
         organization,
@@ -664,7 +663,14 @@ def _api_setup() -> tuple[
         roles=("guest",),
     )
     visitor = factories.make_user()
-    return organization, member, instance, member_context, guest_context, visitor
+    return (
+        organization,
+        member,
+        _collaboration(organization),
+        member_context,
+        guest_context,
+        visitor,
+    )
 
 
 @pytest.mark.django_db(transaction=True)
@@ -675,16 +681,12 @@ async def test_members_grant_collaborations_and_the_visitor_sees_only_the_org_sh
     (
         organization,
         member,
-        instance,
+        plates,
         member_context,
         guest_context,
         visitor,
     ) = await sync_to_async(_api_setup)()
-    collaboration = {
-        "instance": str(instance.pk),
-        "collaboration": "12",
-        "roles": ["editor"],
-    }
+    collaboration = {"collaboration": _key(plates), "roles": ["editor"]}
 
     created = await management_schema.execute(
         CREATE_INVITE,
@@ -697,7 +699,9 @@ async def test_members_grant_collaborations_and_the_visitor_sees_only_the_org_sh
         context_value=member_context,
     )
     assert not created.errors, created.errors
-    assert created.data["createInvite"]["collaborations"] == [collaboration]
+    assert created.data["createInvite"]["collaborations"] == [
+        {**collaboration, "name": "Plates"}
+    ]
 
     # A guest may not grant.
     refused = await management_schema.execute(
@@ -725,6 +729,26 @@ async def test_members_grant_collaborations_and_the_visitor_sees_only_the_org_sh
     )
     assert unknown.errors and "wizard" in unknown.errors[0].message
 
+    # Nor a collaboration that is not one of the organization's, nor a key that is no key.
+    foreign = await sync_to_async(
+        lambda: _collaboration(factories.make_organization())
+    )()
+    for key, message in [
+        (_key(foreign), "Not a collaboration of this organization"),
+        ("12", "is not a collaboration key"),
+    ]:
+        refused_key = await management_schema.execute(
+            CREATE_INVITE,
+            variable_values={
+                "input": {
+                    "organization": str(organization.pk),
+                    "collaborations": [{"collaboration": key}],
+                }
+            },
+            context_value=member_context,
+        )
+        assert refused_key.errors and message in refused_key.errors[0].message
+
     # The visitor accepts (before they have a membership, so the context is built after).
     invite = await sync_to_async(models.Invite.objects.get)(
         pk=created.data["createInvite"]["id"]
@@ -750,7 +774,7 @@ async def test_members_grant_collaborations_and_the_visitor_sees_only_the_org_sh
     assert org["users"] == []
     assert [m["user"]["id"] for m in org["memberships"]] == [str(visitor.pk)]
     assert org["memberships"][0]["collaborationGrants"] == [
-        {"instanceId": str(instance.pk), "collaborationId": "12", "roles": ["editor"]}
+        {"collaboration": {"key": _key(plates), "name": "Plates"}, "roles": ["editor"]}
     ]
 
     # A full member sees the visitor among the memberships, marked as scoped.
@@ -770,11 +794,11 @@ async def test_members_grant_collaborations_and_the_visitor_sees_only_the_org_sh
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
 async def test_whoever_granted_can_take_it_back() -> None:
-    organization, member, instance, member_context, _, visitor = await sync_to_async(
+    organization, member, plates, member_context, _, visitor = await sync_to_async(
         _api_setup
     )()
     invite = await sync_to_async(_collaboration_invite)(
-        organization, member.user, [_entry(instance)]
+        organization, member.user, [_entry(plates)]
     )
     membership = await sync_to_async(redeem_invite)(invite, visitor)
     grant = await sync_to_async(membership.collaboration_grants.get)()
@@ -793,11 +817,11 @@ async def test_whoever_granted_can_take_it_back() -> None:
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
 async def test_another_guest_cannot_take_a_grant_back() -> None:
-    organization, member, instance, _, guest_context, visitor = await sync_to_async(
+    organization, member, plates, _, guest_context, visitor = await sync_to_async(
         _api_setup
     )()
     invite = await sync_to_async(_collaboration_invite)(
-        organization, member.user, [_entry(instance)]
+        organization, member.user, [_entry(plates)]
     )
     membership = await sync_to_async(redeem_invite)(invite, visitor)
     grant = await sync_to_async(membership.collaboration_grants.get)()
@@ -841,13 +865,16 @@ def _mesh_org_with_member() -> tuple[
 def _guest(
     organization: models.Organization,
     member: models.Membership,
-    instance: fakts_models.ServiceInstance,
     roles: Sequence[str] = ("editor",),
     **invite: Any,
 ) -> models.Membership:
+    """A guest of one new collaboration of ``organization``, holding ``roles`` in it."""
     return redeem_invite(
         _collaboration_invite(
-            organization, member.user, [_entry(instance, roles=roles)], **invite
+            organization,
+            member.user,
+            [_entry(_collaboration(organization), roles=roles)],
+            **invite,
         ),
         factories.make_user(),
     )
@@ -928,14 +955,15 @@ def test_a_guest_approves_an_app_whose_token_carries_only_their_collaborations(
     client: Client,
 ) -> None:
     organization, member, instance = _org_with_member()
-    guest = _guest(organization, member, instance)
+    guest = _guest(organization, member)
 
     token = _login_app(client, guest.user, instance, request_auth_key=False)
 
     claims = _decode(token["access_token"])
     assert claims["sub"] == str(guest.user_id)
     assert claims["roles"] == []
-    assert claims["collabs"] == {instance.instance_id: {"12": ["editor"]}}
+    granted = guest.collaboration_grants.get().collaboration
+    assert claims["collabs"] == {_key(granted): ["editor"]}
     app_client = fakts_models.Client.objects.get(client_id=token["client_id"])
     assert app_client.membership == guest
     assert app_client.mappings.get().instance == instance
@@ -960,7 +988,7 @@ async def test_a_guest_approves_an_app_through_the_management_api(
         HttpContext,
     ]:
         organization, member, instance = _org_with_member()
-        guest = _guest(organization, member, instance)
+        guest = _guest(organization, member)
         body = _start_app(client, instance, request_auth_key=False)
         device_code = fakts_models.DeviceCode.objects.get(secret=body["device_code"])
         context = build_auth_context(
@@ -998,46 +1026,51 @@ def test_a_non_member_or_a_lapsed_guest_cannot_approve_an_app(client: Client) ->
     with pytest.raises(GraphQLError, match="Not found"):
         _accept_app(_start_app(client, instance), stranger, instance.hub)
 
-    lapsed = _guest(organization, member, instance)
+    lapsed = _guest(organization, member)
     lapsed.collaboration_grants.update(expires_at=timezone.now() - timedelta(minutes=1))
     with pytest.raises(GraphQLError, match="Not found"):
         _accept_app(_start_app(client, instance), lapsed.user, instance.hub)
 
 
 @pytest.mark.django_db
-def test_a_guest_approves_apps_only_into_a_hub_their_collaborations_run_on(
+def test_a_guest_approves_apps_into_any_hub_of_the_organization_and_none_other(
     client: Client,
 ) -> None:
-    organization, member, instance = _org_with_member()
+    organization, member, _ = _org_with_member()
     other = factories.make_service_instance(
         hub=factories.make_hub(organization=organization)
     )
-    guest = _guest(organization, member, instance)
+    elsewhere = factories.make_service_instance()  # another organization's hub
+    guest = _guest(organization, member)
 
+    # A collaboration spans the organization's services, so every hub of it.
+    accepted = _accept_app(_start_app(client, other), guest.user, other.hub)
+    assert fakts_models.Client.objects.get(pk=accepted.pk).membership == guest
     with pytest.raises(GraphQLError, match="Not found"):
-        _accept_app(_start_app(client, other), guest.user, other.hub)
+        _accept_app(_start_app(client, elsewhere), guest.user, elsewhere.hub)
 
 
 @pytest.mark.django_db
 def test_redeeming_copies_the_invites_mesh_onto_its_grants_and_a_re_grant_ors_it() -> (
     None
 ):
-    organization, member, instance = _org_with_member()
+    organization, member, _ = _org_with_member()
+    plates = _collaboration(organization)
     visitor = factories.make_user()
     closed = _collaboration_invite(
-        organization, member.user, [_entry(instance)], mesh=False
+        organization, member.user, [_entry(plates)], mesh=False
     )
     membership = redeem_invite(closed, visitor)
     assert membership.collaboration_grants.get().mesh is False
 
     redeem_invite(
-        _collaboration_invite(organization, member.user, [_entry(instance)], mesh=True),
+        _collaboration_invite(organization, member.user, [_entry(plates)], mesh=True),
         visitor,
     )
     assert membership.collaboration_grants.get().mesh is True
     # A later invite without the mesh takes nothing away, and spends nothing.
     again = _collaboration_invite(
-        organization, member.user, [_entry(instance)], mesh=False
+        organization, member.user, [_entry(plates)], mesh=False
     )
     redeem_invite(again, visitor)
     assert membership.collaboration_grants.get().mesh is True
@@ -1050,7 +1083,7 @@ def test_a_guests_app_gets_a_mesh_key_only_when_the_invite_allowed_it(
     client: Client, ionscale_repo: FakeIonscaleRepository, mesh: bool
 ) -> None:
     organization, member, instance, layer = _mesh_org_with_member()
-    guest = _guest(organization, member, instance, mesh=mesh)
+    guest = _guest(organization, member, mesh=mesh)
 
     token = _login_app(client, guest.user, instance)
 
@@ -1070,7 +1103,7 @@ def test_a_guests_lapsed_mesh_grant_renews_no_mesh_key(
     from fakts.services.hubs import MeshKeyRefused, renew_mesh_key
 
     organization, member, instance, layer = _mesh_org_with_member()
-    guest = _guest(organization, member, instance, mesh=True)
+    guest = _guest(organization, member, mesh=True)
     token = _login_app(client, guest.user, instance)
     app_client = fakts_models.Client.objects.get(client_id=token["client_id"])
     fakts_models.IonscaleAuthKey.objects.update(
@@ -1085,12 +1118,12 @@ def test_a_guests_lapsed_mesh_grant_renews_no_mesh_key(
 
 
 @pytest.mark.django_db
-def test_the_acl_lets_a_guests_app_reach_only_the_hub_of_their_collaboration(
+def test_the_acl_lets_a_guests_app_reach_only_the_hub_it_is_a_client_of(
     client: Client, ionscale_repo: FakeIonscaleRepository
 ) -> None:
     organization, member, instance, layer = _mesh_org_with_member()
     other_hub = factories.make_hub(organization=organization)
-    guest = _guest(organization, member, instance, mesh=True)
+    guest = _guest(organization, member, mesh=True)
     _login_app(client, guest.user, instance)
     tag = fakts_models.AppMeshEnrollment.objects.get(membership=guest).tag
     # A member's app on another hub, for contrast: its rule is unchanged.
@@ -1132,13 +1165,13 @@ def test_a_guest_whose_mesh_grant_lapses_drops_out_at_the_next_reconcile(
     from ionscale.reconcile import reconcile_sidecars
 
     organization, member, instance, layer = _mesh_org_with_member()
-    guest = _guest(organization, member, instance, mesh=True)
+    guest = _guest(organization, member, mesh=True)
     # A second, view-only grant without the mesh keeps the guest a guest when the first goes.
     redeem_invite(
         _collaboration_invite(
             organization,
             member.user,
-            [_entry(instance, collaboration="99")],
+            [_entry(_collaboration(organization, "View only"))],
             mesh=False,
         ),
         guest.user,
@@ -1150,7 +1183,7 @@ def test_a_guest_whose_mesh_grant_lapses_drops_out_at_the_next_reconcile(
     _, policy = ionscale_repo.set_acl_policies[-1]
     assert any(tag in rule["src"] for rule in policy["acls"])
 
-    grant = guest.collaboration_grants.get(collaboration_id="12")
+    grant = guest.collaboration_grants.get(mesh=True)
     if how == "expired":
         grant.expires_at = timezone.now() - timedelta(minutes=1)
         grant.save()
@@ -1175,13 +1208,13 @@ def test_a_guest_whose_mesh_grant_lapses_drops_out_at_the_next_reconcile(
 
 TOKEN_CREATE_INVITE = """
     mutation ($input: CreateInviteInput!) {
-        createInvite(input: $input) { id mesh public collaborations { instance collaboration roles } maxUses uses inviteUrl }
+        createInvite(input: $input) { id mesh public collaborations { collaboration roles } maxUses uses inviteUrl }
     }
 """
 
 TOKEN_INVITES = """
     query ($id: ID!) {
-        organization(id: $id) { invites { id mesh public maxUses uses inviteUrl collaborations { instance collaboration roles } } }
+        organization(id: $id) { invites { id mesh public maxUses uses inviteUrl collaborations { collaboration roles } } }
     }
 """
 
@@ -1196,16 +1229,12 @@ async def test_the_creator_sees_their_collaboration_invites_on_the_token_schema(
     (
         organization,
         member,
-        instance,
+        plates,
         member_context,
         guest_context,
         _,
     ) = await sync_to_async(_api_setup)()
-    collaboration = {
-        "instance": str(instance.pk),
-        "collaboration": "12",
-        "roles": ["editor"],
-    }
+    collaboration = {"collaboration": _key(plates), "roles": ["editor"]}
 
     created = await token_schema.execute(
         TOKEN_CREATE_INVITE,
@@ -1226,7 +1255,7 @@ async def test_the_creator_sees_their_collaboration_invites_on_the_token_schema(
     assert (invite["maxUses"], invite["uses"]) == (3, 0)
     # One the owner made, which the member (neither owner nor admin) does not see.
     await sync_to_async(_collaboration_invite)(
-        organization, organization.owner, [_entry(instance)]
+        organization, organization.owner, [_entry(plates)]
     )
 
     listed = await token_schema.execute(
@@ -1275,10 +1304,15 @@ def test_deleting_a_guests_membership_runs_its_side_effects_once(
     monkeypatch.setattr(
         ionscale.sync, "schedule_member_removal", lambda *args: calls.append(args)
     )
-    organization, member, instance = _org_with_member()
+    organization, member, _ = _org_with_member()
     membership = redeem_invite(
         _collaboration_invite(
-            organization, member.user, [_entry(instance, "1"), _entry(instance, "2")]
+            organization,
+            member.user,
+            [
+                _entry(_collaboration(organization)),
+                _entry(_collaboration(organization, "Notes")),
+            ],
         ),
         factories.make_user(),
     )
@@ -1291,10 +1325,13 @@ def test_deleting_a_guests_membership_runs_its_side_effects_once(
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.parametrize("what", ["user", "organization"])
 def test_deleting_the_user_or_organization_of_a_guest_works(what: str) -> None:
-    organization, member, instance = _org_with_member()
+    organization, member, _ = _org_with_member()
     visitor = factories.make_user()
     membership = redeem_invite(
-        _collaboration_invite(organization, member.user, [_entry(instance)]), visitor
+        _collaboration_invite(
+            organization, member.user, [_entry(_collaboration(organization))]
+        ),
+        visitor,
     )
 
     (visitor if what == "user" else organization).delete()
@@ -1306,20 +1343,43 @@ def test_deleting_the_user_or_organization_of_a_guest_works(what: str) -> None:
 
 
 @pytest.mark.django_db(transaction=True)
+def test_deleting_a_collaboration_removes_a_guest_left_with_nothing() -> None:
+    organization, member, _ = _org_with_member()
+    plates, notes = _collaboration(organization), _collaboration(organization, "Notes")
+    only_plates = redeem_invite(
+        _collaboration_invite(organization, member.user, [_entry(plates)]),
+        factories.make_user(),
+    )
+    both = redeem_invite(
+        _collaboration_invite(
+            organization, member.user, [_entry(plates), _entry(notes)]
+        ),
+        factories.make_user(),
+    )
+
+    plates.delete()  # through the ORM: the cascade itself cleans up
+
+    assert not models.Membership.objects.filter(pk=only_plates.pk).exists()
+    assert both.collaboration_grants.get().collaboration == notes
+    assert models.Membership.objects.filter(pk=member.pk).exists()
+
+
+@pytest.mark.django_db(transaction=True)
 @pytest.mark.parametrize("what", ["instance", "hub"])
-def test_deleting_the_instance_or_its_hub_removes_a_guest_left_with_nothing(
-    what: str,
-) -> None:
+def test_deleting_an_instance_or_a_hub_leaves_the_guests_be(what: str) -> None:
     organization, member, instance = _org_with_member()
     membership = redeem_invite(
-        _collaboration_invite(organization, member.user, [_entry(instance)]),
+        _collaboration_invite(
+            organization, member.user, [_entry(_collaboration(organization))]
+        ),
         factories.make_user(),
     )
 
     (instance if what == "instance" else instance.hub).delete()
 
-    assert not models.Membership.objects.filter(pk=membership.pk).exists()
-    assert models.Membership.objects.filter(pk=member.pk).exists()
+    # A collaboration is the organization's, not a service's: nothing of it went.
+    assert models.Membership.objects.filter(pk=membership.pk).exists()
+    assert membership.collaboration_grants.count() == 1
 
 
 HUBS = "query { hubs { id name organization { id } instances { id } clients { id } } }"
@@ -1327,34 +1387,35 @@ HUBS = "query { hubs { id name organization { id } instances { id } clients { id
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_a_guest_sees_the_hubs_their_collaborations_run_on_to_approve_an_app_into(
+async def test_a_guest_sees_the_organizations_hubs_to_approve_an_app_into(
     client: Client,
 ) -> None:
-    def _setup() -> tuple[models.Membership, fakts_models.ServiceInstance, HttpContext]:
+    def _setup() -> tuple[models.Membership, list[fakts_models.Hub], HttpContext]:
         organization, member, instance = _org_with_member()
-        factories.make_service_instance(
-            hub=factories.make_hub(organization=organization)
-        )  # a hub of no grant of theirs
-        guest = _guest(organization, member, instance)
+        other_hub = factories.make_hub(organization=organization)
+        factories.make_service_instance(hub=other_hub)
+        factories.make_service_instance()  # another organization's hub
+        guest = _guest(organization, member)
         context = build_auth_context(
             guest.user, organization, factories.make_client(membership=guest), roles=()
         )
-        return guest, instance, context
+        return guest, [instance.hub, other_hub], context
 
-    guest, instance, context = await sync_to_async(_setup)()
+    guest, hubs, context = await sync_to_async(_setup)()
 
     result = await management_schema.execute(HUBS, context_value=context)
 
     assert not result.errors, result.errors
-    # What the hub is, to pick it; nothing of what runs on it.
-    assert result.data["hubs"] == [
+    # What each hub is, to pick it; nothing of what runs on it.
+    assert sorted(result.data["hubs"], key=lambda h: int(h["id"])) == [
         {
-            "id": str(instance.hub_id),
-            "name": instance.hub.name,
-            "organization": {"id": str(instance.hub.organization_id)},
+            "id": str(hub.pk),
+            "name": hub.name,
+            "organization": {"id": str(hub.organization_id)},
             "instances": [],
             "clients": [],
         }
+        for hub in sorted(hubs, key=lambda h: h.pk)
     ]
 
     await sync_to_async(
@@ -1375,10 +1436,11 @@ VALIDATE = """
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_a_guest_dry_runs_an_app_approval_into_their_hub_only(
+async def test_a_guest_dry_runs_an_app_approval_into_the_organizations_hubs_only(
     client: Client,
 ) -> None:
     def _setup() -> tuple[
+        fakts_models.ServiceInstance,
         fakts_models.ServiceInstance,
         fakts_models.ServiceInstance,
         fakts_models.DeviceCode,
@@ -1388,15 +1450,16 @@ async def test_a_guest_dry_runs_an_app_approval_into_their_hub_only(
         other = factories.make_service_instance(
             hub=factories.make_hub(organization=organization)
         )
-        guest = _guest(organization, member, instance)
+        elsewhere = factories.make_service_instance()  # another organization's hub
+        guest = _guest(organization, member)
         body = _start_app(client, instance, request_auth_key=False)
         device_code = fakts_models.DeviceCode.objects.get(secret=body["device_code"])
         context = build_auth_context(
             guest.user, organization, factories.make_client(membership=guest), roles=()
         )
-        return instance, other, device_code, context
+        return instance, other, elsewhere, device_code, context
 
-    instance, other, device_code, context = await sync_to_async(_setup)()
+    instance, other, elsewhere, device_code, context = await sync_to_async(_setup)()
 
     def run(hub: int) -> Awaitable[ExecutionResult]:
         return management_schema.execute(
@@ -1409,65 +1472,8 @@ async def test_a_guest_dry_runs_an_app_approval_into_their_hub_only(
             context_value=context,
         )
 
-    ok = await run(instance.hub_id)
-    assert not ok.errors, ok.errors
-    refused = await run(other.hub_id)
+    for hub_id in (instance.hub_id, other.hub_id):
+        ok = await run(hub_id)
+        assert not ok.errors, ok.errors
+    refused = await run(elsewhere.hub_id)
     assert refused.errors and "Not found" in refused.errors[0].message
-
-
-@pytest.mark.django_db(transaction=True)
-@pytest.mark.asyncio
-async def test_an_app_names_the_instance_by_its_own_requirement_key() -> None:
-    """An app knows its services by manifest key (``mikro``); lok resolves it through that app's mappings only."""
-    from lok_server.schema import schema as token_schema
-
-    def setup() -> tuple[
-        models.Organization, fakts_models.ServiceInstance, HttpContext
-    ]:
-        organization, member, instance = _org_with_member()
-        other = factories.make_service_instance(
-            hub=factories.make_hub(organization=organization)
-        )
-        app = factories.make_client(membership=member)
-        fakts_models.ServiceInstanceMapping.objects.create(
-            client=app, instance=instance, key="mikro"
-        )
-        # Another app of the same member maps `mikro` elsewhere: it must not leak into this one.
-        elsewhere = factories.make_client(membership=member)
-        fakts_models.ServiceInstanceMapping.objects.create(
-            client=elsewhere, instance=other, key="kabinet"
-        )
-        return (
-            organization,
-            instance,
-            build_auth_context(member.user, organization, app, roles=MEMBER_ROLES),
-        )
-
-    organization, instance, context = await sync_to_async(setup)()
-
-    created = await token_schema.execute(
-        TOKEN_CREATE_INVITE,
-        variable_values={
-            "input": {
-                "organization": str(organization.pk),
-                "collaborations": [{"instance": "mikro", "collaboration": "12"}],
-            }
-        },
-        context_value=context,
-    )
-    assert not created.errors, created.errors
-    assert created.data["createInvite"]["collaborations"] == [
-        {"instance": str(instance.pk), "collaboration": "12", "roles": []}
-    ]
-
-    unknown = await token_schema.execute(
-        TOKEN_CREATE_INVITE,
-        variable_values={
-            "input": {
-                "organization": str(organization.pk),
-                "collaborations": [{"instance": "kabinet", "collaboration": "12"}],
-            }
-        },
-        context_value=context,
-    )
-    assert unknown.errors and "requirement key" in unknown.errors[0].message

@@ -1,23 +1,23 @@
-"""Granting collaborations of a service instance to people who are not members.
+"""Granting collaborations of an organization to people who are not members.
 
-A *collaboration* lives in a service (a mikro instance, say) and holds that
-service's objects; lok does not know what is in it. A *collaboration invite*
-(``Invite.shared_collaborations``) grants a few collaborations of an
-organization's service instances. Whoever accepts it gets a **scoped
-membership** (a guest): a ``Membership`` with no roles of its own and one
-``CollaborationGrant`` per collaboration. Their tokens then carry the
-collaborations beside the organization (``collabs``, see
-``authapp.token_generators``), and each service decides what they may do there.
+A *collaboration* (``models.Collaboration``) is lok's: a name and one key across
+all of the organization's services. Each service holds what was put in it there,
+under a row with the same key; lok does not know what is in it. A *collaboration
+invite* (``Invite.shared_collaborations``) grants a few collaborations of an
+organization. Whoever accepts it gets a **scoped membership** (a guest): a
+``Membership`` with no roles of its own and one ``CollaborationGrant`` per
+collaboration. Their tokens then carry the collaborations' keys beside the
+organization (``collabs``, see ``authapp.token_generators``), and each service
+decides what they may do there.
 
-A collaboration is unique by its service instance and its id there. An invite
-names it as an entry, with the roles that hold for the guest inside it::
+An invite names a collaboration by its key, with the roles that hold for the
+guest inside it::
 
-    {"instance": "7", "collaboration": "12", "roles": ["editor"]}
+    {"collaboration": "0b4e…", "roles": ["editor"]}
 
-``instance`` is the lok ``ServiceInstance`` id and must be an instance on a hub of
-the inviting organization. ``roles`` are identifiers of roles that exist in the
-organization; none means the guest may only view the collaboration. lok stores
-and forwards the collaboration id without interpreting it.
+The collaboration must be one of the inviting organization's. ``roles`` are
+identifiers of roles that exist in the organization; none means the guest may
+only view the collaboration.
 
 A grant reaches no further than whoever granted it (``granted_by``): it is live
 only while they are a full member of the organization, and its roles are cut to
@@ -37,7 +37,7 @@ from __future__ import annotations
 
 import contextvars
 import datetime
-import re
+import uuid
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
@@ -59,68 +59,52 @@ MAX_COLLABORATIONS_PER_INVITE = 50
 # guest of this many collaborations should be a member.
 MAX_GRANTS_PER_MEMBERSHIP = 200
 
-INSTANCE_RE = re.compile(r"^[0-9]{1,18}$")
-COLLABORATION_RE = re.compile(r"^[A-Za-z0-9_.-]{1,200}$")
 # As long as a Role.identifier may be.
 MAX_ROLE_LENGTH = 1000
 
 
 @dataclass(frozen=True)
 class CollaborationRef:
-    instance: str
     collaboration: str
     roles: tuple[str, ...] = ()
 
     @property
-    def key(self) -> tuple[str, str]:
-        return (self.instance, self.collaboration)
+    def key(self) -> str:
+        return self.collaboration
 
     def widened(self, roles: Iterable[str]) -> CollaborationRef:
         """The same collaboration with ``roles`` added to its own."""
         return CollaborationRef(
-            self.instance,
-            self.collaboration,
-            tuple(sorted(set(self.roles) | set(roles))),
+            self.collaboration, tuple(sorted(set(self.roles) | set(roles)))
         )
 
     def as_entry(self) -> dict:
         """The collaboration as an invite stores it."""
-        return {
-            "instance": self.instance,
-            "collaboration": self.collaboration,
-            "roles": list(self.roles),
-        }
+        return {"collaboration": self.collaboration, "roles": list(self.roles)}
 
     def __str__(self) -> str:
-        return f"{self.instance}/{self.collaboration}"
+        return self.collaboration
 
 
-_FORMAT = "{instance, collaboration, roles}, e.g. {instance: 7, collaboration: '12', roles: ['editor']}"
+_FORMAT = "{collaboration, roles}, e.g. {collaboration: '<key>', roles: ['editor']}"
 
 
 def parse_collaboration(raw: object) -> CollaborationRef:
-    """``{"instance": "7", "collaboration": "12", "roles": ["editor"]}`` → ``CollaborationRef``. Raises ``ValidationError``.
+    """``{"collaboration": "<key>", "roles": ["editor"]}`` → ``CollaborationRef``. Raises ``ValidationError``.
 
-    Only the form is checked here; whether the instance and the roles belong to
-    the organization is for ``normalize_collaborations`` and ``grant_collaborations``.
+    Only the form is checked here; whether the collaboration and the roles belong
+    to the organization is for ``normalize_collaborations`` and ``grant_collaborations``.
     """
     if not isinstance(raw, Mapping):
         raise ValidationError(f"A collaboration must be given as {_FORMAT}.")
-    instance = raw.get("instance")
     collaboration = raw.get("collaboration")
     roles = raw.get("roles") or []
-    instance = (
-        str(instance).strip()
-        if isinstance(instance, (str, int)) and not isinstance(instance, bool)
-        else ""
-    )
-    collaboration = collaboration.strip() if isinstance(collaboration, str) else ""
-    if not INSTANCE_RE.match(instance):
-        raise ValidationError(f"'{raw.get('instance')}' is not a service instance id.")
-    if not COLLABORATION_RE.match(collaboration):
+    try:
+        key = str(uuid.UUID(str(collaboration).strip()))
+    except ValueError:
         raise ValidationError(
-            f"'{raw.get('collaboration')}' is not a collaboration id. Use letters, digits, '_', '.' and '-' (at most 200)."
-        )
+            f"'{collaboration}' is not a collaboration key."
+        ) from None
     if isinstance(roles, str) or not isinstance(roles, Iterable):
         raise ValidationError(
             "A collaboration's roles must be a list of role identifiers."
@@ -134,36 +118,34 @@ def parse_collaboration(raw: object) -> CollaborationRef:
         ):
             raise ValidationError(f"'{role}' is not a role identifier.")
         cleaned.add(role.strip())
-    return CollaborationRef(
-        instance=str(int(instance)),
-        collaboration=collaboration,
-        roles=tuple(sorted(cleaned)),
-    )
+    return CollaborationRef(collaboration=key, roles=tuple(sorted(cleaned)))
 
 
-def _merge(raw: Iterable) -> dict[tuple[str, str], CollaborationRef]:
+def _merge(raw: Iterable) -> dict[str, CollaborationRef]:
     """Parse entries; the same collaboration given twice holds the roles of both."""
-    refs: dict[tuple[str, str], CollaborationRef] = {}
+    refs: dict[str, CollaborationRef] = {}
     for item in raw:
         ref = parse_collaboration(item)
         refs[ref.key] = refs[ref.key].widened(ref.roles) if ref.key in refs else ref
     return refs
 
 
-def _check_instances(instances: set[str], organization: models.Organization) -> None:
-    from fakts.models import ServiceInstance
-
-    known = {
-        str(pk)
-        for pk in ServiceInstance.objects.filter(
-            hub__organization=organization, pk__in=[int(i) for i in instances]
-        ).values_list("pk", flat=True)
+def _collaborations(
+    keys: set[str], organization: models.Organization
+) -> dict[str, models.Collaboration]:
+    """The organization's collaborations by key; a key of none of them is refused."""
+    found = {
+        str(collaboration.key): collaboration
+        for collaboration in models.Collaboration.objects.filter(
+            organization=organization, key__in=keys
+        )
     }
-    unknown = sorted(instances - known, key=int)
+    unknown = sorted(keys - set(found))
     if unknown:
         raise ValidationError(
-            f"Not a service instance of this organization: {', '.join(unknown)}."
+            f"Not a collaboration of this organization: {', '.join(unknown)}."
         )
+    return found
 
 
 def normalize_collaborations(
@@ -171,8 +153,7 @@ def normalize_collaborations(
 ) -> list[dict]:
     """Validate an invite's collaborations and return them in canonical form, deduplicated.
 
-    With ``organization`` each collaboration's instance must run on one of its
-    hubs (an organization can only grant what lives on its own hubs), and each
+    With ``organization`` each collaboration must be one of its own, and each
     role must be one of its roles.
     """
     if not raw:
@@ -185,7 +166,7 @@ def normalize_collaborations(
             f"An invite can grant at most {MAX_COLLABORATIONS_PER_INVITE} collaborations."
         )
     if organization is not None:
-        _check_instances({ref.instance for ref in refs.values()}, organization)
+        _collaborations(set(refs), organization)
         roles = {role for ref in refs.values() for role in ref.roles}
         known = set(
             models.Role.objects.filter(
@@ -245,59 +226,68 @@ def live_grants(membership: models.Membership) -> QuerySet:
     )
 
 
-def mesh_hub_ids(membership: models.Membership) -> set[int]:
-    """The hubs a guest's apps may reach on the mesh: those running an instance of a live grant that allows it.
+def _hubs_of(membership: models.Membership) -> set[int]:
+    from fakts.models import Hub
 
-    Empty for a guest whose grants allow no mesh (or hold no longer), and for a
-    full member, who has no grants: callers tell the two apart with ``is_scoped``.
-    """
     return set(
-        live_grants(membership)
-        .filter(mesh=True, instance__hub__isnull=False)
-        .values_list("instance__hub_id", flat=True)
+        Hub.objects.filter(organization_id=membership.organization_id).values_list(
+            "pk", flat=True
+        )
     )
 
 
-def live_collaborations(
-    membership: models.Membership, instances: Iterable[int]
-) -> dict[str, dict[str, list[str]]]:
-    """The collaborations a token lists (``collabs``), by service name and collaboration id, with the roles held there.
+def granted_hub_ids(membership: models.Membership) -> set[int]:
+    """The hubs a guest's collaborations reach: the organization's, while a grant is live.
 
-    ``{"mikro": {"12": ["editor"], "9": []}}``. Only the ``instances`` (pks) the token is
-    minted for are listed, each under the name its hub gives it -- the audience the service
-    verifies tokens for, and reads its own entry by. Expired grants are left out, not deleted,
-    and so are the grants of a granter who is no longer a full member of the organization (or
-    whose account is gone). The roles of each are cut to the roles its granter holds in the
-    organization now, so a guest never holds more than whoever let them in; a collaboration left
-    with none is still listed (view only). With nothing left the result is ``{}``, which grants
-    nothing.
+    A collaboration spans the organization's services, so a grant reaches every hub
+    of it. Empty for a guest whose grants hold no longer, and for a full member, who
+    has no grants: callers tell the two apart with ``is_scoped``.
     """
-    instance_ids = sorted({int(i) for i in instances})
-    if not instance_ids:
-        return {}
+    return _hubs_of(membership) if live_grants(membership).exists() else set()
+
+
+def mesh_hub_ids(membership: models.Membership) -> set[int]:
+    """The hubs a guest's apps may reach on the mesh: the organization's, once a live grant allows it.
+
+    An app still reaches only the hub it is a client of. Empty for a guest whose
+    grants allow no mesh (or hold no longer), and for a full member.
+    """
+    return (
+        _hubs_of(membership)
+        if live_grants(membership).filter(mesh=True).exists()
+        else set()
+    )
+
+
+def live_collaborations(membership: models.Membership) -> dict[str, list[str]]:
+    """The collaborations a token lists (``collabs``), by key, with the roles held in each.
+
+    ``{"0b4e…": ["editor"], "9f12…": []}``: the same on every service of the
+    organization, which each shows what it put in them. Expired grants are left out,
+    not deleted, and so are the grants of a granter who is no longer a full member of
+    the organization (or whose account is gone). The roles of each are cut to the roles
+    its granter holds in the organization now, so a guest never holds more than whoever
+    let them in; a collaboration left with none is still listed (view only). With
+    nothing left the result is ``{}``, which grants nothing.
+    """
     grants = list(
         live_grants(membership)
-        .filter(instance_id__in=instance_ids)
         .order_by("created_at", "id")
-        .values_list(
-            "instance__instance_id", "collaboration_id", "roles", "granted_by_id"
-        )[:MAX_GRANTS_PER_MEMBERSHIP]
+        .values_list("collaboration__key", "roles", "granted_by_id")[
+            :MAX_GRANTS_PER_MEMBERSHIP
+        ]
     )
     held: dict[int, set[str]] = {}
     for user_id, identifier in models.Membership.objects.filter(
-        organization_id=membership.organization_id, user_id__in={g[3] for g in grants}
+        organization_id=membership.organization_id, user_id__in={g[2] for g in grants}
     ).values_list("user_id", "roles__identifier"):
         held.setdefault(user_id, set())
         if identifier:
             held[user_id].add(identifier)
-    collaborations: dict[str, dict[str, list[str]]] = {}
-    for name, collaboration_id, roles, granted_by_id in sorted(
-        grants, key=lambda g: (str(g[0]), g[1])
-    ):
-        collaborations.setdefault(str(name), {})[collaboration_id] = sorted(
-            set(roles or []) & held.get(granted_by_id, set())
-        )
-    return collaborations
+    return {
+        str(key): sorted(set(roles or []) & held.get(granted_by_id, set()))
+        for key, roles, granted_by_id in sorted(grants, key=lambda g: str(g[0]))
+    }
 
 
 def grant_collaborations(
@@ -323,16 +313,15 @@ def grant_collaborations(
     refs = _merge(entries)
     if not refs:
         raise ValidationError("There is no collaboration to grant.")
-    # Checked again here, not only when the invite was made: an instance may have
-    # moved or gone since, and callers other than an invite pass entries too.
-    _check_instances({ref.instance for ref in refs.values()}, membership.organization)
+    # Checked again here, not only when the invite was made: a collaboration may
+    # have gone since, and callers other than an invite pass entries too.
+    collaborations = _collaborations(set(refs), membership.organization)
     changed = False
     existing = membership.collaboration_grants.count()
     for ref in refs.values():
         grant, created = models.CollaborationGrant.objects.get_or_create(
             membership=membership,
-            instance_id=int(ref.instance),
-            collaboration_id=ref.collaboration,
+            collaboration=collaborations[ref.collaboration],
             defaults={
                 "roles": list(ref.roles),
                 "granted_through": invite,
@@ -415,8 +404,8 @@ def _drop_membership_without_grants(
 
     Not when the grant goes because its membership, organization or user is
     being deleted: that delete takes the membership anyway, and deleting it
-    again from inside the cascade would run its side effects twice. A service
-    instance (or its hub) being deleted is the cascade that must still clean up.
+    again from inside the cascade would run its side effects twice. A
+    collaboration being deleted is the cascade that must still clean up.
     """
     if _upgrading.get() == instance.membership_id:
         return

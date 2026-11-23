@@ -567,6 +567,25 @@ class ManagementUsedAliasOrdering:
 # 500'd with a FieldError. Each type now gets its own filter over real columns.
 
 
+@strawberry_django.filter_type(karakter_models.Collaboration)
+class ManagementCollaborationFilter:
+    @strawberry_django.filter_field
+    def ids(self, value: list[strawberry.ID], prefix: str) -> Q:
+        return Q(**{f"{prefix}id__in": value})
+
+    @strawberry_django.filter_field
+    def keys(self, value: list[strawberry.ID], prefix: str) -> Q:
+        return Q(**{f"{prefix}key__in": [str(v) for v in value]})
+
+    @strawberry_django.filter_field
+    def search(self, value: str, prefix: str) -> Q:
+        return Q(**{f"{prefix}name__icontains": value})
+
+    @strawberry_django.filter_field
+    def organization(self, value: strawberry.ID, prefix: str) -> Q:
+        return Q(**{f"{prefix}organization__id": value})
+
+
 @strawberry_django.filter_type(karakter_models.Invite)
 class ManagementInviteFilter:
     @strawberry_django.filter_field

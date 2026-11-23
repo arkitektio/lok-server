@@ -13,16 +13,6 @@ from karakter import models
 from karakter.enums import MembershipRequestStatus
 
 
-@strawberry.input(description="One collaboration of a service instance.")
-class CollaborationRefInput:
-    instance: strawberry.ID = strawberry.field(
-        description="The service instance the collaboration lives in."
-    )
-    collaboration: strawberry.ID = strawberry.field(
-        description="The collaboration's id in that service."
-    )
-
-
 @strawberry_django.filter_type(models.User)
 class UserFilter:
     username: FilterLookup[str] | None | None
@@ -218,15 +208,12 @@ class InviteFilter:
         return Q(**{f"{prefix}status": value})
 
     @strawberry_django.filter_field(
-        description="Only the invites granting this collaboration."
+        description="Only the invites granting this collaboration (its key)."
     )
-    def collaboration(self, value: CollaborationRefInput, prefix: str) -> Q:
-        # Entries are stored as `CollaborationRef.as_entry()`: string instance and
-        # collaboration ids, plus the roles, which containment ignores.
-        entry = {
-            "instance": str(value.instance),
-            "collaboration": str(value.collaboration),
-        }
+    def collaboration(self, value: strawberry.ID, prefix: str) -> Q:
+        # Entries are stored as `CollaborationRef.as_entry()`: the collaboration's
+        # key, plus the roles, which containment ignores.
+        entry = {"collaboration": str(value)}
         return Q(**{f"{prefix}shared_collaborations__contains": [entry]})
 
     @strawberry_django.filter_field(

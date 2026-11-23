@@ -12,7 +12,7 @@ from api.management.device_code_authz import resolve_device_code_with_proof
 from fakts import logic
 from fakts import models as fakts_models
 from karakter import models as karakter_models
-from karakter.collaboration_grants import live_grants, mesh_hub_ids
+from karakter.collaboration_grants import granted_hub_ids, mesh_hub_ids
 
 logger = logging.getLogger(__name__)
 
@@ -81,7 +81,7 @@ def accept_device_code(
     if membership.is_scoped:
         # A guest logs apps in only where their collaborations live: anywhere
         # else the client would reach nothing it may use.
-        if not live_grants(membership).filter(instance__hub=hub).exists():
+        if hub.pk not in granted_hub_ids(membership):
             raise GraphQLError(DENIED)
         allow_mesh = hub.pk in mesh_hub_ids(membership)
 

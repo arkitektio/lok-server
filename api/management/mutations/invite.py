@@ -1,5 +1,4 @@
 from datetime import timedelta
-from typing import TYPE_CHECKING
 
 import kante
 import strawberry
@@ -13,20 +12,13 @@ from api.management.authz import DENIED, get_or_denied, is_owner, is_owner_or_ad
 from karakter import collaboration_grants, models
 from karakter.invites import InviteError, redeem_invite
 
-if TYPE_CHECKING:
-    from kante.context import Client as Principal
-
 
 @kante.input
 class SharedCollaborationInput:
-    """One collaboration of a service instance to grant, with the roles that hold inside it."""
+    """One collaboration of the organization to grant, with the roles that hold inside it."""
 
-    instance: strawberry.ID = strawberry.field(
-        description="The service instance the collaboration lives in (on a hub of the organization): its id, or, when called "
-        "from an app, the app's own requirement key for it (e.g. 'mikro'), resolved through the app's service mappings."
-    )
-    collaboration: str = strawberry.field(
-        description="The collaboration's id in that service."
+    collaboration: strawberry.ID = strawberry.field(
+        description="The collaboration's key (`createCollaboration`): one across all of the organization's services."
     )
     roles: list[str] = strawberry.field(
         default_factory=list,
@@ -34,55 +26,12 @@ class SharedCollaborationInput:
     )
 
 
-def _calling_client(info: Info | None) -> "Principal | None":
-    if info is None:
-        return None
-    try:
-        return info.context.request.client
-    except (ValueError, AttributeError):
-        return None
-
-
-def _resolve_instance(instance: str, client: "Principal | None") -> str:
-    """An instance id as given, or the calling app's requirement key for one, as the id it maps to.
-
-    An app knows its services by the keys of its manifest (``mikro``), not by lok
-    ids. The key resolves only through the caller's own ``ServiceInstanceMapping``s,
-    so it names nothing the app was not configured with; whether that instance
-    belongs to the organization is still checked by ``normalize_collaborations``.
-    """
-    instance = instance.strip()
-    if instance.isdigit():
-        return instance
-    if client is None:
-        raise GraphQLError(f"'{instance}' is not a service instance id.")
-    from fakts.models import ServiceInstanceMapping
-
-    instance_id = (
-        ServiceInstanceMapping.objects.filter(
-            client__client_id=client.client_id, key=instance
-        )
-        .values_list("instance_id", flat=True)
-        .first()
-    )
-    if instance_id is None:
-        raise GraphQLError(
-            f"'{instance}' is neither a service instance id nor a requirement key of this app."
-        )
-    return str(instance_id)
-
-
 def collaboration_entries(
     collaborations: list[SharedCollaborationInput], info: Info | None = None
 ) -> list[dict]:
-    """The input as the entries ``karakter.collaboration_grants`` validates, with app requirement keys resolved to instance ids."""
-    client = _calling_client(info)
+    """The input as the entries ``karakter.collaboration_grants`` validates."""
     return [
-        {
-            "instance": _resolve_instance(str(s.instance), client),
-            "collaboration": s.collaboration,
-            "roles": list(s.roles or []),
-        }
+        {"collaboration": str(s.collaboration), "roles": list(s.roles or [])}
         for s in collaborations
     ]
 
@@ -99,7 +48,7 @@ class CreateInviteInput:
     )
     collaborations: list[SharedCollaborationInput] | None = strawberry.field(
         default=None,
-        description="Grant only these collaborations of the organization's service instances, each with the roles that hold "
+        description="Grant only these collaborations of the organization, each with the roles that hold "
         "inside it, instead of making the holder a member. Whoever accepts becomes a guest that reaches just these.",
     )
     max_uses: int | None = strawberry.field(
@@ -109,11 +58,11 @@ class CreateInviteInput:
     allow_mesh: bool = strawberry.field(
         default=True,
         description="For a collaboration invite: whether the guests' apps may join the organization's mesh. They then reach "
-        "only the hubs the granted collaborations run on, nothing else of the mesh.",
+        "only the organization's hubs, nothing else of the mesh.",
     )
 
 
-def _may_share(user: models.User, organization: models.Organization) -> bool:
+def may_share(user: models.User, organization: models.Organization) -> bool:
     """Any full member with a role other than `guest` may grant collaborations of the organization.
 
     They can already reach all of it, and a guest's roles in a collaboration are
@@ -151,7 +100,7 @@ def create_invite(info: Info, input: CreateInviteInput) -> types.ManagementInvit
 
     shared_collaborations = None
     if input.collaborations is not None:
-        if not _may_share(user, organization):
+        if not may_share(user, organization):
             raise GraphQLError(
                 "Only members of the organization can grant its collaborations."
             )

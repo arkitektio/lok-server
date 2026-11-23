@@ -952,14 +952,14 @@ class ManagementNotificationResult:
 
 
 @strawberry.type(
-    description="""One collaboration a collaboration invite grants: a collaboration of a service instance, with the roles that hold inside it."""
+    description="""One collaboration a collaboration invite grants, by its key, with the roles that hold inside it."""
 )
 class ManagementSharedCollaboration:
-    instance: strawberry.ID = strawberry.field(
-        description="The service instance the collaboration lives in."
+    collaboration: strawberry.ID = strawberry.field(
+        description="The collaboration's key: what every service of the organization names it by."
     )
-    collaboration: str = strawberry.field(
-        description="The collaboration's id in that service."
+    name: str | None = strawberry.field(
+        description="The collaboration's name; null once it is deleted."
     )
     roles: list[str] = strawberry.field(
         description="Identifiers of the organization's roles that hold inside the collaboration. Empty: view only."
@@ -971,10 +971,18 @@ class ManagementSharedCollaboration:
     ) -> list["ManagementSharedCollaboration"] | None:
         if entries is None:
             return None
+        names = dict(
+            models.Collaboration.objects.filter(
+                key__in=[e["collaboration"] for e in entries]
+            ).values_list("key", "name")
+        )
         return [
             cls(
-                instance=strawberry.ID(str(e["instance"])),
-                collaboration=e["collaboration"],
+                collaboration=strawberry.ID(str(e["collaboration"])),
+                name=next(
+                    (n for k, n in names.items() if str(k) == e["collaboration"]),
+                    None,
+                ),
                 roles=list(e.get("roles") or []),
             )
             for e in entries
@@ -1006,7 +1014,7 @@ class ManagementInvite:
     )
     uses: int = strawberry.field(description="How many people accepted it so far.")
     mesh: bool = strawberry.field(
-        description="For a collaboration invite: whether its guests' apps may join the organization's mesh, reaching only the hubs the granted collaborations run on."
+        description="For a collaboration invite: whether its guests' apps may join the organization's mesh, reaching only its hubs."
     )
     collaboration_grants: list["ManagementCollaborationGrant"] = (
         strawberry_django.field(
@@ -1093,21 +1101,49 @@ def _visible_invite(info: Info, invite_id: object) -> ManagementInvite | None:
 
 
 @strawberry_django.type(
+    models.Collaboration,
+    filters=filters.ManagementCollaborationFilter,
+    pagination=True,
+    description="""What a guest of an organization is let in to: one key across all of its services, each of which holds what was put in it there. lok names it and grants it; it never sees what is in it.""",
+)
+class ManagementCollaboration:
+    id: strawberry.ID
+    name: str
+    description: str | None
+    created_at: datetime.datetime
+    created_by: ManagementUser | None
+    organization: ManagementOrganization
+    grants: list["ManagementCollaborationGrant"] = strawberry_django.field(
+        description="Who it is granted to. Only for the people who may see the grants."
+    )
+
+    @strawberry_django.field(
+        description="The collaboration's key: what a guest's token lists, and what every service names it by (shareWorkflow, addToCollaboration, inCollaboration)."
+    )
+    def key(self) -> strawberry.ID:
+        return strawberry.ID(str(self.key))  # type: ignore[attr-defined]
+
+    @classmethod
+    def get_queryset(
+        cls, queryset: QuerySet[models.Collaboration], info: Info, **kwargs: Any
+    ) -> QuerySet[models.Collaboration]:
+        # Full members see their organization's collaborations; a guest those granted to them.
+        user = info.context.request.user
+        return queryset.filter(
+            full_member_q("organization", user) | Q(grants__membership__user=user)
+        ).distinct()
+
+
+@strawberry_django.type(
     models.CollaborationGrant,
     pagination=True,
-    description="""One collaboration of a service instance granted to someone who is not a full member of the organization (a guest). The collaboration is named by its instance and its id there; `roles` are the organization's roles that hold for the guest inside it (none: view only), cut to the granter's own roles whenever a token is minted.""",
+    description="""One collaboration of an organization granted to someone who is not a full member of it (a guest). `roles` are the organization's roles that hold for the guest inside it (none: view only), cut to the granter's own roles whenever a token is minted.""",
 )
 class ManagementCollaborationGrant:
     id: strawberry.ID
     membership: ManagementMembership
-    instance: "ManagementServiceInstance" = strawberry.field(
-        description="The service instance the collaboration lives in."
-    )
-    instance_id: strawberry.ID = strawberry.field(
-        description="The id of the service instance the collaboration lives in, as a guest's token names it."
-    )
-    collaboration_id: str = strawberry.field(
-        description="The collaboration's id in its service."
+    collaboration: ManagementCollaboration = strawberry.field(
+        description="The collaboration granted."
     )
     roles: list[str] = strawberry.field(
         description="Identifiers of the organization's roles that hold inside the collaboration. Empty: view only."
@@ -1123,7 +1159,7 @@ class ManagementCollaborationGrant:
     created_at: datetime.datetime
     expires_at: datetime.datetime | None
     mesh: bool = strawberry.field(
-        description="Whether the guest's apps may join the organization's mesh to reach the hub the collaboration's instance runs on."
+        description="Whether the guest's apps may join the organization's mesh to reach its hubs."
     )
 
     @classmethod
@@ -1533,18 +1569,14 @@ class ManagementHub:
         # collaborations run on, to approve an app into one: of a hub they read only what
         # it is, since its instances, clients and mandates are gated on full membership by
         # their own types.
-        from karakter.collaboration_grants import live_grants
+        from karakter.collaboration_grants import granted_hub_ids
 
         user = info.context.request.user
-        guest_hubs = set()
+        guest_hubs: set[int] = set()
         for membership in models.Membership.objects.filter(
             user=user, collaboration_grants__isnull=False
         ).distinct():
-            guest_hubs |= set(
-                live_grants(membership)
-                .filter(instance__hub__isnull=False)
-                .values_list("instance__hub_id", flat=True)
-            )
+            guest_hubs |= granted_hub_ids(membership)
         return queryset.filter(
             full_member_q("organization", user) | Q(pk__in=guest_hubs)
         ).distinct()

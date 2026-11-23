@@ -1,7 +1,8 @@
 """A guest (a member only granted some collaborations) sees on the main schema what
-the management schema shows them: themselves, their own membership and the hubs
-their collaborations run on. Not the organization's member directory, devices or
-clients — a guest's app token used to list all of those."""
+the management schema shows them: themselves, their own membership and the
+organization's hubs (a collaboration spans all of its services). Not the
+organization's member directory, devices or clients — a guest's app token used to
+list all of those."""
 
 from typing import Any
 
@@ -28,9 +29,9 @@ query {
 def _setup(guest: bool) -> tuple[HttpContext, dict[str, str]]:
     organization = factories.make_organization()
     factories.make_membership(user=organization.owner, organization=organization)
-    granted_hub = factories.make_hub(organization=organization)
+    hub = factories.make_hub(organization=organization)
     other_hub = factories.make_hub(organization=organization)
-    instance = factories.make_service_instance(hub=granted_hub)
+    foreign_hub = factories.make_hub()  # another organization's
     colleague = factories.make_membership(organization=organization)
     colleague_client = factories.make_client(membership=colleague)
 
@@ -38,8 +39,9 @@ def _setup(guest: bool) -> tuple[HttpContext, dict[str, str]]:
     if guest:
         models.CollaborationGrant.objects.create(
             membership=caller,
-            instance=instance,
-            collaboration_id="12",
+            collaboration=models.Collaboration.objects.create(
+                organization=organization, name="Plates"
+            ),
             granted_by=organization.owner,
         )
     context = build_auth_context(
@@ -52,8 +54,9 @@ def _setup(guest: bool) -> tuple[HttpContext, dict[str, str]]:
     return context, {
         "self": str(caller.user.id),
         "colleague": str(colleague.user.id),
-        "granted_hub": str(granted_hub.id),
+        "hub": str(hub.id),
         "other_hub": str(other_hub.id),
+        "foreign_hub": str(foreign_hub.id),
         "colleague_client": str(colleague_client.id),
     }
 
@@ -68,14 +71,16 @@ async def _run(guest: bool) -> tuple[dict[str, Any], dict[str, str]]:
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_a_guest_sees_themselves_and_their_hubs_only() -> None:
+async def test_a_guest_sees_themselves_and_the_organizations_hubs_only() -> None:
     data, ids = await _run(guest=True)
 
     assert [u["id"] for u in data["users"]] == [ids["self"]]
     (org,) = data["organizations"]
     assert [u["id"] for u in org["users"]] == [ids["self"]]
     assert [m["user"]["id"] for m in org["memberships"]] == [ids["self"]]
-    assert [h["id"] for h in data["hubs"]] == [ids["granted_hub"]]
+    assert sorted(h["id"] for h in data["hubs"]) == sorted(
+        [ids["hub"], ids["other_hub"]]
+    )
     assert data["devices"] == []
     assert data["clients"] == []
 
@@ -89,5 +94,6 @@ async def test_a_full_member_still_sees_the_organization() -> None:
     assert {ids["self"], ids["colleague"]} <= user_ids
     (org,) = data["organizations"]
     assert ids["colleague"] in {m["user"]["id"] for m in org["memberships"]}
-    assert {ids["granted_hub"], ids["other_hub"]} <= {h["id"] for h in data["hubs"]}
+    assert {ids["hub"], ids["other_hub"]} <= {h["id"] for h in data["hubs"]}
+    assert ids["foreign_hub"] not in {h["id"] for h in data["hubs"]}
     assert ids["colleague_client"] in {c["id"] for c in data["clients"]}

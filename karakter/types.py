@@ -571,14 +571,11 @@ class ComChannel:
 
 
 @strawberry.type(
-    description="""One collaboration a collaboration invite grants: a collaboration of a service instance, with the roles that hold inside it."""
+    description="""One collaboration a collaboration invite grants, by its key, with the roles that hold inside it."""
 )
 class SharedCollaboration:
-    instance: strawberry.ID = strawberry.field(
-        description="The service instance the collaboration lives in."
-    )
-    collaboration: str = strawberry.field(
-        description="The collaboration's id in that service."
+    collaboration: strawberry.ID = strawberry.field(
+        description="The collaboration's key: what every service of the organization names it by."
     )
     roles: list[str] = strawberry.field(
         description="Identifiers of the organization's roles that hold inside the collaboration. Empty: view only."
@@ -614,7 +611,7 @@ class Invite:
     )
     uses: int = strawberry.field(description="How many people accepted it so far.")
     mesh: bool = strawberry.field(
-        description="For a collaboration invite: whether its guests' apps may join the organization's mesh, reaching only the hubs the granted collaborations run on."
+        description="For a collaboration invite: whether its guests' apps may join the organization's mesh, reaching only its hubs."
     )
 
     @strawberry_django.field(
@@ -625,8 +622,7 @@ class Invite:
             return None
         return [
             SharedCollaboration(
-                instance=strawberry.ID(str(e["instance"])),
-                collaboration=e["collaboration"],
+                collaboration=strawberry.ID(str(e["collaboration"])),
                 roles=list(e.get("roles") or []),
             )
             for e in self.shared_collaborations
