@@ -1,4 +1,5 @@
 import datetime
+import uuid
 
 import strawberry
 import strawberry_django
@@ -11,6 +12,17 @@ from strawberry_django.filters import FilterLookup
 
 from karakter import models
 from karakter.enums import MembershipRequestStatus
+
+
+def _keys(values: list[strawberry.ID]) -> list[uuid.UUID]:
+    """The collaboration keys among ``values``; one that is no key names nothing."""
+    keys = []
+    for value in values:
+        try:
+            keys.append(uuid.UUID(str(value)))
+        except ValueError:
+            continue
+    return keys
 
 
 @strawberry_django.filter_type(models.User)
@@ -191,6 +203,23 @@ class SystemMessageFilter:
         return Q(**{f"{prefix}title__icontains": value}) | Q(
             **{f"{prefix}message__icontains": value}
         )
+
+
+@strawberry_django.filter_type(models.Collaboration)
+class CollaborationFilter:
+    @strawberry_django.filter_field
+    def ids(self, value: list[strawberry.ID], prefix: str) -> Q:
+        return Q(**{f"{prefix}id__in": value})
+
+    @strawberry_django.filter_field(
+        description="Only these collaborations, by their key."
+    )
+    def keys(self, value: list[strawberry.ID], prefix: str) -> Q:
+        return Q(**{f"{prefix}key__in": _keys(value)})
+
+    @strawberry_django.filter_field
+    def search(self, value: str, prefix: str) -> Q:
+        return Q(**{f"{prefix}name__icontains": value})
 
 
 @strawberry_django.filter_type(models.Invite)

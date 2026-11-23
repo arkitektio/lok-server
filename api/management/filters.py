@@ -1,3 +1,5 @@
+import uuid
+
 import strawberry
 import strawberry_django
 from django.db.models import Exists, F, OuterRef, Q, QuerySet
@@ -12,6 +14,17 @@ from karakter import models as karakter_models
 class ManagementKommunityPartnerOrdering:
     id: strawberry.auto
     name: strawberry.auto
+
+
+def _keys(values: list[strawberry.ID]) -> list[uuid.UUID]:
+    """The collaboration keys among ``values``; one that is no key names nothing."""
+    keys = []
+    for value in values:
+        try:
+            keys.append(uuid.UUID(str(value)))
+        except ValueError:
+            continue
+    return keys
 
 
 @strawberry_django.filter_type(fakts_models.KommunityPartner)
@@ -575,7 +588,7 @@ class ManagementCollaborationFilter:
 
     @strawberry_django.filter_field
     def keys(self, value: list[strawberry.ID], prefix: str) -> Q:
-        return Q(**{f"{prefix}key__in": [str(v) for v in value]})
+        return Q(**{f"{prefix}key__in": _keys(value)})
 
     @strawberry_django.filter_field
     def search(self, value: str, prefix: str) -> Q:

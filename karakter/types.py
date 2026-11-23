@@ -679,6 +679,42 @@ class Invite:
 
 
 @strawberry_django.type(
+    models.Collaboration,
+    filters=filters.CollaborationFilter,
+    pagination=True,
+    description="""What a guest of the organization is let in to: one key across all of its services, each of which holds what was put in it there (`addToCollaboration`, `shareWorkflow` with the key). lok names it and grants it (`createInvite(collaborations:)`); it never sees what is in it.""",
+)
+class Collaboration:
+    id: strawberry.ID
+    name: str
+    description: str | None
+    created_at: datetime.datetime
+    created_by: User | None
+
+    @strawberry_django.field(
+        description="The key every service of the organization names the collaboration by."
+    )
+    def key(self) -> strawberry.ID:
+        return strawberry.ID(str(self.key))  # type: ignore[attr-defined]
+
+    @classmethod
+    def get_queryset(
+        cls, queryset: QuerySet[models.Collaboration], info: Info, **kwargs: Any
+    ) -> QuerySet[models.Collaboration]:
+        """The active organization's collaborations: all of them for a full member, a guest's own for a guest."""
+        user = get_user(info)
+        organization = get_organization(info)
+        return queryset.filter(
+            Q(organization=organization),
+            Q(
+                organization__memberships__user=user,
+                organization__memberships__collaboration_grants__isnull=True,
+            )
+            | Q(grants__membership__user=user),
+        ).distinct()
+
+
+@strawberry_django.type(
     models.MembershipRequest,
     filters=filters.MembershipRequestFilter,
     ordering=filters.MembershipRequestOrdering,

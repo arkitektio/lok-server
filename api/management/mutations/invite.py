@@ -10,6 +10,7 @@ from kante import Info
 from api.management import types
 from api.management.authz import DENIED, get_or_denied, is_owner, is_owner_or_admin
 from karakter import collaboration_grants, models
+from karakter.collaborations import may_share
 from karakter.invites import InviteError, redeem_invite
 
 
@@ -60,23 +61,6 @@ class CreateInviteInput:
         description="For a collaboration invite: whether the guests' apps may join the organization's mesh. They then reach "
         "only the organization's hubs, nothing else of the mesh.",
     )
-
-
-def may_share(user: models.User, organization: models.Organization) -> bool:
-    """Any full member with a role other than `guest` may grant collaborations of the organization.
-
-    They can already reach all of it, and a guest's roles in a collaboration are
-    cut to the granter's own when a token is minted, so granting a part gives
-    nothing they could not do themselves.
-    """
-    if is_owner(user, organization):
-        return True
-    membership = organization.memberships.filter(
-        user=user, collaboration_grants__isnull=True
-    ).first()
-    if membership is None:
-        return False
-    return membership.roles.exclude(identifier="guest").exists()
 
 
 def create_invite(info: Info, input: CreateInviteInput) -> types.ManagementInvite:

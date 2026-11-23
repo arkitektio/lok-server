@@ -11,10 +11,10 @@ from api.management.authz import assert_owner
 from api.management.mutations.invite import (
     SharedCollaborationInput,
     collaboration_entries,
-    may_share,
 )
 from karakter import collaboration_grants, models, types
 from karakter.authz import get_or_denied, get_user
+from karakter.collaborations import may_share
 from karakter.invites import InviteError, redeem_invite
 
 

@@ -1,12 +1,12 @@
 import kante
 import strawberry
+from django.core.exceptions import PermissionDenied, ValidationError
 from graphql import GraphQLError
 from kante.types import Info
 
 from api.management import types
-from api.management.authz import DENIED, get_or_denied, is_owner_or_admin
-from api.management.mutations.invite import may_share
-from karakter import models
+from api.management.authz import DENIED, get_or_denied
+from karakter import collaborations, models
 
 
 @kante.input
@@ -28,6 +28,12 @@ class DeleteCollaborationInput:
     id: strawberry.ID
 
 
+def _denied_as_graphql(error: Exception) -> GraphQLError:
+    if isinstance(error, ValidationError):
+        return GraphQLError(" ".join(error.messages))
+    return GraphQLError(str(error) or DENIED)
+
+
 def create_collaboration(
     info: Info, input: CreateCollaborationInput
 ) -> types.ManagementCollaboration:
@@ -38,51 +44,35 @@ def create_collaboration(
     its key), and nobody sees it until it is granted (`createInvite(collaborations:)`).
     """
     organization = get_or_denied(models.Organization.objects, id=input.organization)
-    user = info.context.request.user
-    if not may_share(user, organization):
-        raise GraphQLError(
-            "Only members of the organization can make its collaborations."
+    try:
+        return collaborations.make(  # type: ignore[return-value]
+            info.context.request.user, organization, input.name, input.description
         )
-    name = input.name.strip()
-    if not name:
-        raise GraphQLError("A collaboration needs a name.")
-    return models.Collaboration.objects.create(  # type: ignore[return-value]
-        organization=organization,
-        name=name[:200],
-        description=input.description,
-        created_by=user,
-    )
+    except (PermissionDenied, ValidationError) as e:
+        raise _denied_as_graphql(e) from e
 
 
-def _changeable(info: Info, id: strawberry.ID) -> models.Collaboration:
-    collaboration = get_or_denied(
+def _found(id: strawberry.ID) -> models.Collaboration:
+    return get_or_denied(
         models.Collaboration.objects.select_related("organization"), id=id
     )
-    user = info.context.request.user
-    # Its maker only while they may still make one: not once they left or are a guest.
-    organization = collaboration.organization
-    if not (
-        (collaboration.created_by_id == user.id and may_share(user, organization))
-        or is_owner_or_admin(user, organization)
-    ):
-        raise GraphQLError(DENIED)
-    return collaboration
 
 
 def update_collaboration(
     info: Info, input: UpdateCollaborationInput
 ) -> types.ManagementCollaboration:
     """Rename or describe a collaboration. Its maker, and the organization's owner and admins, may."""
-    collaboration = _changeable(info, input.id)
-    if input.name is not None:
-        name = input.name.strip()
-        if not name:
-            raise GraphQLError("A collaboration needs a name.")
-        collaboration.name = name[:200]
-    if input.description is not None:
-        collaboration.description = input.description
-    collaboration.save(update_fields=["name", "description"])
-    return collaboration  # type: ignore[return-value]
+    try:
+        return collaborations.change(  # type: ignore[return-value]
+            info.context.request.user,
+            _found(input.id),
+            name=input.name,
+            description=input.description,
+        )
+    except PermissionDenied as e:
+        raise GraphQLError(DENIED) from e
+    except ValidationError as e:
+        raise _denied_as_graphql(e) from e
 
 
 def delete_collaboration(info: Info, input: DeleteCollaborationInput) -> strawberry.ID:
@@ -91,9 +81,10 @@ def delete_collaboration(info: Info, input: DeleteCollaborationInput) -> strawbe
     What was put in it stays in each service, under a key nobody is granted any more.
     Its maker, and the organization's owner and admins, may.
     """
-    collaboration = _changeable(info, input.id)
+    collaboration = _found(input.id)
     collaboration_id = collaboration.pk
-    for grant in list(collaboration.grants.all()):
-        grant.delete()  # one by one: a guest's last grant takes their membership
-    collaboration.delete()
+    try:
+        collaborations.delete(info.context.request.user, collaboration)
+    except PermissionDenied as e:
+        raise GraphQLError(DENIED) from e
     return strawberry.ID(str(collaboration_id))

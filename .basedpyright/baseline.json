@@ -162,40 +162,6 @@
                 }
             }
         ],
-        "./api/management/mutations/collaboration.py": [
-            {
-                "code": "reportArgumentType",
-                "range": {
-                    "startColumn": 21,
-                    "endColumn": 25,
-                    "lineCount": 1
-                }
-            },
-            {
-                "code": "reportAttributeAccessIssue",
-                "range": {
-                    "startColumn": 23,
-                    "endColumn": 36,
-                    "lineCount": 1
-                }
-            },
-            {
-                "code": "reportArgumentType",
-                "range": {
-                    "startColumn": 62,
-                    "endColumn": 66,
-                    "lineCount": 1
-                }
-            },
-            {
-                "code": "reportAttributeAccessIssue",
-                "range": {
-                    "startColumn": 36,
-                    "endColumn": 42,
-                    "lineCount": 1
-                }
-            }
-        ],
         "./api/management/mutations/collaboration_grant.py": [
             {
                 "code": "reportAttributeAccessIssue",
@@ -369,22 +335,6 @@
             }
         ],
         "./api/management/mutations/invite.py": [
-            {
-                "code": "reportArgumentType",
-                "range": {
-                    "startColumn": 16,
-                    "endColumn": 20,
-                    "lineCount": 1
-                }
-            },
-            {
-                "code": "reportArgumentType",
-                "range": {
-                    "startColumn": 25,
-                    "endColumn": 29,
-                    "lineCount": 1
-                }
-            },
             {
                 "code": "reportReturnType",
                 "range": {
@@ -5094,6 +5044,24 @@
                 }
             }
         ],
+        "./karakter/collaborations.py": [
+            {
+                "code": "reportAttributeAccessIssue",
+                "range": {
+                    "startColumn": 22,
+                    "endColumn": 35,
+                    "lineCount": 1
+                }
+            },
+            {
+                "code": "reportAttributeAccessIssue",
+                "range": {
+                    "startColumn": 36,
+                    "endColumn": 42,
+                    "lineCount": 1
+                }
+            }
+        ],
         "./karakter/datalayer.py": [
             {
                 "code": "reportReturnType",
@@ -5154,6 +5122,32 @@
                 }
             }
         ],
+        "./karakter/graphql/mutations/collaboration.py": [
+            {
+                "code": "reportArgumentType",
+                "range": {
+                    "startColumn": 12,
+                    "endColumn": 26,
+                    "lineCount": 1
+                }
+            },
+            {
+                "code": "reportArgumentType",
+                "range": {
+                    "startColumn": 12,
+                    "endColumn": 26,
+                    "lineCount": 1
+                }
+            },
+            {
+                "code": "reportArgumentType",
+                "range": {
+                    "startColumn": 30,
+                    "endColumn": 44,
+                    "lineCount": 1
+                }
+            }
+        ],
         "./karakter/graphql/mutations/group_profile.py": [
             {
                 "code": "reportReturnType",
@@ -5181,6 +5175,14 @@
             }
         ],
         "./karakter/graphql/mutations/invite.py": [
+            {
+                "code": "reportArgumentType",
+                "range": {
+                    "startColumn": 49,
+                    "endColumn": 63,
+                    "lineCount": 1
+                }
+            },
             {
                 "code": "reportArgumentType",
                 "range": {
@@ -6751,6 +6753,54 @@
                     "startColumn": 20,
                     "endColumn": 5,
                     "lineCount": 4
+                }
+            },
+            {
+                "code": "reportArgumentType",
+                "range": {
+                    "startColumn": 19,
+                    "endColumn": 40,
+                    "lineCount": 1
+                }
+            },
+            {
+                "code": "reportCallIssue",
+                "range": {
+                    "startColumn": 27,
+                    "endColumn": 5,
+                    "lineCount": 4
+                }
+            },
+            {
+                "code": "reportArgumentType",
+                "range": {
+                    "startColumn": 19,
+                    "endColumn": 40,
+                    "lineCount": 1
+                }
+            },
+            {
+                "code": "reportCallIssue",
+                "range": {
+                    "startColumn": 27,
+                    "endColumn": 5,
+                    "lineCount": 4
+                }
+            },
+            {
+                "code": "reportArgumentType",
+                "range": {
+                    "startColumn": 19,
+                    "endColumn": 40,
+                    "lineCount": 1
+                }
+            },
+            {
+                "code": "reportCallIssue",
+                "range": {
+                    "startColumn": 27,
+                    "endColumn": 5,
+                    "lineCount": 5
                 }
             },
             {
@@ -12806,6 +12856,16 @@
                 "range": {
                     "startColumn": 11,
                     "endColumn": 22,
+                    "lineCount": 1
+                }
+            }
+        ],
+        "./tests/test_main_schema_collaborations.py": [
+            {
+                "code": "reportAttributeAccessIssue",
+                "range": {
+                    "startColumn": 25,
+                    "endColumn": 40,
                     "lineCount": 1
                 }
             }

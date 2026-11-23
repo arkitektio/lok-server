@@ -17,7 +17,12 @@ from fakts.graphql import queries as fakts_queries
 from fakts.scalars import scalar_map as fakts_scalar_map
 from karakter import models as karakter_models
 from karakter import types as karakter_types
-from karakter.authz import DENIED, get_organization, get_scoped_or_denied
+from karakter.authz import (
+    DENIED,
+    get_or_denied,
+    get_organization,
+    get_scoped_or_denied,
+)
 from karakter.datalayer import DatalayerExtension
 from karakter.graphql import mutations as karakter_mutations
 from karakter.graphql import queries as karakter_queries
@@ -84,6 +89,10 @@ class Query:
     )
     invites: list[karakter_types.Invite] = strawberry_django.field(
         extensions=_needs(READ)
+    )
+    collaborations: list[karakter_types.Collaboration] = strawberry_django.field(
+        extensions=_needs(READ),
+        description="The active organization's collaborations (a guest: theirs).",
     )
     membership_requests: list[karakter_types.MembershipRequest] = (
         strawberry_django.field(
@@ -152,6 +161,23 @@ class Query:
     @kante.django_field(extensions=_needs(READ))
     def hallo(self, info: Info) -> str:
         return "hallo"
+
+    @kante.django_field(extensions=_needs(READ))
+    def collaboration(
+        self,
+        info: Info,
+        id: strawberry.ID | None = None,
+        key: strawberry.ID | None = None,
+    ) -> karakter_types.Collaboration:
+        """One collaboration of the active organization, by its id or its key."""
+        if (id is None) == (key is None):
+            raise GraphQLError("Give either the id or the key of a collaboration.")
+        visible = karakter_types.Collaboration.get_queryset(
+            karakter_models.Collaboration.objects.all(), info
+        )
+        if id is not None:
+            return get_or_denied(visible, id=id)  # type: ignore[return-value]
+        return get_or_denied(visible, key=str(key))  # type: ignore[return-value]
 
     # NOTE on the single-object roots below: strawberry-django only applies a
     # type's `get_queryset` to resolvers that return a *QuerySet*. These return
@@ -331,6 +357,20 @@ class Mutation:
     create_invite = strawberry_django.mutation(
         extensions=_needs(ORGANIZATIONS),
         resolver=karakter_mutations.create_invite,
+    )
+
+    create_collaboration = strawberry_django.mutation(
+        extensions=_needs(ORGANIZATIONS),
+        resolver=karakter_mutations.create_collaboration,
+    )
+    update_collaboration = strawberry_django.mutation(
+        extensions=_needs(ORGANIZATIONS),
+        resolver=karakter_mutations.update_collaboration,
+    )
+    delete_collaboration = strawberry_django.mutation(
+        extensions=_needs(ORGANIZATIONS),
+        resolver=karakter_mutations.delete_collaboration,
+        description="Delete a collaboration, and every grant of it.",
     )
 
     accept_invite = strawberry_django.mutation(
